@@ -3,7 +3,7 @@ cache/
 runs/
 logs/
 tmp/
-data/
+/data/
 vendor/
 mopd_train/
 mopd_infer/
