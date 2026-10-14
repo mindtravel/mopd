@@ -1,0 +1,36 @@
+{
+  "student": "/ssd/lzx/mopd/models/Qwen3-4B-Base",
+  "student_adapter": "/ssd/lzx/mopd/runs/20261014-dual-tulu3-from-base-vllm/checkpoint-0064",
+  "student_device": "cuda:0",
+  "domains": {
+    "instruction": {
+      "teacher": "/ssd/lzx/mopd/models/Qwen3-4B-Instruct-2507",
+      "device": "cuda:4",
+      "train_file": "/ssd/lzx/mopd/data/instruction/tulu3_if/continuation-after-20261014-dual64.jsonl",
+      "holdout_files": [
+        "/ssd/lzx/mopd/data/instruction/ifeval.jsonl",
+        "/ssd/lzx/mopd/data/instruction/dev.jsonl",
+        "/ssd/lzx/mopd/data/instruction/tulu3_if/dev.jsonl"
+      ],
+      "count": 32,
+      "weight": 1.0
+    }
+  },
+  "seed": 20261015,
+  "steps": 64,
+  "max_new_tokens": 8192,
+  "generation_batch_size": 8,
+  "micro_batch_size": 2,
+  "lr": 2e-05,
+  "save_every": 16,
+  "output": "/ssd/lzx/mopd/runs/20261014-tulu3-if-warmstart64-plain-vllm",
+  "rollout_devices": [
+    "cuda:6",
+    "cuda:7"
+  ],
+  "rollout_backend": "vllm",
+  "vllm_memory_utilization": 0.8,
+  "student_prompt_format": "plain_qa_v1",
+  "student_adapter_prompt_format": "plain_qa_v1",
+  "student_adapter_prompt_format_evidence": "scripts/diagnostics/verify_student_prefix_paired.py: step-1 micro-batch replay matches recorded sampled_log_ratio to 1e-7 (math 8/8, instruction 8/8)"
+}

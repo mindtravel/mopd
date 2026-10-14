@@ -1,0 +1,14 @@
+{
+  "teacher": "/ssd/lzx/mopd/models/Qwen3-4B",
+  "student": "/ssd/lzx/mopd/models/Qwen3-4B-Base",
+  "teacher_device": "cuda:5",
+  "student_device": "cuda:4",
+  "steps": 64,
+  "accumulation": 4,
+  "max_new_tokens": 512,
+  "seed": 20261015,
+  "lr": 0.00005,
+  "save_every": 16,
+  "train_file": "/ssd/lzx/mopd/data/synthetic_hard_train.jsonl",
+  "output": "/ssd/lzx/mopd/runs/20261015-synthetic-hard-opd"
+}

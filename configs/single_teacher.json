@@ -1,0 +1,11 @@
+{
+  "teacher": "/ssd/lzx/mopd/models/Qwen3-4B",
+  "student": "/ssd/lzx/mopd/models/Qwen3-4B-Base",
+  "teacher_device": "cuda:1",
+  "student_device": "cuda:0",
+  "steps": 16,
+  "max_new_tokens": 64,
+  "seed": 20261013,
+  "lr": 0.0001,
+  "output": "/ssd/lzx/mopd/runs/20261013-qwen3-4b-lora-opd"
+}

@@ -1,0 +1,13 @@
+models/
+cache/
+runs/
+logs/
+tmp/
+data/
+vendor/
+mopd_train/
+mopd_infer/
+archive/
+*.pyc
+__pycache__/
+*.log

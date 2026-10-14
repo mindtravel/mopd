@@ -1,0 +1,10 @@
+# Install torch==2.7.1 from https://download.pytorch.org/whl/cu128 first.
+transformers==5.2.0
+accelerate==1.6.0
+datasets==3.5.0
+huggingface-hub==0.30.2
+safetensors==0.5.3
+pyyaml==6.0.2
+numpy==2.2.6
+
+peft==0.15.2

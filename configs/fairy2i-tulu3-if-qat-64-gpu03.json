@@ -1,0 +1,35 @@
+{
+  "student": "/ssd/lzx/checkpoints/4b/qat/source/if_checkpoint-4065",
+  "student_backend": "fairy2i_qat",
+  "update_type": "quant_scale_only",
+  "forward_precision": "bfloat16_activations_fairy2i_complex_1bit_weights",
+  "quantization": {
+    "scheme": "fairy2i_complex_1bit",
+    "scale_update": "trainable",
+    "base_weights": "frozen_bfloat16"
+  },
+  "student_device": "cuda:0",
+  "domains": {
+    "instruction": {
+      "teacher": "/ssd/lzx/mopd/models/Qwen3-4B-Instruct-2507",
+      "device": "cuda:3",
+      "train_file": "/ssd/lzx/mopd/data/instruction/tulu3_if/train.jsonl",
+      "holdout_files": [
+        "/ssd/lzx/mopd/data/instruction/tulu3_if/dev.jsonl",
+        "/ssd/lzx/mopd/data/instruction/tulu3_if/protected.jsonl"
+      ],
+      "count": 4,
+      "weight": 1.0
+    }
+  },
+  "seed": 20261014,
+  "steps": 64,
+  "max_new_tokens": 2048,
+  "generation_batch_size": 4,
+  "micro_batch_size": 2,
+  "lr": 0.00001,
+  "save_every": 16,
+  "rollout_backend": "hf",
+  "rollout_devices": [],
+  "output": "/ssd/lzx/mopd/runs/20261014-fairy2i-tulu3-if-qat-64-gpu03"
+}

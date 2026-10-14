@@ -1,0 +1,15 @@
+{
+  "teacher": "/ssd/lzx/mopd/models/Qwen3-4B",
+  "student": "/ssd/lzx/mopd/models/Qwen3-4B-Base",
+  "teacher_device": "cuda:3",
+  "student_device": "cuda:2",
+  "steps": 64,
+  "accumulation": 4,
+  "max_new_tokens": 8192,
+  "seed": 20261013,
+  "lr": 5e-05,
+  "save_every": 16,
+  "train_file": "/ssd/lzx/mopd/data/numina/train.jsonl",
+  "output": "/ssd/lzx/mopd/runs/20261013-numina-8192-batch2-opd",
+  "micro_batch_size": 2
+}
