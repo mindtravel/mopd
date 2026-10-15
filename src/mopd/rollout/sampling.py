@@ -1,6 +1,6 @@
 import torch
 from mopd.training.batching import generation_eos_ids
-from mopd.data.templates import apply_chat_template_text
+from mopd.protocol import apply_chat_template_text
 
 def build_student_prompt(tokenizer, prompt):
     return apply_chat_template_text(

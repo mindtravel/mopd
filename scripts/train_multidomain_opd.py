@@ -7,12 +7,12 @@ from mopd.backends.fairy2i_qat_adapter import save_fairy2i_qat_update
 from mopd.data.pool import load_pool,validate_holdout
 from mopd.data.multidomain import balanced_plan,domain_scale
 from mopd.data.domains import teacher_content
-from mopd.data.templates import STUDENT_PROMPT_MODES
 from mopd.data.templates import apply_chat_template_ids
 from mopd.rollout.hf_batch import generate
 from mopd.rollout.replicas import RolloutReplicas
 from mopd.rollout.processes import ProcessRollouts
 from mopd.training.batching import pack,logps,generation_eos_ids,is_eos_token
+from mopd.config import load
 from mopd.training.dual_template import policy_loss
 from mopd.evaluation.versioning import write_manifest
 from train_math_opd import fingerprint,dump
@@ -30,18 +30,7 @@ def plan(c):
             validate_holdout(rows,holdout)
         pools[domain]=rows
     return balanced_plan(pools,{d:s["count"] for d,s in c["domains"].items()},seed=c["seed"],steps=c["steps"])
-def check_prompt_protocol(c):
-    fmt=c.get("student_prompt_format")
-    if fmt not in STUDENT_PROMPT_MODES:
-        raise ValueError("Config must set student_prompt_format to one of "+", ".join(STUDENT_PROMPT_MODES))
-    if c.get("student_adapter"):
-        # Legacy parent runs predate the field; their format must be stated (and verified) explicitly.
-        parent=json.loads((Path(c["student_adapter"]).parent/"config.json").read_text())
-        trained=parent.get("student_prompt_format",c.get("student_adapter_prompt_format"))
-        if trained!=fmt:
-            raise ValueError(f"Adapter was trained with student prompt {trained!r}, config uses {fmt!r}")
 def run(c):
-    check_prompt_protocol(c)
     devices={c["student_device"],*c.get("rollout_devices",[]),*(d["device"] for d in c["domains"].values())}
     if "cuda:1" in devices:raise ValueError("GPU 1 is reserved")
     batches=plan(c)
@@ -158,4 +147,4 @@ def run(c):
 if __name__=="__main__":
     p=argparse.ArgumentParser();p.add_argument("--config",required=True);a=p.parse_args()
     signal.signal(signal.SIGTERM,lambda *_:sys.exit("SIGTERM"))
-    run(json.loads(Path(a.config).read_text()))
+    run(load(a.config))

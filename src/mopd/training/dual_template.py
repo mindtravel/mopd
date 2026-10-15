@@ -1,9 +1,6 @@
-"""Distinct prefixes, identical generated action tokens; no decode/re-encode."""
+"""Distinct student/teacher prefixes over identical generated action tokens."""
 import torch
-from mopd.data.templates import apply_chat_template_ids
-
-def question(problem):
-    return problem + "\nSolve step by step and put your final answer in \\boxed{}."
+from mopd.protocol import apply_chat_template_ids, question  # noqa: F401
 
 def student_inputs(tokenizer,problem,device):
     return tokenizer("Question: "+question(problem)+"\nAnswer:",return_tensors="pt").input_ids.to(device)

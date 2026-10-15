@@ -1,5 +1,5 @@
 import torch
-from mopd.data.templates import apply_chat_template_ids
+from mopd.protocol import apply_chat_template_ids
 
 def build_teacher_input(tokenizer, prompt, response):
     messages = [{"role":"user","content":prompt},{"role":"assistant","content":response}]
