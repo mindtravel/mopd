@@ -4,3 +4,8 @@
 @media(max-width:400px){main{padding:10px}.stats{gap:8px}.stat{padding:10px}.stat strong{font-size:21px}nav{gap:12px}.filters{gap:10px}.pager{flex-wrap:wrap}.tag{font-size:11px}}
 #version-list details,#version-list p{min-width:0;overflow-wrap:anywhere;word-break:break-word}.fingerprint{overflow-wrap:anywhere;word-break:break-word}
 .controls select{width:100%;min-width:0}
+.back{font-size:13px;color:var(--muted);text-decoration:none}.back:hover{color:var(--ink)}
+tr.reference td{color:var(--muted);background:#f8fafa}tr.minor td{color:var(--muted)}td small{color:var(--muted);font-size:12px}td strong{font-weight:650}
+#eval-tables h3{margin-top:18px}.state-training{color:var(--math);font-weight:600}.state-failed{color:var(--error)}
+#version>details>summary{list-style:none}#version>details>summary h2{display:inline;cursor:pointer}#version>details>summary h2:before{content:"▸ ";color:var(--muted)}#version>details[open]>summary h2:before{content:"▾ "}
+#version-info p{overflow-wrap:anywhere;word-break:break-word}#version-info .label{font-weight:600;margin-bottom:0}

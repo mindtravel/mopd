@@ -1,0 +1,24 @@
+<!doctype html>
+<html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>MOPD · 实验</title><link rel="icon" href="data:,"><link rel="stylesheet" href="/style.css"></head>
+<body><main>
+<header><div><a class="back" href="/">← 全部实验</a><div class="eyebrow">MOPD 实验版本</div><h1 id="title">读取中…</h1><p id="description"></p></div>
+<div class="controls"><label><input id="auto" type="checkbox" checked> 每 10 秒刷新</label><button id="refresh">立即刷新</button></div></header>
+<div id="connection" role="status" aria-live="polite">正在连接…</div>
+<div class="stats" id="stats"></div>
+<nav aria-label="页面章节"><a href="#ability">能力评测</a><a href="#training">训练诊断</a><a href="#answers">回答检查</a><a href="#resources">耗时与显存</a><a href="#version">版本与数据</a></nav>
+<section id="ability"><div class="section-heading"><h2>能力评测</h2><span class="tag">固定留出题 · 与原始学生逐题配对</span></div>
+<p id="assessment">读取中…</p><div id="eval-tables"></div><div class="plots" id="ability-plots"></div>
+<p class="muted">Δ 为相对参照版本的百分点；+答对/−答错为逐题变化，p 为配对 McNemar 精确检验（双侧），p&lt;0.05 加粗。未完成的评测只显示进度，不给分数。</p></section>
+<section id="training"><div class="section-heading"><h2>训练诊断</h2><span class="tag">数学 / 指令分别观察</span></div>
+<p class="muted">策略梯度 loss 和采样 log 概率比可能为负，不能单凭它们下降判定能力提高。</p><div class="plots" id="training-plots"></div></section>
+<section id="answers"><h2>逐条检查学生回答</h2>
+<div class="filters"><label>训练步 <select id="step"><option value="all">全部</option></select></label><label>领域 <select id="domain"><option value="">全部</option><option value="math">数学</option><option value="instruction">指令遵循</option></select></label><label><input id="cut" type="checkbox"> 只看达到长度上限</label></div>
+<p class="muted">保留完整回答。采样 log 概率比是训练信号，不是教师对全文的质量评分。</p>
+<div id="cases"></div><div class="pager"><button id="previous">上一页</button><span id="case-count"></span><button id="next">下一页</button></div></section>
+<section id="resources"><h2>耗时与显存</h2><p id="gpu-note" class="muted"></p>
+<div class="table-wrap" id="gpu-wrap"><table><thead><tr><th>GPU</th><th>本实验职责</th><th>整卡显存</th><th>GPU 利用率</th></tr></thead><tbody id="gpus"></tbody></table></div>
+<div class="plots" id="resource-plots"></div></section>
+<section id="version"><details><summary><h2>版本、数据与指纹</h2></summary><div id="version-info"></div></details></section>
+<footer>看板只读，不控制训练或评测。所有时间以浏览器本地时区显示。</footer>
+</main><script src="/common.js"></script><script src="/app.js"></script></body></html>

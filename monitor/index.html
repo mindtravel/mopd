@@ -1,27 +1,13 @@
 <!doctype html>
 <html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>MOPD · 训练与能力观察</title><link rel="icon" href="data:,"><link rel="stylesheet" href="/style.css"></head>
+<title>MOPD · 全部实验</title><link rel="icon" href="data:,"><link rel="stylesheet" href="/style.css"></head>
 <body><main>
-<header><div><div class="eyebrow">MOPD 实验观察</div><h1>训练在进行，能力要用评测验证</h1><p id="description">正在读取实验配置…</p></div>
-<div class="controls"><label for="run">当前实验</label><select id="run"><option value="dual">读取实验版本…</option></select>
-<div><label><input id="auto" type="checkbox" checked> 每 10 秒刷新</label> <button id="refresh">立即刷新</button></div></div></header>
-<div id="connection" role="status" aria-live="polite">正在连接…</div>
-<nav aria-label="页面章节"><a href="#ability">能力评测</a><a href="#versions">实验版本</a><a href="#training">训练诊断</a><a href="#resources">负载与显存</a><a href="#answers">回答检查</a><a href="#components">推理与评测</a></nav>
-<div class="stats" id="stats"></div>
-<section id="ability"><div class="section-heading"><h2>能力是否提高</h2><span class="tag">固定留出题 · 同条件比较</span></div>
-<p id="assessment">尚无完整评测结果，暂不能判断能力提升。</p><p id="eval-status" class="muted"></p>
-<div class="table-wrap"><table><thead><tr><th>学生版本</th><th>已完成 / 总题数</th><th>MATH 正确率</th><th>IFEval 整题通过率</th><th>IFEval 严格指令通过率</th></tr></thead><tbody id="evaluation"></tbody></table></div>
-<p id="eval-note" class="muted">数学 32 题 + IFEval 32 题，仅作趋势观察。未完成的评测不显示可比较分数。</p><div class="plots" id="ability-plots"></div></section>
-<section id="versions"><h2>实验版本</h2><p class="muted">从实验配置和状态文件读取；每个训练运行单独列出。</p><div id="version-list"></div></section>
-<section id="training"><div class="section-heading"><h2>训练是否正常</h2><span class="tag">数学 / 指令分别观察</span></div>
-<p class="muted">策略梯度 loss 和采样 log 概率比可能为负，不能单凭它们下降判定能力提高。</p><div class="plots" id="training-plots"></div></section>
-<section id="resources"><h2>生成耗时与显存</h2><p class="muted">GPU 表显示整卡占用，包含其它任务及缓存；曲线中的生成峰值是本任务的 allocated 显存，两者口径不同。</p>
-<div class="table-wrap"><table><thead><tr><th>GPU</th><th>本实验职责</th><th>整卡显存</th><th>GPU 利用率</th></tr></thead><tbody id="gpus"></tbody></table></div>
-<div class="plots" id="resource-plots"></div></section>
-<section id="answers"><h2>逐条检查学生回答</h2>
-<div class="filters"><label>训练步 <select id="step"><option value="all">全部</option></select></label><label>领域 <select id="domain"><option value="">全部</option><option value="math">数学</option><option value="instruction">指令遵循</option></select></label><label><input id="cut" type="checkbox"> 只看达到长度上限</label></div>
-<p class="muted">保留完整回答。采样 log 概率比是训练信号，不是教师对全文的质量评分。</p>
-<div id="cases"></div><div class="pager"><button id="previous">上一页</button><span id="case-count"></span><button id="next">下一页</button></div></section>
-<section id="benchmark"><div class="section-heading"><h2>当前模型版本的 benchmark</h2><span class="tag">按 model_version_id 归属</span></div><p id="benchmark-summary" class="muted">正在读取…</p><div class="table-wrap"><table><thead><tr><th>模型版本</th><th>协议与后端</th><th>进度</th><th>指标</th></tr></thead><tbody id="benchmark-table"></tbody></table></div><div id="benchmark-cases"></div></section>
-<section id="components"><div class="section-heading"><h2>MOPD 模型组件与推理评测</h2><span class="tag">训练版本 · 推理表示 · benchmark 协议</span></div><p class="muted">学生底座、更新类型、量化配置、各领域教师、生成后端和 benchmark 协议分别记录。低精度 forward 与 packed 推理按实际模型实现登记，不从文件名猜测。</p><p>Fairy2i QAT 两步 smoke 已完成；统一评测 dispatcher 与旧项目 HF / packed 执行器的连接仍在进行。历史生成配置缺少版本 ID 时不会被算作当前模型的结果。</p></section><footer id="footnote">看板只读，不控制训练或评测。所有时间以浏览器本地时区显示。</footer>
-</main><script src="/app.js"></script></body></html>
+<header><div><div class="eyebrow">MOPD 实验观察</div><h1>全部实验版本</h1>
+<p>每个训练运行是一个独立版本，点击进入其页面。分数为 all669 固定留出题（IFEval 541 + MATH 128，greedy，最多 4096 token）。</p></div>
+<div class="controls"><label><input id="minor" type="checkbox"> 显示 smoke / 失败 / 已停止的运行</label><label><input id="auto" type="checkbox" checked> 每 30 秒刷新</label></div></header>
+<div id="connection" role="status" aria-live="polite">正在读取…</div>
+<section><div class="table-wrap"><table><thead><tr><th>实验</th><th>状态</th><th>进度</th><th>初始化</th><th>指令训练数据</th><th>IFEval 整题（最新）</th><th>IFEval 最佳</th><th>数学（最新）</th><th>已评测</th><th>更新</th></tr></thead>
+<tbody id="runs"></tbody></table></div>
+<p class="muted">“最新”为最后一个已完成评测的检查点；括号内为相对原始学生（base）的百分点变化。</p></section>
+<footer>看板只读，不控制训练或评测。</footer>
+</main><script src="/common.js"></script><script src="/index.js"></script></body></html>

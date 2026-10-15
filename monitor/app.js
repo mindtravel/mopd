@@ -1,12 +1,6 @@
-"use strict";
-const $=id=>document.getElementById(id);
-const names={math:"数学",instruction:"指令遵循"};
-const colors={math:"#08796b",instruction:"#ad5917"};
+const RUN=decodeURIComponent(location.pathname.replace(/^\/run\//,"").replace(/\/$/,""));
 let data=null,loading=false,pendingRefresh=false,offset=0,totalCases=0,lastCaseKey="";
-const fmt=(v,n=2)=>Number.isFinite(v)?v.toFixed(n):"—";
-const pct=v=>Number.isFinite(v)?(v*100).toFixed(1)+"%":"—";
 const byteSize=v=>Number.isFinite(v)?(v>=1048576?(v/1048576).toFixed(1)+" MiB":v+" B"):"大小未知";
-function node(tag,text="",cls){const e=document.createElement(tag);e.textContent=text;if(cls)e.className=cls;return e}
 function svgNode(tag,attrs,text){const e=document.createElementNS("http://www.w3.org/2000/svg",tag);for(const[k,v]of Object.entries(attrs))e.setAttribute(k,String(v));if(text!==undefined)e.textContent=text;return e}
 function chart(title,series,note){
  const box=node("article","","plot");box.append(node("h3",title));
@@ -27,107 +21,98 @@ function chart(title,series,note){
  const legend=node("div","","legend");for(const s of series){const label=node("span",s.label);label.style.setProperty("--series",s.color);legend.append(label)}box.append(legend,node("p",note,"muted"));return box;
 }
 function fieldSeries(ms,key){
- return ["math","instruction"].map(domain=>({label:names[domain],color:colors[domain],points:ms.map(m=>[m.step,m.domains?.[domain]?.[key]])}));
+ return Object.keys(names).map(domain=>({label:names[domain],color:colors[domain],points:ms.map(m=>[m.step,m.domains?.[domain]?.[key]])}));
 }
-function legacyMetrics(ms){
- if(data.run!=="math")return ms;
- return ms.map(m=>({...m,domains:{math:{loss:m.loss,tokens:m.tokens,truncated:m.truncated,count:data.config.accumulation||4}}}));
+function deltaCell(row,ref,cmp,domain){
+ const td=node("td");const d=delta(row,ref,cmp,domain);
+ if(!d){td.textContent="—";return td}
+ td.append(node(d.significant?"strong":"span",d.text));if(d.detail)td.append(node("small"," "+d.detail));return td;
 }
-function renderBenchmark(){
- const reports=data.benchmarks||[];const table=$("benchmark-table");table.replaceChildren();
- for(const report of reports){const summary=report.summary&&Object.keys(report.summary).length?report.summary:(report.progress||{}),domains=summary.domains||{};
-  const progress=summary.total?`${summary.done??summary.scored_count??0}/${summary.total}`:"—";
-  const scores=Object.entries(domains).map(([domain,metrics])=>`${names[domain]||domain} ${Number.isFinite(metrics.accuracy)?pct(metrics.accuracy):"评分中"}`).join("；")||"等待评分";
-  const tr=node("tr");tr.append(node("td",report.model_version_id||"未登记"),node("td",`${report.protocol_id||"协议未登记"} · ${report.backend||"后端未登记"}`),node("td",progress),node("td",scores));table.append(tr)}
- $("benchmark-summary").textContent=reports.length?"仅显示 generation manifest 明确归属于当前模型版本的评测。":"此模型版本还没有可追溯的 benchmark 结果。旧评测缺少 model_version_id，保留在历史目录中，不并入当前版本。";
- $("benchmark-cases").replaceChildren();
-}
+function mainTable(){return (data.evaluation_tables||[])[0]}
 function renderAbility(){
- const items=data.evaluations||[];const done=items.filter(x=>x.complete);
- const base=done.find(x=>x.step===0),latest=done.filter(x=>x.step>0).at(-1);
- let assessment="尚无完整评测结果，暂不能判断能力提升。";
- if(base&&!latest)assessment="基线评测已完成，等待训练检查点的同题评测。";
- if(base&&latest){
-  const changes=[];
-  for(const domain of ["math","instruction"]){const b=base.result.domains?.[domain],a=latest.result.domains?.[domain];
-   if(b&&a&&Number.isFinite(b.accuracy)&&Number.isFinite(a.accuracy)){const delta=(a.accuracy-b.accuracy)*100;changes.push(names[domain]+" "+(delta>=0?"+":"")+delta.toFixed(1)+" 个百分点")}}
-  assessment="第 "+latest.step+" 步相对原始学生："+changes.join("；")+"。小样本变化仍需更多题验证。";
+ const box=$("eval-tables");box.replaceChildren();const tables=data.evaluation_tables||[];
+ for(const table of tables){
+  const base=table.rows.find(r=>r.kind==="base"),init=table.rows.find(r=>r.kind==="init");
+  box.append(node("h3",table.protocol+(table.base_from&&table.base_from!==RUN?"（原始学生结果取自 "+table.base_from+"，同底座同协议）":"")));
+  const wrap=node("div","","table-wrap"),t=node("table"),head=node("tr");
+  const cols=["版本","进度","IFEval 整题","相对 base","IFEval 严格指令","数学","相对 base"];if(init)cols.push("IFEval 相对初始化","数学 相对初始化");cols.push("截断 指令/数学");
+  for(const c of cols)head.append(node("th",c));const thead=node("thead");thead.append(head);const tbody=node("tbody");
+  for(const r of table.rows){const tr=node("tr");if(r.kind!=="checkpoint")tr.className="reference";
+   const ins=r.domains.instruction,math=r.domains.math;
+   tr.append(node("td",r.label),node("td",r.complete?"完成":(r.total?`${r.done??0}/${r.total} 进行中`:"排队")),
+    node("td",r.complete?pct(ins?.accuracy):"—"),r.kind==="checkpoint"?deltaCell(r,base,r.vs_base,"instruction"):node("td",""),
+    node("td",r.complete?pct(ins?.strict_instruction_accuracy):"—"),
+    node("td",r.complete?pct(math?.accuracy):"—"),r.kind==="checkpoint"?deltaCell(r,base,r.vs_base,"math"):node("td",""));
+   if(init)tr.append(...(r.kind==="checkpoint"?[deltaCell(r,init,r.vs_init,"instruction"),deltaCell(r,init,r.vs_init,"math")]:[node("td",""),node("td","")]));
+   tr.append(node("td",r.complete?`${ins?.truncated??"—"} / ${math?.truncated??"—"}`:"—"));tbody.append(tr)}
+  t.append(thead,tbody);wrap.append(t);box.append(wrap);
  }
- $("assessment").textContent=assessment;
- const st=data.evaluation_status||{};
- const stateNames={evaluating:"评测进行中",waiting_checkpoint:"等待检查点",complete:"全部检查点评测完成",failed:"评测失败，请查看评测日志"};
- $("eval-status").textContent=st.state?(stateNames[st.state]||st.state)+(Number.isFinite(st.step)?" · "+(st.step===0?"原始学生":"第 "+st.step+" 步"):""):"等待评测任务";
- $("evaluation").replaceChildren();
- for(const item of items){const r=item.result||{},domains=r.domains||{},tr=node("tr");
-  tr.append(node("td",item.step===0?"原始学生":"第 "+item.step+" 步"),
-   node("td",r.total?`${r.done}/${r.total}${item.complete?" · 完成":" · 进行中"}`:"准备中"),
-   node("td",Number.isFinite(domains.math?.accuracy)?pct(domains.math.accuracy)+(item.complete?"":"（进行中）"):"—"),
-   node("td",Number.isFinite(domains.instruction?.accuracy)?pct(domains.instruction.accuracy)+(item.complete?"":"（进行中）"):"—"),
-   node("td",Number.isFinite(domains.instruction?.strict_instruction_accuracy)?pct(domains.instruction.strict_instruction_accuracy)+(item.complete?"":"（进行中）"):"—"));$("evaluation").append(tr)}
- if(!items.length){const tr=node("tr");const td=node("td","基线评测尚未写入结果，训练继续运行。");td.colSpan=5;tr.append(td);$("evaluation").append(tr)}
- $("eval-note").textContent="评测结果属于当前选择的模型版本；未完成的批次只显示进度，不作为能力变化结论。";
- $("ability-plots").replaceChildren(chart("固定留出题通过率（%）",["math","instruction"].map(domain=>({
-  label:names[domain],color:colors[domain],points:done.map(e=>[e.step,Number.isFinite(e.result.domains?.[domain]?.accuracy)?e.result.domains[domain].accuracy*100:NaN])})),
-  "只绘制完整评测结果；原始学生为第 0 步。"));
+ const table=mainTable();
+ if(!table){$("assessment").textContent=data.status.state==="training"?"训练进行中，尚无检查点评测结果。":"此版本没有检查点评测结果。";$("ability-plots").replaceChildren();return}
+ const base=table.rows.find(r=>r.kind==="base"),done=table.rows.filter(r=>r.kind==="checkpoint"&&r.complete);
+ const pending=table.rows.filter(r=>r.kind==="checkpoint"&&!r.complete).length;
+ if(!done.length)$("assessment").textContent="检查点评测进行中，尚无完整结果。";
+ else{
+  const last=done.at(-1),best=done.reduce((a,b)=>(b.domains.instruction?.accuracy??-1)>(a.domains.instruction?.accuracy??-1)?b:a);
+  const part=domain=>{const d=delta(last,base,last.vs_base,domain);return `${names[domain]} ${pct(last.domains[domain]?.accuracy)}`+(d?`（相对 base ${d.text}，${d.detail.split(" · ")[1]||""}）`:"")};
+  $("assessment").textContent=`最新完成评测：${last.label}，${part("instruction")}；${part("math")}。`+
+   (best!==last?`IFEval 最高在${best.label}：${pct(best.domains.instruction?.accuracy)}。`:"")+(pending?`还有 ${pending} 个检查点在评测。`:"");
+ }
+ const refs=table.rows.filter(r=>r.complete&&r.kind!=="init");
+ const series=Object.keys(names).map(domain=>({label:names[domain],color:colors[domain],
+  points:refs.map(r=>[r.step,Number.isFinite(r.domains[domain]?.accuracy)?r.domains[domain].accuracy*100:NaN])}));
+ $("ability-plots").replaceChildren(chart(table.protocol+" 正确率（%）",series,"第 0 步为原始学生；只绘制完整评测。"));
 }
 function renderTraining(ms){
  $("training-plots").replaceChildren(
   chart("策略梯度 loss",fieldSeries(ms,"loss"),"分别按领域求均值，不能按越低越好解释。"),
   chart("采样 reverse KL（估计）",fieldSeries(ms,"sampled_log_ratio"),"学生实际生成 token 上的 log p(学生) − log p(教师)；是采样估计，不是完整词表 KL。"),
-  chart("各领域的梯度贡献",fieldSeries(ms,"grad_contribution_l2"),"裁剪前各领域贡献的 L2 范数，检查两个领域是否参与更新。"),
-  chart("达到输出上限的比例（%）",["math","instruction"].map(domain=>({label:names[domain],color:colors[domain],
+  chart("各领域的梯度贡献",fieldSeries(ms,"grad_contribution_l2"),"裁剪前各领域贡献的 L2 范数，检查各领域是否参与更新。"),
+  chart("达到输出上限的比例（%）",Object.keys(names).map(domain=>({label:names[domain],color:colors[domain],
    points:ms.map(m=>{const s=m.domains?.[domain];return[m.step,s?.count?100*s.truncated/s.count:NaN]})})),
    "输出上限为 "+data.config.max_new_tokens+" token；达到上限不等于回答错误。"));
- if(data.validation?.length)$("training-plots").append(chart("历史固定轨迹 reverse KL",[{label:"数学",color:colors.math,points:data.validation.map(r=>[r.step,r.reverse_kl])}],"历史单领域实验的短固定轨迹验证，不属于当前双领域评测。"));
-}
-function renderVersions(){
- const box=$("version-list");box.replaceChildren();
- for(const v of (data.versions||[])){
-  const d=node("details","");if(v.key===data.run)d.open=true;
-  const student=v.components?.student;
-  d.append(node("summary",v.version_id+" · "+v.state+" · "+(v.step||0)+"/"+(v.steps||"?")+" steps"),
-   node("p","运行目录："+v.path,"muted"),
-   node("p","学生底座："+(student?.base_model||v.student||"-")+" · 更新方式："+(student?.update_type||(v.student_adapter?"lora":"lora"))+" · 前向精度："+(student?.forward_precision||"未登记")),
-   node("p","量化配置："+JSON.stringify(student?.quantization??null),"muted"),
-   node("p","学生生成后端："+(v.rollout_backend||"未记录"),"muted"),
-   node("p","检查点："+((v.checkpoints||[]).join("、")||"尚未发现"),"muted"));
-  for(const [name,c] of Object.entries(v.domains||{}))
-   d.append(node("p",names[name]||name,"label"),node("p","教师："+(c.teacher||"-")+" · 训练数据："+(c.train_file||"-")+" · 配比："+(c.weight??"未记录"),"muted"));
-  const inputs=v.training?.inputs?.domains||{};
-  for(const [name,files] of Object.entries(inputs)){
-   const records=[["训练",files.train],...(files.holdouts||[]).map((file,index)=>["留出 "+(index+1),file])];
-   for(const [kind,file] of records)if(file)
-    d.append(node("p",(names[name]||name)+" · "+kind+"："+file.path+" · "+byteSize(file.size_bytes)+" · SHA-256 "+file.sha256,"muted fingerprint"));
-  }
-  if(!Object.keys(inputs).length)d.append(node("p","此版本未记录训练数据内容指纹。","muted"));
-  box.append(d);
- }
 }
 function renderResources(ms){
- const roles={};const cfg=data.config;
- if(cfg.student_device)roles[cfg.student_device.replace("cuda:","")]="学生更新";
- if(cfg.domains)for(const[d,s]of Object.entries(cfg.domains))roles[s.device.replace("cuda:","")]=names[d]+"教师";
- else if(cfg.teacher_device)roles[cfg.teacher_device.replace("cuda:","")]="数学教师";
- for(const d of cfg.rollout_devices||[])roles[d.replace("cuda:","")]="学生生成";
+ const training=data.status.state==="training"||data.status.state==="loading";
+ $("gpu-wrap").hidden=!training;
+ $("gpu-note").textContent=training?"GPU 表显示整卡占用，包含其它任务及缓存；曲线中的生成峰值是本任务的 allocated 显存，两者口径不同。":"训练已结束，不再显示 GPU 归属；以下为训练期间记录的耗时与显存。";
  $("gpus").replaceChildren();
- for(const g of data.gpu.devices||[]){const tr=node("tr");
-  tr.append(node("td",String(g.index)),node("td",data.gpu_roles?.[String(g.index)]||roles[g.index]||"非本实验分配"),
-   node("td",fmt(g.used_mib/1024,1)+" / "+fmt(g.total_mib/1024,1)+" GiB"),node("td",g.utilization+"%"));$("gpus").append(tr)}
- if(data.gpu.error){const tr=node("tr"),td=node("td",data.gpu.error);td.colSpan=4;tr.append(td);$("gpus").append(tr)}
+ if(training){for(const g of data.gpu.devices||[]){const tr=node("tr");
+  tr.append(node("td",String(g.index)),node("td",data.gpu_roles?.[String(g.index)]||"非本实验分配"),
+   node("td",fmt(g.used_mib/1024,1)+" / "+fmt(g.total_mib/1024,1)+" GiB"),node("td",g.utilization+"%"));$("gpus").append(tr)}}
  const phase=[["generation_seconds","生成","#08796b"],["teacher_seconds","教师评分","#ad5917"],["student_seconds","学生前后向","#396ea4"]];
- const devices=cfg.rollout_devices||[];
+ const devices=data.config.rollout_devices||[];
  $("resource-plots").replaceChildren(
   chart("每步耗时（秒）",phase.map(([key,label,color])=>({label,color,points:ms.map(m=>[m.step,m[key]])})),"生成包含等待最长回答的时间。"),
-  chart("实际生成吞吐（token/s）",[{label:"有效输出",color:colors.math,points:ms.map(m=>[m.step,m.generated_tokens_per_second??(m.generation_seconds?m.tokens/m.generation_seconds:NaN)])}],"使用自然结束的真实回答；不是等长压力测试结果。"),
+  chart("实际生成吞吐（token/s）",[{label:"有效输出",color:colors.math,points:ms.map(m=>[m.step,m.generated_tokens_per_second])}],"使用自然结束的真实回答；不是等长压力测试结果。"),
   chart("各生成卡耗时（秒）",devices.map((device,i)=>({label:device.replace("cuda:","GPU "),color:i?colors.instruction:colors.math,
-    points:ms.map(m=>[m.step,m.rollout?.workers?.find(w=>w.device===device)?.seconds])})),"同一步两卡耗时差越大，长尾等待越明显。"),
-  chart("生成峰值 allocated 显存（GiB）",devices.map((device,i)=>({label:device.replace("cuda:","GPU "),color:i?colors.instruction:colors.math,
-    points:ms.map(m=>[m.step,m.rollout?.workers?.find(w=>w.device===device)?.peak_gib])})),"本任务生成阶段的实际分配峰值，不包含全部缓存保留量。"));
+    points:ms.map(m=>{const s=(m.rollout?.workers||[]).filter(w=>w.device===device).map(w=>w.seconds);return[m.step,s.length?Math.max(...s):NaN]})})),
+   "每张卡上最慢一批的耗时；两卡差越大，长尾等待越明显。"));
+}
+function renderVersion(){
+ const box=$("version-info");box.replaceChildren();const v=(data.versions||[]).find(item=>item.key===RUN);
+ if(!v){box.append(node("p","此运行没有 model-version.json。","muted"));return}
+ const student=v.components?.student||{},cfg=data.config;
+ box.append(node("p","运行目录："+v.path,"muted"),
+  node("p","学生底座："+(student.base_model||v.student||"-")+" · 后端："+(student.backend||"hf_lora")+" · 更新方式："+(student.update_type||"lora")+" · 前向精度："+(student.forward_precision||"未登记")+" · 输入格式："+(student.prompt_format||cfg.student_prompt_format||"未登记")),
+  node("p","初始化："+(cfg.student_adapter||"从 base 新建 LoRA")+" · 学习率 "+cfg.lr+" · seed "+cfg.seed+" · 每 "+cfg.save_every+" 步保存","muted"),
+  node("p","量化配置："+JSON.stringify(student.quantization??null),"muted"),
+  node("p","学生生成后端："+(v.rollout_backend||"未记录")+" · 检查点："+((v.checkpoints||[]).join("、")||"尚未发现"),"muted"));
+ for(const [name,c] of Object.entries(cfg.domains||{}))
+  box.append(node("p",(names[name]||name)+" · 每步 "+c.count+" 条 · 权重 "+c.weight,"label"),
+   node("p","教师："+c.teacher+" · 训练数据："+c.train_file,"muted"),node("p","留出集："+(c.holdout_files||[]).map(shortPath).join("、"),"muted"));
+ const inputs=v.training?.inputs?.domains||{};
+ for(const [name,files] of Object.entries(inputs)){
+  const records=[["训练",files.train],...(files.holdouts||[]).map((file,index)=>["留出 "+(index+1),file])];
+  for(const [kind,file] of records)if(file)
+   box.append(node("p",(names[name]||name)+" · "+kind+"："+file.path+" · "+byteSize(file.size_bytes)+" · SHA-256 "+file.sha256,"muted fingerprint"));
+ }
+ if(!Object.keys(inputs).length)box.append(node("p","此版本未记录训练数据内容指纹。","muted"));
 }
 async function renderCases(){
- const run=$("run").value;const query=new URLSearchParams({run,step:$("step").value,domain:$("domain").value,truncated:$("cut").checked?"1":"0",offset:String(offset),limit:"20"});
+ const query=new URLSearchParams({run:RUN,step:$("step").value,domain:$("domain").value,truncated:$("cut").checked?"1":"0",offset:String(offset),limit:"20"});
  const response=await fetch("/api/cases?"+query);if(!response.ok)throw Error("回答读取失败 "+response.status);
- const result=await response.json();if(run!==$("run").value)return;
+ const result=await response.json();
  const opened=new Set([...$("cases").querySelectorAll("details[open]")].map(e=>e.dataset.key));
  $("cases").replaceChildren();totalCases=result.total;
  for(const r of result.rows){const d=node("details");d.dataset.key=[r.step,r.domain,r.id].join(":");d.open=opened.has(d.dataset.key);
@@ -139,38 +124,36 @@ async function renderCases(){
  $("case-count").textContent=result.total?`${offset+1}–${Math.min(offset+20,result.total)} / ${result.total} 条`:"0 条";
  $("previous").disabled=offset===0;$("next").disabled=offset+20>=result.total;
 }
+function renderHeader(ms){
+ const cfg=data.config,st=data.status,last=ms.at(-1)||{},rs=data.response_summary;
+ document.title="MOPD · "+RUN;$("title").textContent=RUN;
+ const domains=Object.entries(cfg.domains||{}).map(([name,spec])=>`${names[name]||name} ${spec.count} 条/步（${shortPath(spec.train_file).replace(/^data\//,"")}）`).join(" + ");
+ $("description").textContent=`${cfg.student_adapter?"续训自 "+shortPath(cfg.student_adapter).replace(/^runs\//,""):"从 base 训练"} · ${domains} · lr ${cfg.lr} · 输出上限 ${cfg.max_new_tokens} token`;
+ const phase={generating:"学生生成",scoring:"教师评分 / 学生更新"};
+ $("connection").className=st.state==="failed"?"error":"";
+ $("connection").textContent=(stateNames[st.state]||st.state||"等待状态")+(st.phase?" · "+(phase[st.phase]||st.phase):"")+" · 已完成 "+(last.step||0)+"/"+cfg.steps+" 步 · 页面更新 "+new Date().toLocaleTimeString();
+ const table=mainTable(),done=(table?.rows||[]).filter(r=>r.kind==="checkpoint"&&r.complete),latest=done.at(-1),base=table?.rows.find(r=>r.kind==="base");
+ const tile=(domain)=>{if(!latest)return["—","尚无完整评测"];const d=delta(latest,base,latest.vs_base,domain);return[pct(latest.domains[domain]?.accuracy),latest.label+(d?" · 相对 base "+d.text:"")]};
+ const totalCut=Object.values(rs.domains).reduce((n,d)=>n+d.truncated,0);
+ $("stats").replaceChildren();
+ for(const[label,[value,note]]of [["完成更新",[`${last.step||0} / ${cfg.steps}`,"以完成 optimizer 更新为准"]],["IFEval 整题",tile("instruction")],["数学",tile("math")],["训练回答达到上限",[rs.count?pct(totalCut/rs.count):"—",totalCut+" / "+rs.count+" 条"]]]){
+  const a=node("article","","stat");a.append(node("div",label,"label"),node("strong",value),node("small",note));$("stats").append(a)}
+}
 async function refresh(){
  if(loading){pendingRefresh=true;return}loading=true;
  try{
-  const run=$("run").value||"dual",response=await fetch("/api?run="+encodeURIComponent(run));if(!response.ok)throw Error(response.status);
-  const fresh=await response.json();
-  const options=fresh.runs||[];const selectedRun=options.some(item=>item.key===run)?run:(options.some(item=>item.key===fresh.run)?fresh.run:options[0]?.key||run);
-  const select=$("run");select.replaceChildren(...options.map(item=>new Option(item.label,item.key)));
-  if(selectedRun)select.value=selectedRun;if(selectedRun!==run){loading=false;refresh();return}
-  if(run!==select.value)return;data=fresh;
-  const ms=legacyMetrics(data.metrics),last=ms.at(-1)||{},rs=data.response_summary,cfg=data.config;
-  const batch=cfg.domains?Object.values(cfg.domains).reduce((n,d)=>n+d.count,0):cfg.accumulation;
-  const version=data.versions.find(item=>item.key===run),student=version?.components?.student||{};
-  const domains=Object.entries(cfg.domains||{}).map(([name,spec])=>`${names[name]||name} ${(Number(spec.weight||0)*100).toFixed(0)}%`).join(" + ")||"单领域";
-  $("description").textContent=`${student.backend||"HF/LoRA"} · ${domains} · 更新 ${student.update_type||"lora"} · 每步 ${batch} 条 · 输出上限 ${cfg.max_new_tokens} token`;
-  const phase={generating:"学生生成",scoring:"教师评分 / 学生更新",loading:"加载模型"};
-  const state={training:"训练中",complete:"训练完成",failed:"训练失败",loading:"加载模型"};
-  $("connection").className=data.status.state==="failed"?"error":"";
-  $("connection").textContent=(state[data.status.state]||data.status.state||"等待状态")+" · "+(phase[data.status.phase]||"")+" · 已完成 "+(last.step||0)+"/"+cfg.steps+" 步 · 页面更新 "+new Date().toLocaleTimeString();
-  const totalCut=Object.values(rs.domains).reduce((n,d)=>n+d.truncated,0);
-  $("stats").replaceChildren();
-  for(const[label,value,note]of [["完成更新",`${last.step||0} / ${cfg.steps}`,"以完成 optimizer 更新为准"],["已记录回答",String(rs.count),"包含正在评分的批次"],["最长回答",String(rs.max_tokens)+" token","实际记录的输出长度"],["累计达到上限",rs.count?pct(totalCut/rs.count):"—",totalCut+" 条 / "+rs.count+" 条"]]){
-   const a=node("article","","stat");a.append(node("div",label,"label"),node("strong",value),node("small",note));$("stats").append(a)}
-  renderAbility();renderBenchmark();renderTraining(ms);renderResources(ms);renderVersions();
+  const response=await fetch("/api?run="+encodeURIComponent(RUN));
+  if(response.status===400)throw Error("没有名为 "+RUN+" 的实验");if(!response.ok)throw Error(response.status);
+  data=await response.json();const ms=data.metrics,rs=data.response_summary;
+  renderHeader(ms);renderAbility();renderTraining(ms);renderResources(ms);renderVersion();
   const selected=$("step").value;$("step").replaceChildren(new Option("全部","all"));for(const n of rs.steps)$("step").add(new Option("第 "+n+" 步",n));
   $("step").value=selected;if(!$("step").value)$("step").value="all";
-  const key=[run,rs.count,$("step").value,$("domain").value,$("cut").checked,offset].join("|");
+  const key=[rs.count,$("step").value,$("domain").value,$("cut").checked,offset].join("|");
   if(key!==lastCaseKey){await renderCases();lastCaseKey=key}
- }catch(e){$("connection").className="error";$("connection").textContent="刷新失败，保留最近数据。请检查 SSH 隧道："+e.message}
+ }catch(e){$("connection").className="error";$("connection").textContent="刷新失败，保留最近数据："+e.message}
  finally{loading=false;if(pendingRefresh){pendingRefresh=false;refresh()}}
 }
 $("refresh").onclick=refresh;
-$("run").onchange=()=>{offset=0;lastCaseKey="";$("step").value="all";refresh()};
 for(const id of ["step","domain","cut"])$(id).onchange=()=>{offset=0;lastCaseKey="";refresh()};
 $("previous").onclick=()=>{offset=Math.max(0,offset-20);lastCaseKey="";refresh()};
 $("next").onclick=()=>{if(offset+20<totalCases)offset+=20;lastCaseKey="";refresh()};
