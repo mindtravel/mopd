@@ -4,8 +4,8 @@ from pathlib import Path
 import torch
 from mopd.backends.multi_teacher import load_models
 from mopd.backends.fairy2i_qat_adapter import save_fairy2i_qat_update
-from mopd.data.pool import load_pool,validate_holdout
-from mopd.data.multidomain import balanced_plan,domain_scale
+from mopd.data.mixture import plan_domains
+from mopd.data.multidomain import domain_scale
 from mopd.data.domains import teacher_content
 from mopd.data.templates import apply_chat_template_ids
 from mopd.rollout.hf_batch import generate
@@ -21,15 +21,7 @@ def sync(c):
     for device in {c["student_device"],*(d["device"] for d in c["domains"].values())}:
         torch.cuda.synchronize(device)
 def plan(c):
-    pools={}
-    for domain,spec in c["domains"].items():
-        raw=load_pool(spec["train_file"])
-        rows=[dict(r,prompt=r.get("prompt",r.get("problem")),domain=domain,split=r.get("split","train")) for r in raw]
-        for path in spec.get("holdout_files",[]):
-            holdout=[dict(r,prompt=r.get("prompt",r.get("problem"))) for r in load_pool(path)]
-            validate_holdout(rows,holdout)
-        pools[domain]=rows
-    return balanced_plan(pools,{d:s["count"] for d,s in c["domains"].items()},seed=c["seed"],steps=c["steps"])
+    return plan_domains(c)
 def run(c):
     devices={c["student_device"],*c.get("rollout_devices",[]),*(d["device"] for d in c["domains"].values())}
     if "cuda:1" in devices:raise ValueError("GPU 1 is reserved")

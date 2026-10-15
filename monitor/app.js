@@ -100,10 +100,12 @@ function renderVersion(){
   node("p","学生生成后端："+(v.rollout_backend||"未记录")+" · 检查点："+((v.checkpoints||[]).join("、")||"尚未发现"),"muted"));
  for(const [name,c] of Object.entries(cfg.domains||{}))
   box.append(node("p",(names[name]||name)+" · 每步 "+c.count+" 条 · 权重 "+c.weight,"label"),
-   node("p","教师："+c.teacher+" · 训练数据："+c.train_file,"muted"),node("p","留出集："+(c.holdout_files||[]).map(shortPath).join("、"),"muted"));
+   node("p","教师："+c.teacher+" · 训练数据："+(c.mixture_preset?c.mixture_preset.name+"（"+c.mixture_preset.description+"）":shortPath(c.train_file)),"muted"),
+   ...((c.sources||[]).length>1||c.mixture_preset?[node("p","每步来源："+c.sources.map(s=>`${s.name} ${c.source_counts?.[s.name]??"?"} 条`).join(" + "),"muted")]:[]),node("p","留出集："+(c.holdout_files||[]).map(shortPath).join("、"),"muted"));
  const inputs=v.training?.inputs?.domains||{};
  for(const [name,files] of Object.entries(inputs)){
-  const records=[["训练",files.train],...(files.holdouts||[]).map((file,index)=>["留出 "+(index+1),file])];
+  const train=files.sources?.length?files.sources.map(s=>["训练 · "+s.name,s]):[["训练",files.train]];
+  const records=[...train,...(files.holdouts||[]).map((file,index)=>["留出 "+(index+1),file])];
   for(const [kind,file] of records)if(file)
    box.append(node("p",(names[name]||name)+" · "+kind+"："+file.path+" · "+byteSize(file.size_bytes)+" · SHA-256 "+file.sha256,"muted fingerprint"));
  }
@@ -127,7 +129,7 @@ async function renderCases(){
 function renderHeader(ms){
  const cfg=data.config,st=data.status,last=ms.at(-1)||{},rs=data.response_summary;
  document.title="MOPD · "+RUN;$("title").textContent=RUN;
- const domains=Object.entries(cfg.domains||{}).map(([name,spec])=>`${names[name]||name} ${spec.count} 条/步（${shortPath(spec.train_file).replace(/^data\//,"")}）`).join(" + ");
+ const domains=Object.entries(cfg.domains||{}).map(([name,spec])=>`${names[name]||name} ${spec.count} 条/步（${dataLabel(spec)}）`).join(" + ");
  $("description").textContent=`${cfg.student_adapter?"续训自 "+shortPath(cfg.student_adapter).replace(/^runs\//,""):"从 base 训练"} · ${domains} · lr ${cfg.lr} · 输出上限 ${cfg.max_new_tokens} token`;
  const phase={generating:"学生生成",scoring:"教师评分 / 学生更新"};
  $("connection").className=st.state==="failed"?"error":"";

@@ -1,0 +1,17 @@
+{
+  "domain": "instruction",
+  "description": "Tülu 3 IF + RLVR-IFeval 合并池随机抽样，比例随池大小",
+  "sources": [
+    {
+      "name": "tulu3_rlvr_pooled",
+      "path": "data/instruction/mixed_tulu3_rlvr_ifeval/train.jsonl",
+      "weight": 1
+    }
+  ],
+  "holdout_files": [
+    "data/instruction/ifeval.jsonl",
+    "data/instruction/dev.jsonl",
+    "data/instruction/tulu3_if/dev.jsonl",
+    "data/instruction/rlvr_ifeval/dev.jsonl"
+  ]
+}

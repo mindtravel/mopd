@@ -1,0 +1,22 @@
+{
+  "domain": "instruction",
+  "description": "Tülu 3 IF 与 smol-constraints 每步严格 1:1",
+  "sources": [
+    {
+      "name": "tulu3_if",
+      "path": "data/instruction/tulu3_if/train.jsonl",
+      "weight": 1
+    },
+    {
+      "name": "smol_constraints",
+      "path": "data/instruction/smol_constraints/train.jsonl",
+      "weight": 1
+    }
+  ],
+  "holdout_files": [
+    "data/instruction/ifeval.jsonl",
+    "data/instruction/dev.jsonl",
+    "data/instruction/tulu3_if/dev.jsonl",
+    "data/instruction/smol_constraints/dev.jsonl"
+  ]
+}

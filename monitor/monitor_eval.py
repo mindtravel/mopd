@@ -82,7 +82,7 @@ def run_index():
   items.append({"key":v["key"],"state":st.get("state","pending"),"step":st.get("step",st.get("steps",0)),"steps":steps,
    "updated":max(filter(None,[_mtime(run/"status.json"),_mtime(run/"metrics.jsonl")]),default=None),
    "student":cfg.get("student"),"init":cfg.get("student_adapter"),"lr":cfg.get("lr"),
-   "domains":{d:{"train_file":s.get("train_file"),"count":s.get("count"),"weight":s.get("weight")} for d,s in cfg.get("domains",{}).items()},
+   "domains":{d:{"train_file":s.get("train_file"),"mixture":s.get("mixture"),"count":s.get("count"),"weight":s.get("weight")} for d,s in cfg.get("domains",{}).items()},
    "minor":steps<16 or "smoke" in v["key"] or st.get("state") in ("failed","stopped"),
    "evaluated":f"{len(done)}/{len(ckpts)}" if ckpts else None,
    "latest":latest,"best":best,

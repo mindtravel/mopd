@@ -6,6 +6,8 @@ const stateNames={training:"训练中",complete:"训练完成",failed:"训练失
 const fmt=(v,n=2)=>Number.isFinite(v)?v.toFixed(n):"—";
 const pct=v=>Number.isFinite(v)?(v*100).toFixed(1)+"%":"—";
 const shortPath=p=>p?p.replace(/^\/ssd\/lzx\/mopd\//,""):"—";
+// Training data of one domain: the mixture preset name, or the legacy single train file.
+const dataLabel=spec=>spec?.mixture_preset?.name||spec?.mixture||(spec?.train_file?shortPath(spec.train_file).replace(/^data\//,""):"—");
 const when=t=>Number.isFinite(t)?new Date(t*1000).toLocaleString([], {month:"2-digit",day:"2-digit",hour:"2-digit",minute:"2-digit"}):"—";
 function node(tag,text="",cls){const e=document.createElement(tag);e.textContent=text;if(cls)e.className=cls;return e}
 function pvalue(p){return p<0.001?"p<0.001":"p="+p.toFixed(3)}

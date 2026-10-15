@@ -1,0 +1,17 @@
+{
+  "domain": "instruction",
+  "description": "RLVR-IFeval",
+  "sources": [
+    {
+      "name": "rlvr_ifeval",
+      "path": "data/instruction/rlvr_ifeval/train.jsonl",
+      "weight": 1
+    }
+  ],
+  "holdout_files": [
+    "data/instruction/ifeval.jsonl",
+    "data/instruction/dev.jsonl",
+    "data/instruction/tulu3_if/dev.jsonl",
+    "data/instruction/rlvr_ifeval/dev.jsonl"
+  ]
+}

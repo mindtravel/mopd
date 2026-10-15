@@ -7,6 +7,7 @@ prompt format is added in one file instead of being re-checked at each call site
 import json
 from pathlib import Path
 
+from mopd.data.mixture import resolve_domain
 from mopd.protocol import STUDENT_PROMPT_MODES
 
 RESERVED_GPUS = ("cuda:1",)
@@ -58,22 +59,27 @@ def _check_prompt_protocol(config, adapter_config):
             "An adapter must be rolled out with the format it was trained on.")
 
 
-def _check_domains(config):
+def _check_domains(config, project_root):
     domains = _require(config, "domains", dict)
     if not domains:
         raise ConfigError("domains must not be empty")
     weights = 0.0
     for name, spec in domains.items():
         where = f"domains.{name}: "
-        for key in ("teacher", "device", "train_file"):
+        for key in ("teacher", "device"):
             _require(spec, key, str, where)
-        if not Path(spec["train_file"]).is_file():
-            raise ConfigError(f"{where}train_file does not exist: {spec['train_file']}")
+        if not isinstance(spec.get("count"), int) or spec["count"] < 1:
+            raise ConfigError(f"{where}count must be a positive integer")
+        try:
+            resolve_domain(name, spec, project_root or "/ssd/lzx/mopd")
+        except ValueError as error:
+            raise ConfigError(f"{where}{error}") from error
+        for source in spec["sources"]:
+            if not Path(source["path"]).is_file():
+                raise ConfigError(f"{where}source {source['name']!r} does not exist: {source['path']}")
         for path in spec.get("holdout_files", []):
             if not Path(path).is_file():
                 raise ConfigError(f"{where}holdout file does not exist: {path}")
-        if not isinstance(spec.get("count"), int) or spec["count"] < 1:
-            raise ConfigError(f"{where}count must be a positive integer")
         if not isinstance(spec.get("weight"), (int, float)) or spec["weight"] <= 0:
             raise ConfigError(f"{where}weight must be positive")
         weights += spec["weight"]
@@ -117,7 +123,7 @@ def load(path, project_root="/ssd/lzx/mopd"):
     if project_root is not None and not output.is_relative_to(root):
         raise ConfigError(f"output must stay inside {root}, got {output}")
 
-    _check_domains(config)
+    _check_domains(config, project_root)
     _check_devices(config)
 
     adapter = config.get("student_adapter")

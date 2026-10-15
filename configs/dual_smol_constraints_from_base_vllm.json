@@ -1,0 +1,35 @@
+{
+  "student": "/ssd/lzx/mopd/models/Qwen3-4B-Base",
+  "student_device": "cuda:0",
+  "domains": {
+    "math": {
+      "teacher": "/ssd/lzx/mopd/models/Qwen3-4B",
+      "device": "cuda:3",
+      "mixture": "math-numina",
+      "count": 16,
+      "weight": 0.5
+    },
+    "instruction": {
+      "teacher": "/ssd/lzx/mopd/models/Qwen3-4B-Instruct-2507",
+      "device": "cuda:4",
+      "mixture": "instruction-smol-constraints",
+      "count": 16,
+      "weight": 0.5
+    }
+  },
+  "seed": 20261014,
+  "steps": 64,
+  "max_new_tokens": 8192,
+  "generation_batch_size": 8,
+  "micro_batch_size": 2,
+  "lr": 5e-05,
+  "save_every": 16,
+  "output": "/ssd/lzx/mopd/runs/20261015-dual-smol-constraints-from-base-vllm",
+  "rollout_devices": [
+    "cuda:6",
+    "cuda:7"
+  ],
+  "rollout_backend": "vllm",
+  "vllm_memory_utilization": 0.8,
+  "student_prompt_format": "plain_qa_v1"
+}

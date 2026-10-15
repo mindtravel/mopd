@@ -1,0 +1,17 @@
+{
+  "domain": "instruction",
+  "description": "smoltalk smol-constraints（已去除与 Tülu/IFEval 重叠和答案泄漏）",
+  "sources": [
+    {
+      "name": "smol_constraints",
+      "path": "data/instruction/smol_constraints/train.jsonl",
+      "weight": 1
+    }
+  ],
+  "holdout_files": [
+    "data/instruction/ifeval.jsonl",
+    "data/instruction/dev.jsonl",
+    "data/instruction/tulu3_if/dev.jsonl",
+    "data/instruction/smol_constraints/dev.jsonl"
+  ]
+}

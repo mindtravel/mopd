@@ -14,7 +14,7 @@ function render(){
   const ins=r.domains.instruction;const base=r.base;
   tr.append(name,node("td",stateNames[r.state]||r.state,"state-"+r.state),node("td",`${r.step||0}/${r.steps||"?"}`),
    node("td",r.init?shortPath(r.init).replace(/^runs\//,""):"base"),
-   node("td",ins?shortPath(ins.train_file).replace(/^data\/instruction\//,""):"—"),
+   node("td",ins?dataLabel(ins).replace(/^instruction\//,""):"—"),
    node("td",score(r.latest,"instruction",base)),node("td",score(r.best,"instruction",base)),
    node("td",score(r.latest,"math",base)),node("td",r.evaluated||"未评测"),node("td",when(r.updated)));
   body.append(tr);

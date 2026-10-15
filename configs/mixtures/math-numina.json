@@ -1,0 +1,14 @@
+{
+  "domain": "math",
+  "description": "NuminaMath 训练题（1,024 条，64 步 × 16 条恰好用完）",
+  "sources": [
+    {
+      "name": "numina",
+      "path": "data/numina/train.jsonl",
+      "weight": 1
+    }
+  ],
+  "holdout_files": [
+    "data/math/eval.jsonl"
+  ]
+}

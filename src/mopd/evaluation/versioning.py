@@ -29,8 +29,13 @@ def _build_training_inputs(config: dict, run: Path) -> dict:
     domains = {}
     for name, spec in config.get("domains", {}).items():
         train_file = spec.get("train_file")
+        sources = spec.get("sources") or ([{"name": "train", "path": train_file, "weight": 1.0}] if train_file else [])
         domains[name] = {
-            "train": _file_identity(train_file) if train_file else None,
+            "train": _file_identity(sources[0]["path"]) if len(sources) == 1 else None,
+            "sources": [{"name": s["name"], "weight": s["weight"],
+                         "per_step": spec.get("source_counts", {}).get(s["name"]), **_file_identity(s["path"])}
+                        for s in sources],
+            "mixture": spec.get("mixture_preset"),
             "holdouts": [_file_identity(path) for path in spec.get("holdout_files", [])],
         }
     if not domains and config.get("train_file"):
