@@ -18,6 +18,9 @@
 - `runs/`：按实验保存配置、指标、checkpoint；建议仅保留最近两份。
 - `logs/`、`cache/`、`tmp/`：全部位于本项目中，不使用系统临时目录保存产物。
 
+## 开发与同步
+代码在本地 worktree 修改、提交并推送到 GitHub，服务器 `/ssd/lzx/mopd` 只是运行镜像。用 `scripts/dev/remote_sync.sh diff|sync|status` 把源码同步到服务器，规则见 `AGENTS.md`。
+
 ## 使用
 ```bash
 cd /ssd/lzx/mopd

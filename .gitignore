@@ -11,3 +11,4 @@ archive/
 *.pyc
 __pycache__/
 *.log
+.deploy/
