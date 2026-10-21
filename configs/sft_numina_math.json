@@ -11,7 +11,7 @@
   ],
   "seed": 20261014,
   "lr": 1e-4,
-  "steps": 64,
+  "steps": 55,
   "micro_batch_size": 4,
   "accumulation": 16,
   "save_every": 16,
