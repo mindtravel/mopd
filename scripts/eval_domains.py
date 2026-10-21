@@ -30,6 +30,9 @@ def check(row,text):
         r=grade(row["solution"],text);return {**r,"correct_lenient":r["correct"] or math_lenient(row["solution"],text)}
     if row["domain"]=="code":return grade_code(row,text)
     meta=row["metadata"]
+    # Official letter_frequency falls back to random.choice for a non a-z letter (e.g. IFEval 1129
+    # asks for "!"), so its verdict depended on global random state. Seed per row: reproducible.
+    random.seed(f"ifeval:{row['id']}")
     inp=evaluation_lib.InputExample(key=meta["key"],instruction_id_list=meta["instruction_id_list"],prompt=row["prompt"],kwargs=meta["kwargs"])
     strict=evaluation_lib.test_instruction_following_strict(inp,{row["prompt"]:text})
     loose=evaluation_lib.test_instruction_following_loose(inp,{row["prompt"]:text})

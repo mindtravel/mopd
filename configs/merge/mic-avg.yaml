@@ -1,0 +1,17 @@
+# experts: sftv2-{m,i,c} (sample-matched SFT, seed 20261014), base Qwen3-4B-Base
+merge_method: linear
+models:
+  - model: /ssd/lzx/mopd/models/experts/sftv2-m
+    parameters:
+      weight: 1.0
+  - model: /ssd/lzx/mopd/models/experts/sftv2-i
+    parameters:
+      weight: 1.0
+  - model: /ssd/lzx/mopd/models/experts/sftv2-c
+    parameters:
+      weight: 1.0
+parameters:
+  normalize: true
+dtype: bfloat16
+tokenizer:
+  source: /ssd/lzx/mopd/models/experts/sftv2-m

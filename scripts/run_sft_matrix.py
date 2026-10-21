@@ -1,6 +1,7 @@
 """Queue SFT trainings and model evaluations across GPUs, one job per GPU at a time.
 
 jobs file (JSON list), each job one of:
+  {"name": ..., "model": "/path/to/hf_model_dir"}            evaluate standalone weights (e.g. merged)
   {"name": ..., "train": "configs/x.json"}                 train, then evaluate final checkpoint
   {"name": ..., "model_version": ".../model-version.json", "checkpoint": "checkpoint-0064" | "base"}
 Every evaluation uses the same --data/--protocol-id so all results are one measurement.
@@ -31,6 +32,12 @@ def run(cmd,log,env):
         f.write(f"\n$ {' '.join(map(str,cmd))}\n");f.flush()
         subprocess.run(list(map(str,cmd)),cwd=ROOT,env=env,stdout=f,stderr=subprocess.STDOUT,check=True)
 def job_commands(job,gpu,a):
+    if "model" in job:  # standalone weights (e.g. a mergekit output): generate + grade directly
+        out=ROOT/"results/merge-evals"/job["name"]/a.protocol_id
+        return [([ROOT/"mopd_infer/bin/python","scripts/generate_benchmark_vllm.py","--model",job["model"],"--data",a.data,
+                  "--out",out,"--device",gpu,"--model-version-id",f"merge:{job['name']}","--protocol-id",a.protocol_id,
+                  "--student-prompt-format","plain_qa_v1","--max-new-tokens",a.max_new_tokens,"--max-seqs",64,"--batch-size",64],{}),
+                ([sys.executable,"scripts/grade_benchmark_outputs.py","--data",a.data,"--out",out],{})]
     commands=[];manifest=job.get("model_version");checkpoint=job.get("checkpoint")
     if "train" in job:
         config=json.loads((ROOT/job["train"]).read_text())
