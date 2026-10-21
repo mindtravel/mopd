@@ -29,9 +29,11 @@ def humaneval_rows():
 def mbpp_rows():
     raw=pq.read_table(ROOT/"data/code/upstream/mbpp/sanitized-test-00000-of-00001.parquet").to_pylist()
     for r in raw:
-        match=re.match(r"assert\s+(\w+)\s*\(",r["test_list"][0])
+        # The reference solution's own def line names the function more reliably than
+        # parsing test_list[0], which sometimes wraps the call (e.g. math.isclose(f(...), ...)).
+        match=re.search(r"^def\s+(\w+)\s*\(",r["code"],re.MULTILINE)
         if not match:
-            raise ValueError(f"mbpp task {r['task_id']}: could not infer function name from {r['test_list'][0]!r}")
+            raise ValueError(f"mbpp task {r['task_id']}: could not find a top-level def in the reference solution")
         yield {"id":f"mbpp/{r['task_id']}","domain":"code","source":"google-research-datasets/mbpp:sanitized",
                "prompt":MBPP_INSTRUCTION.format(task=r["prompt"],example_test=r["test_list"][0]),
                "metadata":{"benchmark":"mbpp","entry_point":match.group(1),
