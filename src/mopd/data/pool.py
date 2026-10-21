@@ -19,7 +19,7 @@ def build_plan(rows, *, seed, steps, batch_size):
     for row in rows:
         if row.get("split") != "train":
             raise ValueError("Training pool includes non-training records")
-        if row.get("domain") not in ("math", "instruction") or not row.get("prompt", "").strip():
+        if row.get("domain") not in ("math", "instruction", "code") or not row.get("prompt", "").strip():
             raise ValueError("Missing prompt or unsupported domain")
         key = (row["domain"], row["id"])
         digest = text_hash(row["prompt"])

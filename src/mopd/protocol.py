@@ -16,7 +16,7 @@ STUDENT_PROMPT_MODES = {
 
 # plain_qa_v1 reproduces 20261014-dual-tulu3-from-base-vllm bit-exactly; verified by
 # scripts/diagnostics/verify_student_prefix_paired.py.
-PLAIN_QA_HEADERS = {"math": "Question: ", "instruction": "Instruction: "}
+PLAIN_QA_HEADERS = {"math": "Question: ", "instruction": "Instruction: ", "code": "Instruction: "}
 
 
 def apply_chat_template_text(tokenizer, messages, **kwargs):
@@ -55,7 +55,7 @@ def teacher_content(row):
     """The user turn a teacher scores; identical for every teacher in a domain."""
     if row["domain"] == "math":
         return question(row["prompt"])
-    if row["domain"] == "instruction":
+    if row["domain"] in ("instruction", "code"):
         return row["prompt"]
     raise ValueError("Unknown domain: " + row["domain"])
 
