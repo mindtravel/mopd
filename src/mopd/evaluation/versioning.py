@@ -50,6 +50,16 @@ def _build_training_inputs(config: dict, run: Path) -> dict:
     }
 
 
+def _teacher_source(path):
+    """sft_expert (with its adapter identity) when exported by scripts/export_lora_expert.py,
+    otherwise an external checkpoint such as an official post-trained model."""
+    record = Path(path or "") / "expert-source.json"
+    if path and record.is_file():
+        info = json.loads(record.read_text())
+        return {"kind": "sft_expert", "adapter": info["adapter"], "adapter_sha256": info["adapter_sha256"]}
+    return {"kind": "external"}
+
+
 def build_manifest(
     config: dict,
     run_dir: str | Path,
@@ -100,7 +110,9 @@ def build_manifest(
         "quantization": quantization,
     }
     teachers = {
-        domain: {"model": spec.get("teacher"), "device": spec.get("device"), "trainable": False}
+        domain: {"model": spec.get("teacher"), "device": spec.get("device"), "trainable": False,
+                 "prompt_format": spec.get("teacher_prompt_format", "chat_template_v1"),
+                 "source": _teacher_source(spec.get("teacher"))}
         for domain, spec in config.get("domains", {}).items()
     }
     if not teachers and config.get("teacher"):

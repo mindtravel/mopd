@@ -8,7 +8,7 @@ import json
 from pathlib import Path
 
 from mopd.data.mixture import resolve_domain
-from mopd.protocol import STUDENT_PROMPT_MODES
+from mopd.protocol import STUDENT_PROMPT_MODES, TEACHER_PROMPT_FORMATS
 
 RESERVED_GPUS = ("cuda:1",)
 STUDENT_BACKENDS = ("hf_lora", "fairy2i_qat")
@@ -68,6 +68,9 @@ def _check_domains(config, project_root):
         where = f"domains.{name}: "
         for key in ("teacher", "device"):
             _require(spec, key, str, where)
+        teacher_format = spec.get("teacher_prompt_format", "chat_template_v1")
+        if teacher_format not in TEACHER_PROMPT_FORMATS:
+            raise ConfigError(f"{where}teacher_prompt_format must be one of {TEACHER_PROMPT_FORMATS}, got {teacher_format!r}")
         if not isinstance(spec.get("count"), int) or spec["count"] < 1:
             raise ConfigError(f"{where}count must be a positive integer")
         try:

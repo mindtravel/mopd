@@ -60,6 +60,22 @@ def teacher_content(row):
     raise ValueError("Unknown domain: " + row["domain"])
 
 
+# How a frozen teacher is prompted when it scores a student response. chat_template_v1: the
+# teacher's own chat template (official post-trained teachers). student_prefix_v1: exactly the
+# student's prompt token IDs, for teachers trained on the student's prompt (SFT experts).
+TEACHER_PROMPT_FORMATS = ("chat_template_v1", "student_prefix_v1")
+
+
+def teacher_prefix_ids(tokenizer, row, prompt_format, student_prefix_ids):
+    if prompt_format == "chat_template_v1":
+        return apply_chat_template_ids(tokenizer, [{"role": "user", "content": teacher_content(row)}],
+                                       add_generation_prompt=True, enable_thinking=False)
+    if prompt_format == "student_prefix_v1":
+        return list(student_prefix_ids)
+    raise ValueError("Unknown teacher prompt format: " + repr(prompt_format)
+                     + "; expected one of " + ", ".join(TEACHER_PROMPT_FORMATS))
+
+
 def student_prompt(tokenizer, row, prompt_format):
     content = teacher_content(row)
     if prompt_format == "plain_qa_v1":

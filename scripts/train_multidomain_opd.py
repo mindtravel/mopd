@@ -6,8 +6,7 @@ from mopd.backends.multi_teacher import load_models
 from mopd.backends.fairy2i_qat_adapter import save_fairy2i_qat_update
 from mopd.data.mixture import plan_domains
 from mopd.data.multidomain import domain_scale
-from mopd.data.domains import teacher_content
-from mopd.data.templates import apply_chat_template_ids
+from mopd.protocol import teacher_prefix_ids
 from mopd.rollout.hf_batch import generate
 from mopd.rollout.replicas import RolloutReplicas
 from mopd.rollout.processes import ProcessRollouts
@@ -72,7 +71,7 @@ def run(c):
                         starts=[len(r["prefix"]) for r in chunk]
                         tseqs=[];tstarts=[]
                         for r in chunk:
-                            prefix=apply_chat_template_ids(tt,[{"role":"user","content":teacher_content(r["row"])}],add_generation_prompt=True,enable_thinking=False)
+                            prefix=teacher_prefix_ids(tt,r["row"],spec.get("teacher_prompt_format","chat_template_v1"),r["prefix"])
                             tseqs.append(prefix+r["answer"]);tstarts.append(len(prefix))
                             assert tseqs[-1][tstarts[-1]:]==r["answer"]
                         dump(out/"status.json",{"state":"training","step":step,"phase":"scoring","domain":domain})
