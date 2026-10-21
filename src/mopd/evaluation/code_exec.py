@@ -81,9 +81,11 @@ def grade_code(row, text):
         raise ValueError(f"Unknown code benchmark {benchmark!r}")
     code = extract_code(text)
     if not code.strip():
-        return {"correct": False, "grade_error": "empty_completion", "prediction": None}
+        # No answer extracted, same as math's "predicted is None": a model miss, not a scorer failure.
+        return {"correct": False, "grade_error": None, "prediction": None, "execution_error": None}
     script = _BUILDERS[benchmark](code, metadata)
     outcome = _run_script(script)
-    return {"correct": outcome["passed"],
-            "grade_error": None if outcome["passed"] else "test_failed",
+    # grade_error is reserved for the harness itself failing to produce a verdict; a failed
+    # test is a normal incorrect answer (same as a wrong \boxed{} value for math), not that.
+    return {"correct": outcome["passed"], "grade_error": None,
             "prediction": code, "execution_error": outcome["error"]}
