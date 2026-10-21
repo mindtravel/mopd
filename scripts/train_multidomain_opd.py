@@ -15,6 +15,7 @@ from mopd.training.batching import pack,logps,generation_eos_ids,is_eos_token
 from mopd.config import load
 from mopd.training.dual_template import policy_loss
 from mopd.evaluation.versioning import write_manifest
+from mopd.training.schedule import build_scheduler
 from train_math_opd import fingerprint,dump
 
 def sync(c):
@@ -49,10 +50,10 @@ def run(c):
         weights={d:s["weight"] for d,s in c["domains"].items()}
         counts={d:s["count"] for d,s in c["domains"].items()}
         scales={d:domain_scale(d,weights,counts) for d in counts}
-        opt=torch.optim.AdamW(params,lr=c["lr"])
+        opt=torch.optim.AdamW(params,lr=c["lr"]);sched=build_scheduler(opt,c)
         with (out/"metrics.jsonl").open("w",buffering=1) as metrics,(out/"rollouts.jsonl").open("w",buffering=1) as rollouts:
             for step,rows in enumerate(batches,1):
-                started=time.perf_counter();opt.zero_grad(set_to_none=True)
+                started=time.perf_counter();opt.zero_grad(set_to_none=True);lr=sched.get_last_lr()[0]
                 dump(out/"status.json",{"state":"training","step":step,"phase":"generating"})
                 if replicas:
                     trajectories,gen_seconds,rollout_stats=replicas.generate(student,rows,step-1)
@@ -106,8 +107,8 @@ def run(c):
                       "tokens":sum(e["tokens"] for e in entries),"truncated":sum(e["truncated"] for e in entries)}
                 grad=torch.nn.utils.clip_grad_norm_(params,1.)
                 if not torch.isfinite(grad) or grad<=0:raise ValueError("Invalid student gradient")
-                opt.step();sync(c)
-                report={"step":step,"domains":stats,"loss":sum(s["weighted_loss"] for s in stats.values()),
+                opt.step();sched.step();sync(c)
+                report={"step":step,"lr":lr,"domains":stats,"loss":sum(s["weighted_loss"] for s in stats.values()),
                   "grad_norm":float(grad),"rollout":rollout_stats,"generation_seconds":gen_seconds,"teacher_seconds":teacher_seconds,
                   "student_seconds":student_seconds,"seconds":time.perf_counter()-started,
                   "generated_tokens_per_second":sum(s["tokens"] for s in stats.values())/gen_seconds,
@@ -120,7 +121,7 @@ def run(c):
                         save_fairy2i_qat_update(student,ckpt,base_model=c["student"],step=step)
                     else:
                         student.save_pretrained(ckpt,safe_serialization=True)
-                    torch.save({"step":step,"optimizer":opt.state_dict(),"rng":torch.get_rng_state(),
+                    torch.save({"step":step,"optimizer":opt.state_dict(),"scheduler":sched.state_dict(),"rng":torch.get_rng_state(),
                       "cuda_rng":torch.cuda.get_rng_state_all()},ckpt/"training_state.pt")
                     write_manifest(c,out,{"state":"training","step":step})
         if hasattr(replicas,"close"):replicas.close()

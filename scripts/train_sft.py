@@ -1,79 +1,94 @@
 """Plain supervised fine-tuning on real (prompt, reference answer) pairs.
 
-Same student construction (mopd.students.registry), same prompt protocol
-(mopd.protocol.student_prompt) and same packed-logprob forward
-(mopd.training.batching.pack/logps) as the MOPD OPD entries, so a checkpoint from
-here is a drop-in comparison: same LoRA shape, same eval harness via
-mopd.evaluation.versioning.write_manifest. The only difference from
-scripts/train_domain_opd.py is that there is no rollout and no teacher: the
-loss is plain token-level negative log-likelihood on a fixed reference answer.
+Everything except the training signal is shared with the MOPD entry
+(scripts/train_multidomain_opd.py), so a comparison isolates the method:
+  - batches: mopd.data.mixture.resolve_domain + plan_domains (fixed per-step domain
+    and source quotas, no replacement, holdout overlap rejected before training);
+  - loss weighting: mopd.data.multidomain.domain_scale (per-sample token mean, then
+    per-domain mean, then domain weights), the same reduction MOPD applies;
+  - optimizer and schedule: AdamW + mopd.training.schedule, grad clip 1.0;
+  - student, prompt protocol, packed forward, checkpoint and manifest.
+The only difference is that there is no rollout and no teacher: each sample's loss
+is token-level negative log-likelihood of its fixed reference answer.
 
-Does not go through mopd.config.load: that schema requires a teacher and a
-rollout backend per domain, which do not exist for SFT.
+Does not go through mopd.config.load: that schema requires a teacher and a rollout
+backend per domain, which do not exist for SFT.
 """
 import argparse,json,time,traceback
 from pathlib import Path
 import torch
-from mopd.data.pool import build_plan,load_pool
+from mopd.data.mixture import resolve_domain,plan_domains
+from mopd.data.multidomain import domain_scale
 from mopd.protocol import student_prompt
 from mopd.students.registry import build_student,save_student
 from mopd.training.batching import pack,logps
+from mopd.training.schedule import build_scheduler,describe
 from mopd.evaluation.versioning import write_manifest
 from mopd.runtime.artifacts import dump
 
+def encode(tok,row,prompt_format,eos,max_len):
+    prefix=tok(student_prompt(tok,row,prompt_format),add_special_tokens=False).input_ids
+    response=tok(row["response"],add_special_tokens=False).input_ids+[eos]
+    if max_len and len(prefix)+len(response)>max_len:
+        return prefix,response[:max_len-len(prefix)],True
+    return prefix,response,False
+
 def main():
     ap=argparse.ArgumentParser();ap.add_argument("--config",required=True);a=ap.parse_args()
-    c=json.loads(Path(a.config).read_text());out=Path(c["output"]);out.mkdir(parents=True,exist_ok=False)
+    c=json.loads(Path(a.config).read_text());out=Path(c["output"])
+    for name,spec in c["domains"].items():resolve_domain(name,spec)
+    describe(c)
+    out.mkdir(parents=True,exist_ok=False)
     dump(out/"config.json",c);dump(out/"status.json",{"state":"loading"})
     try:
         torch.manual_seed(c["seed"])
-        rows=load_pool(c["train_file"])
-        plan=build_plan(rows,seed=c["seed"],steps=c["steps"],batch_size=c["accumulation"])
+        plan=plan_domains(c)
         dump(out/"batch_plan.json",plan)
         tok,model=build_student(c);model.train()  # gradient checkpointing only recomputes (instead of retaining) activations in train mode
         device=c["student_device"];pad=tok.pad_token_id;eos=tok.eos_token_id
-        batch=c["micro_batch_size"];total=c["accumulation"];assert total%batch==0
+        weights={d:s["weight"] for d,s in c["domains"].items()}
+        counts={d:s["count"] for d,s in c["domains"].items()}
+        scales={d:domain_scale(d,weights,counts) for d in counts}
+        micro=c["micro_batch_size"]
         params=[p for p in model.parameters() if p.requires_grad]
         initial=[p.detach().cpu().clone() for p in params]
-        opt=torch.optim.AdamW(params,lr=c["lr"])
+        opt=torch.optim.AdamW(params,lr=c["lr"]);sched=build_scheduler(opt,c)
         max_len=c.get("max_seq_len")
         with (out/"metrics.jsonl").open("w",buffering=1) as mf:
-            for step in range(c["steps"]):
-                opt.zero_grad(set_to_none=True);started=time.perf_counter()
-                tokens=0;truncated=0;losses_report=[]
-                for offset in range(0,total,batch):
-                    items=plan[step][offset:offset+batch]
-                    seqs=[];starts=[]
+            for step,rows in enumerate(plan,1):
+                opt.zero_grad(set_to_none=True);started=time.perf_counter();lr=sched.get_last_lr()[0]
+                stats={d:{"samples":0,"loss_sum":0.,"tokens":0,"truncated":0} for d in counts}
+                for offset in range(0,len(rows),micro):
+                    items=rows[offset:offset+micro];seqs=[];starts=[];truncated=[]
                     for row in items:
-                        prefix=tok(student_prompt(tok,row,c["student_prompt_format"]),add_special_tokens=False).input_ids
-                        response=tok(row["response"],add_special_tokens=False).input_ids+[eos]
-                        seq=prefix+response
-                        if max_len and len(seq)>max_len:
-                            response=response[:max_len-len(prefix)]
-                            if not response: continue
-                            seq=prefix+response;truncated+=1
-                        seqs.append(seq);starts.append(len(prefix))
-                        tokens+=len(response)
-                    if not seqs: continue
+                        prefix,response,cut=encode(tok,row,c["student_prompt_format"],eos,max_len)
+                        if not response:raise ValueError(f"prompt alone exceeds max_seq_len: {row['id']}")
+                        seqs.append(prefix+response);starts.append(len(prefix));truncated.append(cut)
                     ids,attention,response_mask=pack(seqs,starts,pad,device)
-                    lp=logps(model,ids,attention,response_mask)
-                    micro_losses=[-v.mean() for v in lp]
-                    for loss in micro_losses: losses_report.append(float(loss.detach()))
-                    (torch.stack(micro_losses).sum()/total).backward()
+                    per_sample=[-v.mean() for v in logps(model,ids,attention,response_mask)]
+                    loss=sum(scales[r["domain"]]*l for r,l in zip(items,per_sample))
+                    loss.backward()
+                    for r,l,s,start,cut in zip(items,per_sample,seqs,starts,truncated):
+                        d=stats[r["domain"]];d["samples"]+=1;d["loss_sum"]+=float(l.detach())
+                        d["tokens"]+=len(s)-start;d["truncated"]+=int(cut)
                 grad=torch.nn.utils.clip_grad_norm_(params,1.)
-                assert torch.isfinite(grad)
-                opt.step()
-                report={"step":step+1,"loss":sum(losses_report)/len(losses_report) if losses_report else None,
-                    "grad_norm":float(grad),"tokens":tokens,"truncated":truncated,
+                if not torch.isfinite(grad) or grad<=0:raise ValueError("Invalid student gradient")
+                opt.step();sched.step()
+                domains={d:{"loss":s["loss_sum"]/s["samples"],"samples":s["samples"],"tokens":s["tokens"],
+                            "truncated":s["truncated"]} for d,s in stats.items()}
+                report={"step":step,"lr":lr,"loss":sum(weights[d]*v["loss"] for d,v in domains.items()),
+                    "grad_norm":float(grad),"domains":domains,
+                    "tokens":sum(v["tokens"] for v in domains.values()),
+                    "truncated":sum(v["truncated"] for v in domains.values()),
                     "seconds":time.perf_counter()-started}
                 mf.write(json.dumps(report)+"\n");print(json.dumps(report),flush=True)
                 dump(out/"status.json",{"state":"training",**report})
-                if (step+1)%c["save_every"]==0 or step+1==c["steps"]:
-                    ckpt=out/f"checkpoint-{step+1:04d}"
-                    save_student(model,c,ckpt,step+1)
-                    torch.save({"step":step+1,"optimizer":opt.state_dict(),"rng":torch.get_rng_state(),
-                        "cuda_rng":torch.cuda.get_rng_state_all()},ckpt/"training_state.pt")
-                    write_manifest(c,out,{"state":"training","step":step+1})
+                if step%c["save_every"]==0 or step==c["steps"]:
+                    ckpt=out/f"checkpoint-{step:04d}"
+                    save_student(model,c,ckpt,step)
+                    torch.save({"step":step,"optimizer":opt.state_dict(),"scheduler":sched.state_dict(),
+                        "rng":torch.get_rng_state(),"cuda_rng":torch.cuda.get_rng_state_all()},ckpt/"training_state.pt")
+                    write_manifest(c,out,{"state":"training","step":step})
         delta=sum((p.detach().cpu()-v).float().square().sum().item() for p,v in zip(params,initial))**.5
         assert delta>0
         dump(out/"status.json",{"state":"complete","steps":c["steps"],

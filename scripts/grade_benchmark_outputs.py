@@ -19,22 +19,22 @@ def main():
   for r in generated:
    source=expected[(r["domain"],str(r["id"]))]
    if r["prompt"]!=source["prompt"]:raise ValueError("Prompt mismatch")
-   scored={**r,**check(source,r["response"]),"model_version_id":generation.get("model_version_id"),
+   scored={**r,**({"benchmark":source["benchmark"]} if "benchmark" in source else {}),**check(source,r["response"]),"model_version_id":generation.get("model_version_id"),
     "protocol_id":generation.get("protocol_id"),"protocol_sha256":generation.get("protocol_sha256"),
     "inference_backend":generation.get("backend")};results.append(scored)
    f.write(json.dumps(scored,ensure_ascii=False)+"\n")
    if len(results)%25==0 or len(results)==len(generated):
-    domains=summarize(results)
-    for d in domains.values():
+    domains=summarize(results);benchmarks=summarize(results,"benchmark")
+    for d in (*domains.values(),*benchmarks.values()):
      d["scored_count"]=d["count"]-d["grade_errors"]
      if d["grade_errors"]:d["accuracy"]=None
-    progress={"scored_count":len(results),"total":len(rows),"domains":domains}
+    progress={"scored_count":len(results),"total":len(rows),"domains":domains,**({"benchmarks":benchmarks} if benchmarks else {})}
     temp=out/"scoring-progress.tmp"
     temp.write_text(json.dumps(progress));temp.replace(out/"scoring-progress.json")
  if not complete:return
  (out/"cases.partial").replace(out/"cases.jsonl")
- result={"done":len(results),"total":len(rows),"domains":domains,
-  "scope":"All rows of recorded input; official strict IFEval / existing math-verify scorer",
+ result={"done":len(results),"total":len(rows),"domains":domains,**({"benchmarks":benchmarks} if benchmarks else {}),
+  "scope":"All rows of recorded input; scorer per domain: math-verify (math), official strict IFEval (instruction), sandboxed test execution (code)",
   "generation":generation}
  (out/"summary.json").write_text(json.dumps(result,indent=2));print(json.dumps(result),flush=True)
 if __name__=="__main__":main()

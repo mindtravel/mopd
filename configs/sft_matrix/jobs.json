@@ -1,0 +1,40 @@
+[
+  {
+    "name": "sftv2-m",
+    "train": "configs/sft_matrix/sftv2_m.json"
+  },
+  {
+    "name": "sftv2-i",
+    "train": "configs/sft_matrix/sftv2_i.json"
+  },
+  {
+    "name": "sftv2-c",
+    "train": "configs/sft_matrix/sftv2_c.json"
+  },
+  {
+    "name": "sftv2-mi",
+    "train": "configs/sft_matrix/sftv2_mi.json"
+  },
+  {
+    "name": "sftv2-mc",
+    "train": "configs/sft_matrix/sftv2_mc.json"
+  },
+  {
+    "name": "sftv2-ic",
+    "train": "configs/sft_matrix/sftv2_ic.json"
+  },
+  {
+    "name": "sftv2-mic",
+    "train": "configs/sft_matrix/sftv2_mic.json"
+  },
+  {
+    "name": "base",
+    "model_version": "/ssd/lzx/mopd/runs/20261015-dual-smol-constraints-from-base-vllm/model-version.json",
+    "checkpoint": "base"
+  },
+  {
+    "name": "mopd-dual-smol-ckpt64",
+    "model_version": "/ssd/lzx/mopd/runs/20261015-dual-smol-constraints-from-base-vllm/model-version.json",
+    "checkpoint": "checkpoint-0064"
+  }
+]

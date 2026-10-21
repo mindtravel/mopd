@@ -23,10 +23,10 @@ def check(row,text):
     inp=evaluation_lib.InputExample(key=meta["key"],instruction_id_list=meta["instruction_id_list"],prompt=row["prompt"],kwargs=meta["kwargs"])
     result=evaluation_lib.test_instruction_following_strict(inp,{row["prompt"]:text})
     return {"correct":bool(result.follow_all_instructions),"instruction_checks":[bool(v) for v in result.follow_instruction_list]}
-def summarize(results):
+def summarize(results,key="domain"):
     summary={}
-    for domain in sorted({r["domain"] for r in results}):
-        rows=[r for r in results if r["domain"]==domain]
+    for domain in sorted({r[key] for r in results if key in r}):
+        rows=[r for r in results if r.get(key)==domain]
         checks=[x for r in rows for x in r.get("instruction_checks",[])]
         summary[domain]={"count":len(rows),"correct":sum(r["correct"] for r in rows),
            "accuracy":sum(r["correct"] for r in rows)/len(rows),"truncated":sum(r["truncated"] for r in rows),

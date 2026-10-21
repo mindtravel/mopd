@@ -5,15 +5,20 @@
   "student_prompt_format": "plain_qa_v1",
   "training_method": "sft",
   "output": "/ssd/lzx/mopd/runs/20261021-sft-opencoder-lora",
-  "train_file": "/ssd/lzx/mopd/data/sft/opencoder/train.jsonl",
-  "holdout_files": [
-    "/ssd/lzx/mopd/data/sft/opencoder/dev.jsonl"
-  ],
   "seed": 20261014,
-  "lr": 1e-4,
+  "lr": 0.0001,
   "steps": 64,
   "micro_batch_size": 4,
-  "accumulation": 16,
   "save_every": 16,
-  "max_seq_len": 2048
+  "max_seq_len": 2048,
+  "domains": {
+    "code": {
+      "train_file": "/ssd/lzx/mopd/data/sft/opencoder/train.jsonl",
+      "count": 16,
+      "weight": 1.0,
+      "holdout_files": [
+        "/ssd/lzx/mopd/data/sft/opencoder/dev.jsonl"
+      ]
+    }
+  }
 }
