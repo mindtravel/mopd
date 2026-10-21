@@ -4,26 +4,25 @@ A budget-matched math-only SFT run needs 64 steps x 32 = 2048 distinct problems;
 first SFT pool (data/sft/numina, 884 rows) was just MOPD's 1024 selected problems
 minus long solutions. This continues scripts/prepare_numina.py's exact selection loop
 (same eligibility, same seed-20261013 shuffle, same exact + near-duplicate screen
-against all 5000 MATH test problems) past 1024 up to TARGET, so its first 1024
+against all 5000 MATH test problems) past 1024 up to --target, so its first 1024
 selections are by construction MOPD's data/numina/train.jsonl, asserted below.
 prepare_numina.py runs at import time, so the loop is restated rather than imported.
 
 Long solutions are kept up to MAX_RESPONSE_TOKENS (SFT max_seq_len 4096 minus the
 prompt cap), instead of the first pool's 1024 cap that dropped 14% of the problems.
 """
-import collections,difflib,hashlib,json,random,re
+import argparse,collections,difflib,hashlib,json,random,re
 from pathlib import Path
 import pyarrow.parquet as pq
 from transformers import AutoTokenizer
 from mopd.data.pool import load_pool
 from mopd.protocol import student_prompt
 ROOT=Path(__file__).resolve().parents[1]
-TARGET=4096
 MAX_PROMPT_TOKENS=1024
 MAX_RESPONSE_TOKENS=3072
 norm=lambda x:re.sub(r"[^a-z0-9]","",x.lower())
 def grams(s):return {s[i:i+5] for i in range(max(0,len(s)-4))}
-def select():
+def select(target):
     test=[]
     for p in (ROOT/"data/math/raw").glob("*/test-*.parquet"):test.extend(pq.read_table(p).to_pylist())
     keys={norm(r["problem"]) for r in test}
@@ -46,12 +45,17 @@ def select():
             if jac>=.65 or ratio>=.8:near=True;break
         if near:excluded["near"]+=1;continue
         seen.add(s);selected.append((i,r))
-        if len(selected)==TARGET:break
+        if len(selected)==target:break
     return selected,excluded,len(test)
 def main():
-    out_root=ROOT/"data/sft/numina_v2"
+    p=argparse.ArgumentParser()
+    p.add_argument("--target",type=int,default=4096,help="problems to select (4096 = data/sft/numina_v2)")
+    p.add_argument("--out",default="data/sft/numina_v2");a=p.parse_args()
+    out_root=ROOT/a.out
+    if out_root.exists():raise ValueError(f"{out_root} exists; pools are immutable once written")
     tok=AutoTokenizer.from_pretrained(str(ROOT/"models/Qwen3-4B-Base"),local_files_only=True)
-    selected,excluded,checked=select()
+    selected,excluded,checked=select(a.target)
+    if len(selected)<a.target:raise ValueError(f"only {len(selected)} eligible problems for target {a.target}")
     mopd_ids=[r["id"] for r in load_pool(ROOT/"data/numina/train.jsonl")]
     if [f"numina-shard0:{i}" for i,_ in selected[:len(mopd_ids)]]!=mopd_ids:
         raise ValueError("selection prefix differs from data/numina/train.jsonl; the restated loop drifted from prepare_numina.py")
@@ -67,7 +71,7 @@ def main():
     path=out_root/"train.jsonl"
     path.write_text("".join(json.dumps(r,ensure_ascii=False)+"\n" for r in kept))
     report={"source":"AI-MO/NuminaMath-CoT shard0 (data/numina/train-00000.parquet), olympiads+amc_aime",
-      "selection":"restated scripts/prepare_numina.py loop, seed 20261013, extended to "+str(TARGET),
+      "selection":"restated scripts/prepare_numina.py loop, seed 20261013, extended to "+str(a.target),
       "selected":len(selected),"train":len(kept),"from_mopd_pool":sum(r["metadata"]["in_mopd_pool"] for r in kept),
       "selection_excluded":dict(excluded),"length_excluded":dict(length),"benchmark_checked":checked,
       "max_prompt_tokens":MAX_PROMPT_TOKENS,"max_response_tokens":MAX_RESPONSE_TOKENS,
