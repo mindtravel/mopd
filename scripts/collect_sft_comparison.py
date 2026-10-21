@@ -1,39 +1,52 @@
-"""Collect every SFT-vs-MOPD evaluation under one protocol into a single results directory.
+"""Collect every expert-integration evaluation under one protocol into one results directory.
 
-Copies each model's summary.json (small) and writes one flat table, so the comparison
-can be read without walking ~30 run directories. cases.jsonl stays in the runs (large);
-the table records its path for per-case analysis.
+Rows: base, MOPD, every SFT run (all variants and seeds) and every merged model under
+results/merge-evals. Each row carries strict and lenient (format-tolerant) accuracy per
+benchmark; grading-v2 (scripts/regrade_outputs.py) is preferred when present because
+only it has the lenient scores. Summaries are copied; cases.jsonl stays in place and
+its path is recorded for per-case analysis.
 """
 import argparse,json,shutil
 from pathlib import Path
 ROOT=Path(__file__).resolve().parents[1]
 def models(protocol):
     mopd="20261015-dual-smol-constraints-from-base-vllm"
-    yield "base","base",ROOT/f"runs/{mopd}/evaluations/base/{protocol}",None
-    yield "mopd-mi","mopd",ROOT/f"runs/{mopd}/evaluations/checkpoint-0064/{protocol}",ROOT/f"runs/{mopd}"
+    yield "base","base",None,ROOT/f"runs/{mopd}/evaluations/base/{protocol}",None
+    yield "mopd-mi","mopd","mi",ROOT/f"runs/{mopd}/evaluations/checkpoint-0064/{protocol}",ROOT/f"runs/{mopd}"
     for run in sorted(ROOT.glob("runs/20261021-sftv2*-lora")):
-        tag=run.name.removeprefix("20261021-").removesuffix("-lora")
-        variant,combo=tag.split("-")
-        yield tag,variant,run/f"evaluations/checkpoint-0064/{protocol}",run
+        variant,combo=run.name.removeprefix("20261021-").removesuffix("-lora").split("-")
+        yield f"{variant}-{combo}",variant,combo,run/f"evaluations/checkpoint-0064/{protocol}",run
+    for ev in sorted(ROOT.glob(f"results/merge-evals/*/{protocol}")):
+        name=ev.parent.name  # e.g. mic-avg
+        yield f"merge-{name}","merge-"+name.split("-",1)[1],name.split("-",1)[0],ev,None
+def scores(ev):
+    graded=ev/"grading-v2" if (ev/"grading-v2/summary.json").exists() else ev
+    s=json.loads((graded/"summary.json").read_text())
+    row={"graded":str(graded),"cases":str(graded/"cases.jsonl")}
+    for name,b in s["benchmarks"].items():
+        row[name]=b["accuracy"];row[name+"_lenient"]=b.get("accuracy_lenient")
+    inst=s["domains"]["instruction"]
+    row["ifeval_instruction_level"]=inst["strict_instruction_accuracy"]
+    row["ifeval_instruction_level_lenient"]=inst.get("lenient_instruction_accuracy")
+    row["truncated"]=sum(d["truncated"] for d in s["domains"].values())
+    return s,graded,row
 def main():
     p=argparse.ArgumentParser();p.add_argument("--protocol-id",default="unified-imc-plainqa-greedy4096-v1")
     p.add_argument("--out",default="results/sft-comparison");a=p.parse_args()
     out=ROOT/a.out;(out/"summaries").mkdir(parents=True,exist_ok=True);rows=[]
-    for name,variant,ev,run in models(a.protocol_id):
-        s=json.loads((ev/"summary.json").read_text());shutil.copy(ev/"summary.json",out/"summaries"/f"{name}.json")
-        b=s["benchmarks"];row={"model":name,"variant":variant,
-            **{k:v["accuracy"] for k,v in b.items()},"code421":s["domains"]["code"]["accuracy"],
-            "ifeval_instruction_level":s["domains"]["instruction"]["strict_instruction_accuracy"],
-            "truncated":sum(d["truncated"] for d in s["domains"].values()),"cases":str(ev/"cases.jsonl")}
+    for name,variant,combo,ev,run in models(a.protocol_id):
+        if not (ev/"summary.json").exists():print("skip (not graded yet):",name);continue
+        s,graded,row=scores(ev);shutil.copy(graded/"summary.json",out/"summaries"/f"{name}.json")
+        row={"model":name,"variant":variant,"combo":combo,**row}
         if run:
             config=json.loads((run/"config.json").read_text())
-            row.update(seed=config.get("seed"),lr=config.get("lr"),steps=config.get("steps"),
-                domains=list(config["domains"]),train_tokens=sum(json.loads(l)["tokens"] if "tokens" in json.loads(l)
-                    else sum(v["tokens"] for v in json.loads(l)["domains"].values()) for l in open(run/"metrics.jsonl")))
+            row.update(seed=config.get("seed"),lr=config.get("lr"),steps=config.get("steps"),domains=list(config["domains"]),
+                train_tokens=sum(m["tokens"] if "tokens" in m else sum(v["tokens"] for v in m["domains"].values())
+                                 for m in map(json.loads,open(run/"metrics.jsonl"))))
         rows.append(row)
     (out/"table.jsonl").write_text("".join(json.dumps(r)+"\n" for r in rows))
-    (out/"README.md").write_text(f"# SFT 对比结果汇总\n\n协议：`{a.protocol_id}`（MATH128 + IFEval541 + HumanEval164 + MBPP257）。\n"
-        "`table.jsonl` 每行一个模型；`summaries/` 是各评测 summary.json 的拷贝；逐题结果见 table 中 `cases` 路径。\n"
-        "由 `scripts/collect_sft_comparison.py` 生成。\n")
+    (out/"README.md").write_text(f"# 专家整合对比结果汇总\n\n协议：`{a.protocol_id}`（MATH128 + IFEval541 + HumanEval164 + MBPP257）。\n"
+        "`table.jsonl` 每行一个模型，含严格分与宽松分（`*_lenient`，格式容错）；`summaries/` 是对应 summary.json 拷贝；"
+        "逐题结果见 `cases` 路径。由 `scripts/collect_sft_comparison.py` 生成。\n")
     print(len(rows),"models ->",out)
 if __name__=="__main__":main()
