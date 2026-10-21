@@ -29,7 +29,7 @@ def humaneval_rows():
 def mbpp_rows():
     raw=pq.read_table(ROOT/"data/code/upstream/mbpp/sanitized-test-00000-of-00001.parquet").to_pylist()
     for r in raw:
-        match=re.match(r"assert\s+(\w+)\(",r["test_list"][0])
+        match=re.match(r"assert\s+(\w+)\s*\(",r["test_list"][0])
         if not match:
             raise ValueError(f"mbpp task {r['task_id']}: could not infer function name from {r['test_list'][0]!r}")
         yield {"id":f"mbpp/{r['task_id']}","domain":"code","source":"google-research-datasets/mbpp:sanitized",
