@@ -1,0 +1,19 @@
+{
+  "student": "/ssd/lzx/mopd/models/Qwen3-4B-Base",
+  "student_device": "cuda:0",
+  "student_backend": "hf_lora",
+  "student_prompt_format": "plain_qa_v1",
+  "training_method": "sft",
+  "output": "/ssd/lzx/mopd/runs/20261021-sft-numina-math-lora",
+  "train_file": "/ssd/lzx/mopd/data/sft/numina/train.jsonl",
+  "holdout_files": [
+    "/ssd/lzx/mopd/data/math/eval.jsonl"
+  ],
+  "seed": 20261014,
+  "lr": 1e-4,
+  "steps": 64,
+  "micro_batch_size": 4,
+  "accumulation": 16,
+  "save_every": 16,
+  "max_seq_len": 2048
+}
