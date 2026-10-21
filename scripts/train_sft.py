@@ -30,7 +30,7 @@ def main():
         rows=load_pool(c["train_file"])
         plan=build_plan(rows,seed=c["seed"],steps=c["steps"],batch_size=c["accumulation"])
         dump(out/"batch_plan.json",plan)
-        tok,model=build_student(c)
+        tok,model=build_student(c);model.train()  # gradient checkpointing only recomputes (instead of retaining) activations in train mode
         device=c["student_device"];pad=tok.pad_token_id;eos=tok.eos_token_id
         batch=c["micro_batch_size"];total=c["accumulation"];assert total%batch==0
         params=[p for p in model.parameters() if p.requires_grad]
