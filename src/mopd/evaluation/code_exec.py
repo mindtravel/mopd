@@ -52,12 +52,16 @@ def extract_code_lenient(text):
     """
     if _CODE_FENCE.search(text):
         return extract_code(text)
+    # plain_qa prompts end in "Answer:", so an unfenced reply often starts " def ...": shift every
+    # line left by the first code line's own indentation (the body keeps its relative indentation).
     lines = text.splitlines()
-    start = next((i for i, line in enumerate(lines) if _CODE_START.match(line)), None)
+    start = next((i for i, line in enumerate(lines) if _CODE_START.match(line.lstrip())), None)
     if start is None:
         return text
+    offset = len(lines[start]) - len(lines[start].lstrip())
     kept = []
     for line in lines[start:]:
+        line = line[offset:] if line[:offset].strip() == "" else line
         if line.strip() and not _CODE_LINE.match(line):
             break
         kept.append(line)
