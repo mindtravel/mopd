@@ -13,10 +13,12 @@ from mopd.data.domains import student_prompt,teacher_content
 from mopd.data.templates import apply_chat_template_ids
 from mopd.training.batching import generation_eos_ids,is_eos_token
 from eval_math_opd import grade
+from mopd.evaluation.code_exec import grade_code
 DetectorFactory.seed=0
 
 def check(row,text):
     if row["domain"]=="math":return grade(row["solution"],text)
+    if row["domain"]=="code":return grade_code(row,text)
     meta=row["metadata"]
     inp=evaluation_lib.InputExample(key=meta["key"],instruction_id_list=meta["instruction_id_list"],prompt=row["prompt"],kwargs=meta["kwargs"])
     result=evaluation_lib.test_instruction_following_strict(inp,{row["prompt"]:text})
