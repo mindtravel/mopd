@@ -1,0 +1,4 @@
+[
+  {"name": "mi-avg", "model": "/ssd/lzx/mopd/models/merged/mi-avg"},
+  {"name": "mic-avg", "model": "/ssd/lzx/mopd/models/merged/mic-avg"}
+]
