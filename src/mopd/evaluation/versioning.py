@@ -107,7 +107,7 @@ def build_manifest(
         teachers["default"] = {"model": config["teacher"], "device": config.get("teacher_device"), "trainable": False}
 
     training = {
-        "method": "mopd",
+        "method": config.get("training_method", "mopd"),
         "seed": config.get("seed"),
         "planned_steps": config.get("steps"),
         "completed_steps": status.get("step", status.get("steps")),
