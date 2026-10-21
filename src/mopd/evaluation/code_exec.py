@@ -39,6 +39,31 @@ def extract_code(text):
     return text
 
 
+_CODE_START = re.compile(r"^(def |class |import |from \S+ import |@)")
+_CODE_LINE = re.compile(r"^(\s|def |class |import |from |@|#|if __name__|[A-Za-z_][A-Za-z0-9_]*\s*=)")
+
+
+def extract_code_lenient(text):
+    """Format-tolerant extraction for the lenient metric only.
+
+    With a fenced block this equals extract_code. Without one, keep the span from the
+    first top-level def/class/import line up to the first unindented line that is not
+    code (prose after the function), instead of executing the whole response verbatim.
+    """
+    if _CODE_FENCE.search(text):
+        return extract_code(text)
+    lines = text.splitlines()
+    start = next((i for i, line in enumerate(lines) if _CODE_START.match(line)), None)
+    if start is None:
+        return text
+    kept = []
+    for line in lines[start:]:
+        if line.strip() and not _CODE_LINE.match(line):
+            break
+        kept.append(line)
+    return "\n".join(kept).rstrip() + "\n"
+
+
 def _limit_resources():
     resource.setrlimit(resource.RLIMIT_CPU, (CPU_TIME_LIMIT_SECONDS, CPU_TIME_LIMIT_SECONDS))
     resource.setrlimit(resource.RLIMIT_AS, (MEMORY_LIMIT_BYTES, MEMORY_LIMIT_BYTES))
@@ -74,12 +99,22 @@ def _mbpp_script(code, metadata):
 _BUILDERS = {"humaneval": _humaneval_script, "mbpp": _mbpp_script}
 
 
-def grade_code(row, text):
+def grade_code(row, text, lenient=True):
+    """Strict fields as before; with lenient=True also `correct_lenient` (format-tolerant extraction)."""
+    result = _grade_extracted(row, extract_code(text))
+    if lenient:
+        loose = extract_code_lenient(text)
+        # Lenient = strict plus format tolerance, so it never drops below strict.
+        result["correct_lenient"] = result["correct"] or (
+            loose != result["prediction"] and _grade_extracted(row, loose)["correct"])
+    return result
+
+
+def _grade_extracted(row, code):
     metadata = row["metadata"]
     benchmark = metadata["benchmark"]
     if benchmark not in _BUILDERS:
         raise ValueError(f"Unknown code benchmark {benchmark!r}")
-    code = extract_code(text)
     if not code.strip():
         # No answer extracted, same as math's "predicted is None": a model miss, not a scorer failure.
         return {"correct": False, "grade_error": None, "prediction": None, "execution_error": None}

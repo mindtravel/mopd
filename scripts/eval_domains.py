@@ -1,4 +1,4 @@
-"""Fixed held-out math/IFEval evaluation; official strict IFEval checks."""
+"""Held-out math/IFEval/code checks: strict scores plus format-tolerant *_lenient scores."""
 import argparse,json,os,random,sys,time
 from pathlib import Path
 ROOT=Path("/ssd/lzx/mopd")
@@ -16,13 +16,25 @@ from eval_math_opd import grade
 from mopd.evaluation.code_exec import grade_code
 DetectorFactory.seed=0
 
+def math_lenient(solution,text):
+    """Format-tolerant: math-verify extracts the final answer from the whole response, so an
+    unboxed "The answer is 2/3" can count. Strict grading keeps the boxed-only rule."""
+    from math_verify import parse,verify
+    from eval_math_opd import boxed
+    try:return bool(verify(parse("$\\boxed{"+boxed(solution)+"}$"),parse(text)))
+    except Exception:return False
 def check(row,text):
-    if row["domain"]=="math":return grade(row["solution"],text)
+    """Strict fields (correct, instruction_checks) unchanged; *_lenient fields separate format
+    from ability: lenient answer extraction (math), lenient code extraction, official IFEval loose."""
+    if row["domain"]=="math":
+        r=grade(row["solution"],text);return {**r,"correct_lenient":r["correct"] or math_lenient(row["solution"],text)}
     if row["domain"]=="code":return grade_code(row,text)
     meta=row["metadata"]
     inp=evaluation_lib.InputExample(key=meta["key"],instruction_id_list=meta["instruction_id_list"],prompt=row["prompt"],kwargs=meta["kwargs"])
-    result=evaluation_lib.test_instruction_following_strict(inp,{row["prompt"]:text})
-    return {"correct":bool(result.follow_all_instructions),"instruction_checks":[bool(v) for v in result.follow_instruction_list]}
+    strict=evaluation_lib.test_instruction_following_strict(inp,{row["prompt"]:text})
+    loose=evaluation_lib.test_instruction_following_loose(inp,{row["prompt"]:text})
+    return {"correct":bool(strict.follow_all_instructions),"instruction_checks":[bool(v) for v in strict.follow_instruction_list],
+            "correct_lenient":bool(loose.follow_all_instructions),"instruction_checks_lenient":[bool(v) for v in loose.follow_instruction_list]}
 def summarize(results,key="domain"):
     summary={}
     for domain in sorted({r[key] for r in results if key in r}):
@@ -32,6 +44,10 @@ def summarize(results,key="domain"):
            "accuracy":sum(r["correct"] for r in rows)/len(rows),"truncated":sum(r["truncated"] for r in rows),
            "grade_errors":sum(bool(r.get("grade_error")) for r in rows)}
         if checks:summary[domain]["strict_instruction_accuracy"]=sum(checks)/len(checks)
+        if all("correct_lenient" in r for r in rows):
+            summary[domain]["accuracy_lenient"]=sum(r["correct_lenient"] for r in rows)/len(rows)
+            loose=[x for r in rows for x in r.get("instruction_checks_lenient",[])]
+            if loose:summary[domain]["lenient_instruction_accuracy"]=sum(loose)/len(loose)
     return summary
 def main():
     p=argparse.ArgumentParser()
