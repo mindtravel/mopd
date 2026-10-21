@@ -1,0 +1,33 @@
+{
+  "student": "/ssd/lzx/mopd/models/Qwen3-4B-Base",
+  "student_device": "cuda:0",
+  "student_backend": "hf_lora",
+  "student_prompt_format": "plain_qa_v1",
+  "training_method": "sft",
+  "output": "/ssd/lzx/mopd/runs/20261021-sftv2tok-c-lora",
+  "seed": 20261014,
+  "lr": 5e-05,
+  "lr_schedule": {
+    "type": "constant"
+  },
+  "steps": 64,
+  "micro_batch_size": 2,
+  "save_every": 16,
+  "max_seq_len": 4096,
+  "budget_note": "token-matched to the dual-domain MOPD run: 64 steps, per-step trained-token quota split by domain weight; constant lr 5e-5",
+  "domains": {
+    "code": {
+      "train_file": "/ssd/lzx/mopd/data/sft/opencoder/train.jsonl",
+      "holdout_files": [
+        "/ssd/lzx/mopd/data/sft/opencoder/dev.jsonl",
+        "/ssd/lzx/mopd/data/full_eval/unified-v1/all.jsonl"
+      ],
+      "weight": 1.0
+    }
+  },
+  "token_budget": {
+    "per_step": 19094,
+    "total_reference": 1221990,
+    "reference": "trained response tokens of 20261015-dual-smol-constraints-from-base-vllm (64 steps)"
+  }
+}

@@ -78,7 +78,9 @@ def resolve_domain(domain, spec, project_root=PROJECT_ROOT):
         spec["sources"] = [{"name": Path(spec["train_file"]).parent.name, "path": spec["train_file"], "weight": 1.0}]
     else:
         raise ValueError(f"domains.{domain}: missing mixture or train_file")
-    spec["source_counts"] = quotas(spec["count"], spec["sources"])
+    # Token-budget SFT plans (mopd.data.token_budget) have no fixed per-step count.
+    if spec.get("count") is not None:
+        spec["source_counts"] = quotas(spec["count"], spec["sources"])
     return spec
 
 

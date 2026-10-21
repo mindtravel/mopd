@@ -4,8 +4,10 @@ Everything except the training signal is shared with the MOPD entry
 (scripts/train_multidomain_opd.py), so a comparison isolates the method:
   - batches: mopd.data.mixture.resolve_domain + plan_domains (fixed per-step domain
     and source quotas, no replacement, holdout overlap rejected before training);
-  - loss weighting: mopd.data.multidomain.domain_scale (per-sample token mean, then
-    per-domain mean, then domain weights), the same reduction MOPD applies;
+  - loss weighting: per-sample token mean, then per-domain mean, then domain weights,
+    the reduction MOPD applies via mopd.data.multidomain.domain_scale;
+  - optional "token_budget": {"per_step": N} sizes each step by trained tokens instead of
+    sample count (mopd.data.token_budget), same pools and shuffle order;
   - optimizer and schedule: AdamW + mopd.training.schedule, grad clip 1.0;
   - student, prompt protocol, packed forward, checkpoint and manifest.
 The only difference is that there is no rollout and no teacher: each sample's loss
@@ -18,7 +20,7 @@ import argparse,json,time,traceback
 from pathlib import Path
 import torch
 from mopd.data.mixture import resolve_domain,plan_domains
-from mopd.data.multidomain import domain_scale
+from mopd.data.token_budget import plan_by_tokens
 from mopd.protocol import student_prompt
 from mopd.students.registry import build_student,save_student
 from mopd.training.batching import pack,logps
@@ -42,22 +44,27 @@ def main():
     dump(out/"config.json",c);dump(out/"status.json",{"state":"loading"})
     try:
         torch.manual_seed(c["seed"])
-        plan=plan_domains(c)
-        dump(out/"batch_plan.json",plan)
         tok,model=build_student(c);model.train()  # gradient checkpointing only recomputes (instead of retaining) activations in train mode
         device=c["student_device"];pad=tok.pad_token_id;eos=tok.eos_token_id
+        max_len=c.get("max_seq_len")
+        if c.get("token_budget"):
+            plan=plan_by_tokens(c,lambda row:len(encode(tok,row,c["student_prompt_format"],eos,max_len)[1]))
+        else:
+            plan=plan_domains(c)
+        dump(out/"batch_plan.json",plan)
         weights={d:s["weight"] for d,s in c["domains"].items()}
-        counts={d:s["count"] for d,s in c["domains"].items()}
-        scales={d:domain_scale(d,weights,counts) for d in counts}
         micro=c["micro_batch_size"]
         params=[p for p in model.parameters() if p.requires_grad]
         initial=[p.detach().cpu().clone() for p in params]
         opt=torch.optim.AdamW(params,lr=c["lr"]);sched=build_scheduler(opt,c)
-        max_len=c.get("max_seq_len")
         with (out/"metrics.jsonl").open("w",buffering=1) as mf:
             for step,rows in enumerate(plan,1):
                 opt.zero_grad(set_to_none=True);started=time.perf_counter();lr=sched.get_last_lr()[0]
-                stats={d:{"samples":0,"loss_sum":0.,"tokens":0,"truncated":0} for d in counts}
+                stats={d:{"samples":0,"loss_sum":0.,"tokens":0,"truncated":0} for d in weights}
+                # Per-sample weight = domain weight / that domain's samples this step: per-sample token
+                # mean, then domain mean, then domain weights (MOPD's domain_scale when counts are fixed).
+                counts={d:sum(r["domain"]==d for r in rows) for d in weights}
+                scales={d:weights[d]/counts[d] for d in weights}
                 for offset in range(0,len(rows),micro):
                     items=rows[offset:offset+micro];seqs=[];starts=[];truncated=[]
                     for row in items:

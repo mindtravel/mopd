@@ -1,0 +1,86 @@
+[
+  {
+    "name": "sftv2tok-m",
+    "train": "configs/sft_matrix/sftv2tok_m.json"
+  },
+  {
+    "name": "sftv2tok-i",
+    "train": "configs/sft_matrix/sftv2tok_i.json"
+  },
+  {
+    "name": "sftv2tok-c",
+    "train": "configs/sft_matrix/sftv2tok_c.json"
+  },
+  {
+    "name": "sftv2tok-mi",
+    "train": "configs/sft_matrix/sftv2tok_mi.json"
+  },
+  {
+    "name": "sftv2tok-mc",
+    "train": "configs/sft_matrix/sftv2tok_mc.json"
+  },
+  {
+    "name": "sftv2tok-ic",
+    "train": "configs/sft_matrix/sftv2tok_ic.json"
+  },
+  {
+    "name": "sftv2tok-mic",
+    "train": "configs/sft_matrix/sftv2tok_mic.json"
+  },
+  {
+    "name": "sftv2s2-m",
+    "train": "configs/sft_matrix/sftv2s2_m.json"
+  },
+  {
+    "name": "sftv2s2-i",
+    "train": "configs/sft_matrix/sftv2s2_i.json"
+  },
+  {
+    "name": "sftv2s2-c",
+    "train": "configs/sft_matrix/sftv2s2_c.json"
+  },
+  {
+    "name": "sftv2s2-mi",
+    "train": "configs/sft_matrix/sftv2s2_mi.json"
+  },
+  {
+    "name": "sftv2s2-mc",
+    "train": "configs/sft_matrix/sftv2s2_mc.json"
+  },
+  {
+    "name": "sftv2s2-ic",
+    "train": "configs/sft_matrix/sftv2s2_ic.json"
+  },
+  {
+    "name": "sftv2s2-mic",
+    "train": "configs/sft_matrix/sftv2s2_mic.json"
+  },
+  {
+    "name": "sftv2s3-m",
+    "train": "configs/sft_matrix/sftv2s3_m.json"
+  },
+  {
+    "name": "sftv2s3-i",
+    "train": "configs/sft_matrix/sftv2s3_i.json"
+  },
+  {
+    "name": "sftv2s3-c",
+    "train": "configs/sft_matrix/sftv2s3_c.json"
+  },
+  {
+    "name": "sftv2s3-mi",
+    "train": "configs/sft_matrix/sftv2s3_mi.json"
+  },
+  {
+    "name": "sftv2s3-mc",
+    "train": "configs/sft_matrix/sftv2s3_mc.json"
+  },
+  {
+    "name": "sftv2s3-ic",
+    "train": "configs/sft_matrix/sftv2s3_ic.json"
+  },
+  {
+    "name": "sftv2s3-mic",
+    "train": "configs/sft_matrix/sftv2s3_mic.json"
+  }
+]

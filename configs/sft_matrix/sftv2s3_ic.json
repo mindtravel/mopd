@@ -1,0 +1,38 @@
+{
+  "student": "/ssd/lzx/mopd/models/Qwen3-4B-Base",
+  "student_device": "cuda:0",
+  "student_backend": "hf_lora",
+  "student_prompt_format": "plain_qa_v1",
+  "training_method": "sft",
+  "output": "/ssd/lzx/mopd/runs/20261021-sftv2s3-ic-lora",
+  "seed": 20261016,
+  "lr": 5e-05,
+  "lr_schedule": {
+    "type": "constant"
+  },
+  "steps": 64,
+  "micro_batch_size": 2,
+  "save_every": 16,
+  "max_seq_len": 4096,
+  "budget_note": "matches 20261015-dual-smol-constraints-from-base-vllm: 64 steps x 32 samples, constant lr 5e-5, AdamW, clip 1.0, domain-mean loss",
+  "domains": {
+    "instruction": {
+      "train_file": "/ssd/lzx/mopd/data/sft/smol_constraints/train.jsonl",
+      "holdout_files": [
+        "/ssd/lzx/mopd/data/sft/smol_constraints/dev.jsonl",
+        "/ssd/lzx/mopd/data/full_eval/unified-v1/all.jsonl"
+      ],
+      "count": 16,
+      "weight": 0.5
+    },
+    "code": {
+      "train_file": "/ssd/lzx/mopd/data/sft/opencoder/train.jsonl",
+      "holdout_files": [
+        "/ssd/lzx/mopd/data/sft/opencoder/dev.jsonl",
+        "/ssd/lzx/mopd/data/full_eval/unified-v1/all.jsonl"
+      ],
+      "count": 16,
+      "weight": 0.5
+    }
+  }
+}
