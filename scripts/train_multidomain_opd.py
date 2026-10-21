@@ -15,6 +15,7 @@ from mopd.config import load
 from mopd.training.dual_template import policy_loss
 from mopd.evaluation.versioning import write_manifest
 from mopd.training.schedule import build_scheduler
+from mopd.runtime.provenance import record as record_provenance
 from train_math_opd import fingerprint,dump
 
 def sync(c):
@@ -31,6 +32,7 @@ def run(c):
     dump(out/"status.json",{"state":"loading"})
     write_manifest(c,out,{"state":"loading","step":0})
     try:
+        record_provenance(c,out)
         torch.set_num_threads(2)
         torch.manual_seed(c["seed"])
         stok,student,teachers=load_models(c)

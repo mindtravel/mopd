@@ -1,0 +1,12 @@
+# experiment scale256 / merge-mi; spec sha256 7bee1890b70b70843d2f2d0fdb7c13090759e22fe142d6183162dc919490fbf5
+merge_method: linear
+models:
+  - model: /ssd/lzx/mopd/models/experts/scale256-expert-m
+    parameters:
+      weight: 1.0
+  - model: /ssd/lzx/mopd/models/experts/scale256-expert-i
+    parameters:
+      weight: 1.0
+parameters:
+  normalize: true
+dtype: bfloat16

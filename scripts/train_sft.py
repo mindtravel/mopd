@@ -27,6 +27,7 @@ from mopd.training.batching import pack,logps
 from mopd.training.schedule import build_scheduler,describe
 from mopd.evaluation.versioning import write_manifest
 from mopd.runtime.artifacts import dump
+from mopd.runtime.provenance import record as record_provenance
 
 def encode(tok,row,prompt_format,eos,max_len):
     prefix=tok(student_prompt(tok,row,prompt_format),add_special_tokens=False).input_ids
@@ -43,6 +44,7 @@ def main():
     out.mkdir(parents=True,exist_ok=False)
     dump(out/"config.json",c);dump(out/"status.json",{"state":"loading"})
     try:
+        record_provenance(c,out)
         torch.manual_seed(c["seed"])
         tok,model=build_student(c);model.train()  # gradient checkpointing only recomputes (instead of retaining) activations in train mode
         device=c["student_device"];pad=tok.pad_token_id;eos=tok.eos_token_id

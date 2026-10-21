@@ -1,0 +1,68 @@
+{
+  "student": "/ssd/lzx/mopd/models/Qwen3-4B-Base",
+  "student_backend": "hf_lora",
+  "student_prompt_format": "plain_qa_v1",
+  "seed": 20261014,
+  "steps": 256,
+  "lr": 5e-05,
+  "lr_schedule": {
+    "type": "constant"
+  },
+  "micro_batch_size": 2,
+  "save_every": 32,
+  "output": "/ssd/lzx/mopd/runs/20261022-scale256-mopd-mi",
+  "data_pins": {
+    "/ssd/lzx/mopd/data/sft/numina_v3/train.jsonl": "7c1459f834ec7a848c4034f69a0a35e94393c901700dd7dadfe065e09da5ee65",
+    "/ssd/lzx/mopd/data/sft/smol_constraints/train.jsonl": "5268ae5493641ad098cc1d2ea1a640009ab60ae0b9e686a96e127dea72d6c69d",
+    "/ssd/lzx/mopd/data/sft/opencoder/train.jsonl": "154fddda78904bd2530f49a67add399b14dbfb91f68ec6106821ba7d70d5bc72",
+    "/ssd/lzx/mopd/data/math/eval.jsonl": "55736b29a4eaa18ef4f6e0b771ed76f3d83e1a5e87a9077dab1730263b46cd25",
+    "/ssd/lzx/mopd/data/sft/smol_constraints/dev.jsonl": "4eb6b8f312a2a94ed74cfa815b8291b55ba6480325ffddd03a42e4b1135ebbe1",
+    "/ssd/lzx/mopd/data/sft/opencoder/dev.jsonl": "0cb2e9cc919dd575d8521b7e0843858f2365bec84a2794e52d95e938e9e2a1ef",
+    "/ssd/lzx/mopd/data/full_eval/unified-v1/all.jsonl": "4d3df7acaea0fa9b3fc78a8dfe15ec193b8f0e841be9d5d4febc086a11f251d6",
+    "/ssd/lzx/mopd/models/Qwen3-4B-Base/model-00001-of-00003.safetensors": "4c807e2503d68ae373d508689d00a41f4b33f33c2536da97ab81a20caddc1241",
+    "/ssd/lzx/mopd/models/Qwen3-4B-Base/model-00002-of-00003.safetensors": "f4707585548b2fc75a6b1d732e8465c62040a8699903c32850781beeb9b27826",
+    "/ssd/lzx/mopd/models/Qwen3-4B-Base/model-00003-of-00003.safetensors": "c7b1aa8fb672de2e00423c99876926022e50b18d4f0d140670788510a27f9965"
+  },
+  "experiment": {
+    "name": "scale256",
+    "arm": "mopd-mi",
+    "spec_path": "/ssd/lzx/mopd/configs/experiments/scale256.json",
+    "spec_sha256": "7bee1890b70b70843d2f2d0fdb7c13090759e22fe142d6183162dc919490fbf5"
+  },
+  "training_method": "mopd",
+  "student_device": "cuda:0",
+  "domains": {
+    "math": {
+      "teacher": "/ssd/lzx/mopd/models/experts/scale256-expert-m",
+      "device": "cuda:2",
+      "teacher_prompt_format": "student_prefix_v1",
+      "train_file": "/ssd/lzx/mopd/data/sft/numina_v3/train.jsonl",
+      "holdout_files": [
+        "/ssd/lzx/mopd/data/math/eval.jsonl",
+        "/ssd/lzx/mopd/data/full_eval/unified-v1/all.jsonl"
+      ],
+      "count": 16,
+      "weight": 0.5
+    },
+    "instruction": {
+      "teacher": "/ssd/lzx/mopd/models/experts/scale256-expert-i",
+      "device": "cuda:3",
+      "teacher_prompt_format": "student_prefix_v1",
+      "train_file": "/ssd/lzx/mopd/data/sft/smol_constraints/train.jsonl",
+      "holdout_files": [
+        "/ssd/lzx/mopd/data/sft/smol_constraints/dev.jsonl",
+        "/ssd/lzx/mopd/data/full_eval/unified-v1/all.jsonl"
+      ],
+      "count": 16,
+      "weight": 0.5
+    }
+  },
+  "max_new_tokens": 8192,
+  "generation_batch_size": 8,
+  "rollout_backend": "vllm",
+  "rollout_devices": [
+    "cuda:6",
+    "cuda:7"
+  ],
+  "vllm_memory_utilization": 0.8
+}
