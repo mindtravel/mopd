@@ -10,5 +10,4 @@ models:
 parameters:
   normalize: true
 dtype: bfloat16
-tokenizer:
-  source: /ssd/lzx/mopd/models/experts/sftv2-m
+# no tokenizer section: keeps the base embedding size (151936); scripts/finalize_merged_model.py copies base config/tokenizer
