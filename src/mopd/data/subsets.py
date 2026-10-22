@@ -52,18 +52,20 @@ def read_kodcode():
 
 def read_opencodereasoning():
     """OpenCodeReasoning split_0: competitive programming (CodeContests, TACO, APPS, Codeforces) with a
-    DeepSeek-R1 reply (reasoning + code) and the code alone; several replies per problem, not verified."""
-    for r in parquet_rows("data/raw/opencodereasoning/split_0/*.parquet"):
+    DeepSeek-R1 reply (reasoning + code) and the code alone; several replies per problem, not verified.
+    Upstream `id` is shared across a problem's sampled completions, not unique per row (measured up
+    to 18 rows sharing one id), so it cannot be the row id; a running counter plus a text digest is."""
+    for i, r in enumerate(parquet_rows("data/raw/opencodereasoning/split_0/*.parquet")):
         reply = THINK.sub("", r["output"]) if "</think>" in r["output"] else r["output"]
         kind = "stdin" if re.search(r"input\(\)|sys\.stdin", r["solution"]) else "function" if "def " in r["solution"] else "unknown"
         # problem_id must key off the same normalized text as the exact-dedup hash below and
         # mopd.data.pool.validate_holdout, or two whitespace-variant copies of one problem get
         # treated as different problems: one can then land in train and the other in dev, which
         # validate_holdout then (correctly) rejects as a literal prompt collision.
-        yield {"id": f"ocr/{r['id']}", "problem_id": text_hash(r["input"])[:16], "source": r["dataset"],
-               "problem": r["input"], "response": r["output"], "code": last_code(r["solution"]) or r["solution"],
-               "kind": kind,
-               "meta": {"difficulty": r["difficulty"], "trace_chars": len(r["output"]), "final_chars": len(reply)}}
+        yield {"id": f"ocr/{i}-{text_hash(r['input'] + chr(0) + r['output'])[:12]}", "problem_id": text_hash(r["input"])[:16],
+               "source": r["dataset"], "problem": r["input"], "response": r["output"],
+               "code": last_code(r["solution"]) or r["solution"], "kind": kind,
+               "meta": {"difficulty": r["difficulty"], "trace_chars": len(r["output"]), "final_chars": len(reply), "upstream_id": r["id"]}}
 
 
 def read_opencoder_clean():
