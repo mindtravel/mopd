@@ -29,6 +29,14 @@ TARGETS=[
      "license":"cc-by-4.0"}
     for split in ("prompt","test","train","validation")
 ]
+# Code-focused OpenCoder stage-2 subsets (function-level Python with tests; evolved coding tasks).
+# Stage 1's filtered_infinity_instruct above turned out to be mostly general instruction data
+# (a third of sampled responses contain no code), so code SFT moves to these.
+STAGE2_REV="7d28f40d579edd7c24402d17d0c7639f991e6f8d"
+STAGE2=[{"repo":"OpenCoder-LLM/opc-sft-stage2","revision":STAGE2_REV,"path":f"{name}/train-00000-of-00001.parquet",
+         "out":ROOT/f"data/code/upstream/opc_sft_stage2/{name}-train-00000-of-00001.parquet","license":"mit"}
+        for name in ("educational_instruct","evol_instruct")]
+SETS={"stage1":TARGETS,"stage2":STAGE2}
 def get(url):
     for attempt in range(4):
         try:
@@ -37,8 +45,11 @@ def get(url):
             if attempt==3:raise
             time.sleep(2**attempt)
 def main():
+    import argparse
+    p=argparse.ArgumentParser();p.add_argument("--set",choices=sorted(SETS),default="stage1");a=p.parse_args()
     manifest=[]
-    for t in TARGETS:
+    for t in SETS[a.set]:
+        if t["out"].exists():raise SystemExit(f"{t['out']} exists; upstream files are immutable once downloaded")
         info=get(f"{BASE}/api/datasets/{t['repo']}/tree/{t['revision']}?recursive=true").json()
         entry=next(f for f in info if f["path"]==t["path"])
         data=get(f"{BASE}/datasets/{t['repo']}/resolve/{t['revision']}/{t['path']}?download=true").content
@@ -50,6 +61,7 @@ def main():
         manifest.append({"repo":t["repo"],"revision":t["revision"],"path":t["path"],
                           "license":t["license"],"sha256":sha,"bytes":len(data),"out":str(t["out"])})
         print("downloaded",t["repo"],t["path"],len(data),flush=True)
-    (ROOT/"data/code/upstream/download_manifest.json").write_text(json.dumps(manifest,indent=2))
+    name="download_manifest.json" if a.set=="stage1" else f"download_manifest_{a.set}.json"
+    (ROOT/"data/code/upstream"/name).write_text(json.dumps(manifest,indent=2))
     print(json.dumps(manifest,indent=2))
 if __name__=="__main__":main()
