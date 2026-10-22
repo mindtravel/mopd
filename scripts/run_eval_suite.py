@@ -7,7 +7,9 @@ A model_version entry is a LoRA checkpoint (scripts/evaluate_model_version.py); 
 full model directory (base or merged), generated directly with vLLM. Repeats re-run the identical
 setting; the spread across them is the evaluation noise (vLLM batching is not bit-deterministic).
 Outputs: results/eval-suites/<name>/<model>/rep<k>/ (generated.jsonl, cases.jsonl, summary.json);
-finished repetitions are skipped, so the suite can be re-run after an interruption.
+for checkpoints that path is a symlink to <run>/evaluations/<checkpoint>/<protocol>/rep<k>, since
+evaluation output must stay inside its model-version run. Finished repetitions are skipped, so
+the suite can be re-run after an interruption.
 
   python scripts/run_eval_suite.py configs/eval_suites/v2-scale256.json
 """
@@ -17,6 +19,13 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 from mopd.runtime.provenance import sha256
 from run_experiment import EVAL_SCHEDULING, PY
+
+
+def target(suite, m, out):
+    """Where the evaluation really writes: inside the run for checkpoints, else the suite path."""
+    if "model_version" in m:
+        return Path(m["model_version"]).parent / "evaluations" / m["checkpoint"] / suite["protocol_id"] / out.name
+    return out
 
 
 def commands(suite, m, out, gpu):
@@ -51,9 +60,13 @@ def main():
             except queue.Empty:
                 return
             out.parent.mkdir(parents=True, exist_ok=True)
+            real = target(suite, m, out)
+            if real != out and not out.is_symlink():
+                real.parent.mkdir(parents=True, exist_ok=True)
+                out.symlink_to(real, target_is_directory=True)
             start = time.time()
             with open(str(out) + ".log", "a") as log:
-                for cmd in commands(suite, m, out, gpu):
+                for cmd in commands(suite, m, real, gpu):
                     if subprocess.run(cmd, cwd=ROOT, stdout=log, stderr=subprocess.STDOUT).returncode:
                         failed.append(str(out)); break
             print(json.dumps({"done": str(out.relative_to(root)), "gpu": gpu, "seconds": round(time.time() - start),
