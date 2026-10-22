@@ -10,6 +10,9 @@ def main():
  p.add_argument("--model-version-id");p.add_argument("--protocol-id")
  p.add_argument("--max-new-tokens",type=int,default=8192);p.add_argument("--max-seqs",type=int,default=32);p.add_argument("--batch-size",type=int,default=16)
  p.add_argument("--student-prompt-format",choices=sorted(STUDENT_PROMPT_MODES))
+ # vLLM prefill token budget per scheduler step. 2048 reproduces every earlier evaluation's runtime;
+ # with --batch-size >= rows and a large --max-seqs, the whole set goes through continuous batching at once.
+ p.add_argument("--max-num-batched-tokens",type=int,default=2048)
  a=p.parse_args()
  if not a.teacher and not a.student_prompt_format:p.error("--student-prompt-format is required for student generation")
  os.environ["CUDA_VISIBLE_DEVICES"]=str(a.device)
@@ -39,7 +42,7 @@ def main():
   backend="vllm",weight_representation="base_plus_lora" if a.adapter else "base_weights",
   inference_dtype="bfloat16",model={"base_model":str(Path(a.model).resolve()),
    "checkpoint_path":str(Path(a.adapter).resolve()) if a.adapter else None,"checkpoint_sha256":adapter_sha256})
- config["runtime"]={"batch_size":a.batch_size,"max_seqs":a.max_seqs,"max_num_batched_tokens":2048}
+ config["runtime"]={"batch_size":a.batch_size,"max_seqs":a.max_seqs,"max_num_batched_tokens":a.max_num_batched_tokens}
  manifest=out/"generation-config.json"
  if manifest.exists():
   if json.loads(manifest.read_text())!=config:raise ValueError("Resume configuration mismatch")
@@ -67,7 +70,7 @@ def main():
  from mopd.data.domains import student_prompt,teacher_content
  from mopd.data.templates import apply_chat_template_ids
  engine=LLM(model=a.model,dtype="bfloat16",max_model_len=16384,
-  gpu_memory_utilization=.85,max_num_seqs=a.max_seqs,max_num_batched_tokens=2048,
+  gpu_memory_utilization=.85,max_num_seqs=a.max_seqs,max_num_batched_tokens=a.max_num_batched_tokens,
   enable_chunked_prefill=True,enable_prefix_caching=True,generation_config="vllm",
   enable_lora=bool(a.adapter),max_lora_rank=16,seed=20261013)
  tok=engine.get_tokenizer()
