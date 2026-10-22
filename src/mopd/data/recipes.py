@@ -7,8 +7,13 @@
    "per_problem": 1,                     # at most this many replies per problem
    "prompt": "lcb" | "plain",            # lcb: same instruction wording as the LiveCodeBench eval prompt
    "response": "full" | "final" | "code",# full reply / reply without <think> trace / fenced code only
-   "max_response_tokens": 3500,          # rows above are skipped (student tokenizer, + EOS)
-   "rows": 8192, "dev_rows": 64, "seed": 20261022}
+   "max_total_tokens": 20480,            # prompt + response + EOS above this is skipped (student
+                                          # tokenizer); benchmark_seq_len.py found real data tops
+                                          # out at ~19.7k, and the cost is in micro-batching two
+                                          # long sequences together, not in the cap itself
+   "rows": 8192, "dev_rows": 64, "seed": 20261022,
+   "micro_batch_size": 2}                # per-recipe override for the sweep's SFT config; use 1
+                                          # for recipes with long (e.g. full reasoning-chain) replies
 
 A part may override "prompt" and "response" for its own rows.
 where: field -> list of allowed values, or {"min": x, "max": y}; "meta.k" reads row["meta"]["k"].
@@ -103,10 +108,12 @@ def build(recipe_path, out_root=ROOT / "data/recipes"):
             response = format_response(r, part.get("response", recipe["response"]))
             if not response.strip():
                 empty += 1; continue
-            if len(tok(response, add_special_tokens=False).input_ids) + 1 > recipe["max_response_tokens"]:
+            prompt = format_prompt(r, part.get("prompt", recipe["prompt"]))
+            total = len(tok(prompt, add_special_tokens=False).input_ids) + len(tok(response, add_special_tokens=False).input_ids) + 1
+            if total > recipe["max_total_tokens"]:
                 too_long += 1; continue
             taken.append({"id": f"{recipe['name']}/{r['id']}", "domain": "code", "source": f"{part['subset']}:{r['source']}",
-                          "prompt": format_prompt(r, part.get("prompt", recipe["prompt"])), "response": response, "split": "train",
+                          "prompt": prompt, "response": response, "split": "train",
                           "problem_id": f"{part['subset']}/{r['problem_id']}"})
         if len(taken) < want:
             raise ValueError(f"part {i} ({part['subset']}): only {len(taken)} of {want} rows after filters")

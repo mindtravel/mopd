@@ -14,8 +14,8 @@
  "per_problem": 1,
  "prompt": "lcb",
  "response": "full",
- "max_response_tokens": 3000,
  "rows": 8192,
  "dev_rows": 64,
- "seed": 20261022
+ "seed": 20261022,
+ "max_total_tokens": 20480
 }

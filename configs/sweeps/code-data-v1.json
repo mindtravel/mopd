@@ -1,0 +1,77 @@
+{
+ "name": "code-data-v1",
+ "description": "Code-SFT data ablation for LiveCodeBench: current pool vs KodCode-4o (full source / contest-only / code-only / plain-prompt) vs OpenCodeReasoning (code-only / full R1 trace) vs a KodCode+OCR mix. Dev-selected, LCB v5/v6 held for --final only.",
+ "controls": {
+  "student": "/ssd/lzx/mopd/models/Qwen3-4B-Base",
+  "seed": 20261022,
+  "steps": 256,
+  "samples_per_step": 32,
+  "lr": 5e-05,
+  "lr_schedule": {
+   "type": "constant"
+  },
+  "save_every": 64
+ },
+ "eval": {
+  "protocol_id": "lcbdev-plainqa-greedy8192",
+  "data": "/ssd/lzx/mopd/data/full_eval/lcb-dev-v1/lcbdev.jsonl",
+  "data_sha256": "5c3f70eca1917cfa6211ab8b456f9afdec056abb32b8ac753122b44d8a772e7b",
+  "max_new_tokens": 8192,
+  "checkpoints": [
+   128,
+   256
+  ]
+ },
+ "test": {
+  "protocol_id": "unified-v2-plainqa-greedy8192",
+  "data": "/ssd/lzx/mopd/data/full_eval/unified-v2/livecodebench342.jsonl",
+  "data_sha256": "87af1d8b50f14832faa3ac962866432ba839bd6ba7373162c35450333ebb7f59"
+ },
+ "gpus": [
+  0,
+  2,
+  3,
+  4,
+  5,
+  6,
+  7
+ ],
+ "variants": [
+  {
+   "name": "base",
+   "base": true
+  },
+  {
+   "name": "opencoder-clean",
+   "recipe": "configs/recipes/code/opencoder-clean.json"
+  },
+  {
+   "name": "kc-all",
+   "recipe": "configs/recipes/code/kc-all.json"
+  },
+  {
+   "name": "kc-contest",
+   "recipe": "configs/recipes/code/kc-contest.json"
+  },
+  {
+   "name": "kc-contest-code",
+   "recipe": "configs/recipes/code/kc-contest-code.json"
+  },
+  {
+   "name": "kc-contest-plain",
+   "recipe": "configs/recipes/code/kc-contest-plain.json"
+  },
+  {
+   "name": "ocr-code",
+   "recipe": "configs/recipes/code/ocr-code.json"
+  },
+  {
+   "name": "ocr-trace",
+   "recipe": "configs/recipes/code/ocr-trace.json"
+  },
+  {
+   "name": "mix-kc-ocr",
+   "recipe": "configs/recipes/code/mix-kc-ocr.json"
+  }
+ ]
+}

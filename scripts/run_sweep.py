@@ -2,8 +2,8 @@
 
   configs/sweeps/<name>.json
   {"name", "description",
-   "controls": {"student", "seed", "steps", "samples_per_step", "lr", "lr_schedule", "micro_batch_size",
-                "save_every", "max_seq_len"},
+   "controls": {"student", "seed", "steps", "samples_per_step", "lr", "lr_schedule",
+                "save_every"},                     # max_seq_len and micro_batch_size come from each recipe
    "eval": {"protocol_id", "data", "data_sha256", "max_new_tokens", "checkpoints": [128, 256]},
    "test": {"protocol_id", "data", "data_sha256"},       # only with --final
    "gpus": [0, 2, ...],
@@ -49,9 +49,10 @@ class Sweep:
         student = Path(c["student"])
         pins = {str(pool / "train.jsonl"): manifest["train_sha256"], str(pool / "dev.jsonl"): manifest["dev_sha256"],
                 ev["data"]: ev["data_sha256"], **{str(student / w): sha256(student / w) for w in BASE_WEIGHTS}}
+        micro = manifest["recipe"].get("micro_batch_size", 2)
         return {"student": c["student"], "student_backend": "hf_lora", "student_prompt_format": "plain_qa_v1",
                 "seed": c["seed"], "steps": c["steps"], "lr": c["lr"], "lr_schedule": c["lr_schedule"],
-                "micro_batch_size": c["micro_batch_size"], "save_every": c["save_every"], "max_seq_len": c["max_seq_len"],
+                "micro_batch_size": micro, "save_every": c["save_every"], "max_seq_len": manifest["recipe"]["max_total_tokens"],
                 "output": str(self.runs / v["name"]), "data_pins": pins, "training_method": "sft", "student_device": "cuda:0",
                 "sweep": {"name": self.name, "variant": v["name"], "recipe": v["recipe"], "recipe_version": manifest["version"]},
                 "domains": {"code": {"train_file": str(pool / "train.jsonl"), "holdout_files": [str(pool / "dev.jsonl"), ev["data"]],
