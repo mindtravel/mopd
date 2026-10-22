@@ -38,10 +38,17 @@ def run(c,resume=None):
         ck=Path(resume["checkpoint"]);start=int(ck.name.rsplit("-",1)[1])
         if ck.parent.resolve()!=out.resolve():raise ValueError("checkpoint does not belong to this run")
         if json.loads(dump_read(out/"batch_plan.json"))!=json.loads(json.dumps(batches)):raise ValueError("re-planned batches differ from the run's batch_plan.json")
-        # keep the interrupted run's full logs, then cut them back to the checkpoint step
+        # keep the interrupted run's full logs (never overwrite an earlier backup), then cut back to the checkpoint
         for name in ("metrics.jsonl","rollouts.jsonl"):
-            f=out/name;raw=f.read_text();(out/f"{name}.before-resume-{start:04d}").write_text(raw)
+            f=out/name;raw=f.read_text();backup=out/f"{name}.before-resume-{start:04d}"
+            if not backup.exists():backup.write_text(raw)
             f.write_text("".join(l+"\n" for l in raw.splitlines() if l.strip() and json.loads(l)["step"]<=start))
+        # rollout adapters are written once per policy version (version = step - 1); move the interrupted
+        # run's versions >= start aside so the resumed steps can write them again
+        runtime=out/"vllm_runtime";stale=runtime/f"stale-before-resume-{start:04d}"
+        for d in sorted(runtime.glob("adapter-*")) if runtime.exists() else []:
+            if int(d.name.split("-")[1])>=start:
+                stale.mkdir(exist_ok=True);d.rename(stale/d.name)
         c={**c,**resume["overrides"],"student_adapter":str(ck)}
         record_provenance(c,out,filename=f"provenance-resume-{start:04d}.json")
         dump(out/f"resume-{start:04d}.json",{"checkpoint":str(ck),"checkpoint_sha256":sha256_file(ck/"adapter_model.safetensors"),
