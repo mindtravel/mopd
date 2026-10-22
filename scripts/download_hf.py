@@ -13,7 +13,9 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 def api(endpoint, path):
-    with urllib.request.urlopen(f"{endpoint}/api/datasets/{path}", timeout=60) as r:
+    # hf-mirror rejects urllib's default User-Agent (403).
+    req = urllib.request.Request(f"{endpoint}/api/datasets/{path}", headers={"User-Agent": "curl/8"})
+    with urllib.request.urlopen(req, timeout=60) as r:
         return json.load(r)
 
 
