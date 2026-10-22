@@ -23,6 +23,7 @@ Output data/recipes/<name>/{train.jsonl, dev.jsonl, manifest.json} in the SFT po
 versions and this module; an unchanged recipe is not rebuilt.
 """
 import hashlib, inspect, json, random
+from mopd.data.pool import text_hash  # same normalization used to defend the dev/train split below
 from pathlib import Path
 
 from mopd.data import subsets
@@ -123,12 +124,15 @@ def build(recipe_path, out_root=ROOT / "data/recipes"):
                        "subset_version": subsets.builder_version(part["subset"])})
     rng.shuffle(picked)
     # dev rows: whole problems held out, so no dev problem appears in train
-    dev_problems, dev = set(), []
+    # Hold out by problem_id (upstream's own grouping) AND by normalized prompt text, in case two
+    # rows that render to the same prompt got different problem_ids upstream -- validate_holdout
+    # would reject that collision at training time anyway, but this keeps it out of dev too.
+    dev_problems, dev_prompts, dev = set(), set(), []
     for r in picked:
         if len(dev) >= recipe.get("dev_rows", 64):
             break
-        dev_problems.add(r["problem_id"]); dev.append(r)
-    train = [r for r in picked if r["problem_id"] not in dev_problems][:recipe["rows"]]
+        dev_problems.add(r["problem_id"]); dev_prompts.add(text_hash(r["prompt"])); dev.append(r)
+    train = [r for r in picked if r["problem_id"] not in dev_problems and text_hash(r["prompt"]) not in dev_prompts][:recipe["rows"]]
     if len(train) < recipe["rows"]:
         raise ValueError(f"only {len(train)} train rows after holding out dev problems")
     out.mkdir(parents=True, exist_ok=True)

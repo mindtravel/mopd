@@ -17,6 +17,7 @@ import glob, hashlib, inspect, json, re
 from pathlib import Path
 
 from mopd.data import decontam
+from mopd.data.pool import text_hash  # same whitespace normalization as exact dedup below and validate_holdout
 
 ROOT = Path("/ssd/lzx/mopd")
 EVAL_FILES = ["data/full_eval/unified-v2/all.jsonl", "data/full_eval/lcb-dev-v1/lcbdev.jsonl"]
@@ -55,7 +56,11 @@ def read_opencodereasoning():
     for r in parquet_rows("data/raw/opencodereasoning/split_0/*.parquet"):
         reply = THINK.sub("", r["output"]) if "</think>" in r["output"] else r["output"]
         kind = "stdin" if re.search(r"input\(\)|sys\.stdin", r["solution"]) else "function" if "def " in r["solution"] else "unknown"
-        yield {"id": f"ocr/{r['id']}", "problem_id": hashlib.sha1(r["input"].encode()).hexdigest()[:16], "source": r["dataset"],
+        # problem_id must key off the same normalized text as the exact-dedup hash below and
+        # mopd.data.pool.validate_holdout, or two whitespace-variant copies of one problem get
+        # treated as different problems: one can then land in train and the other in dev, which
+        # validate_holdout then (correctly) rejects as a literal prompt collision.
+        yield {"id": f"ocr/{r['id']}", "problem_id": text_hash(r["input"])[:16], "source": r["dataset"],
                "problem": r["input"], "response": r["output"], "code": last_code(r["solution"]) or r["solution"],
                "kind": kind,
                "meta": {"difficulty": r["difficulty"], "trace_chars": len(r["output"]), "final_chars": len(reply)}}
