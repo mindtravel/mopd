@@ -77,8 +77,8 @@ def _versions():
     return out
 
 
-def record(config, run_dir, root=ROOT):
+def record(config, run_dir, root=ROOT, filename="provenance.json"):
     record = {"started_at": time.strftime("%Y-%m-%dT%H:%M:%S%z"), **_source(Path(root)), **_data(config),
               **_experiment(config), "versions": _versions()}
-    Path(run_dir, "provenance.json").write_text(json.dumps(record, indent=2, ensure_ascii=False))
+    Path(run_dir, filename).write_text(json.dumps(record, indent=2, ensure_ascii=False))
     return record

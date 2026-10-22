@@ -18,21 +18,41 @@ from mopd.training.schedule import build_scheduler
 from mopd.runtime.provenance import record as record_provenance
 from train_math_opd import fingerprint,dump
 
+def dump_read(path):return Path(path).read_text()
+def sha256_file(path):return hashlib.sha256(Path(path).read_bytes()).hexdigest()
 def sync(c):
     for device in {c["student_device"],*(d["device"] for d in c["domains"].values())}:
         torch.cuda.synchronize(device)
 def plan(c):
     return plan_domains(c)
-def run(c):
+# Runtime knobs a resume may change: they alter scheduling and batching only, not the objective,
+# data, or optimizer (verified before use: greedy rollouts batch-invariant, gradients micro-batch-invariant).
+RESUMABLE_OVERRIDES={"generation_batch_size":int,"micro_batch_size":int,"rollout_devices":lambda v:v.split(",")}
+def run(c,resume=None):
+    """resume: {"checkpoint": Path, "overrides": {...}} continues an interrupted run in place."""
     devices={c["student_device"],*c.get("rollout_devices",[]),*(d["device"] for d in c["domains"].values())}
     if "cuda:1" in devices:raise ValueError("GPU 1 is reserved")
     batches=plan(c)
-    out=Path(c["output"]);out.mkdir(parents=True,exist_ok=False)
-    dump(out/"config.json",c);dump(out/"batch_plan.json",batches)
-    dump(out/"status.json",{"state":"loading"})
-    write_manifest(c,out,{"state":"loading","step":0})
+    out=Path(c["output"]);start=0
+    if resume:
+        ck=Path(resume["checkpoint"]);start=int(ck.name.rsplit("-",1)[1])
+        if ck.parent.resolve()!=out.resolve():raise ValueError("checkpoint does not belong to this run")
+        if json.loads(dump_read(out/"batch_plan.json"))!=json.loads(json.dumps(batches)):raise ValueError("re-planned batches differ from the run's batch_plan.json")
+        # keep the interrupted run's full logs, then cut them back to the checkpoint step
+        for name in ("metrics.jsonl","rollouts.jsonl"):
+            f=out/name;raw=f.read_text();(out/f"{name}.before-resume-{start:04d}").write_text(raw)
+            f.write_text("".join(l+"\n" for l in raw.splitlines() if l.strip() and json.loads(l)["step"]<=start))
+        c={**c,**resume["overrides"],"student_adapter":str(ck)}
+        record_provenance(c,out,filename=f"provenance-resume-{start:04d}.json")
+        dump(out/f"resume-{start:04d}.json",{"checkpoint":str(ck),"checkpoint_sha256":sha256_file(ck/"adapter_model.safetensors"),
+            "overrides":resume["overrides"],"time":time.strftime("%Y-%m-%dT%H:%M:%S")})
+    else:
+        out.mkdir(parents=True,exist_ok=False)
+        dump(out/"config.json",c);dump(out/"batch_plan.json",batches)
+        dump(out/"status.json",{"state":"loading"})
+        write_manifest(c,out,{"state":"loading","step":0})
     try:
-        record_provenance(c,out)
+        if not resume:record_provenance(c,out)
         torch.set_num_threads(2)
         torch.manual_seed(c["seed"])
         stok,student,teachers=load_models(c)
@@ -52,8 +72,15 @@ def run(c):
         counts={d:s["count"] for d,s in c["domains"].items()}
         scales={d:domain_scale(d,weights,counts) for d in counts}
         opt=torch.optim.AdamW(params,lr=c["lr"]);sched=build_scheduler(opt,c)
-        with (out/"metrics.jsonl").open("w",buffering=1) as metrics,(out/"rollouts.jsonl").open("w",buffering=1) as rollouts:
+        if resume:
+            state=torch.load(Path(resume["checkpoint"])/"training_state.pt",weights_only=False)
+            if state["step"]!=start:raise ValueError("training_state step mismatch")
+            opt.load_state_dict(state["optimizer"]);sched.load_state_dict(state["scheduler"])
+            torch.set_rng_state(state["rng"]);torch.cuda.set_rng_state_all(state["cuda_rng"])
+        mode="a" if resume else "w"
+        with (out/"metrics.jsonl").open(mode,buffering=1) as metrics,(out/"rollouts.jsonl").open(mode,buffering=1) as rollouts:
             for step,rows in enumerate(batches,1):
+                if step<=start:continue
                 started=time.perf_counter();opt.zero_grad(set_to_none=True);lr=sched.get_last_lr()[0]
                 dump(out/"status.json",{"state":"training","step":step,"phase":"generating"})
                 if replicas:
@@ -139,6 +166,19 @@ def run(c):
         write_manifest(c,out,{"state":state})
         raise
 if __name__=="__main__":
-    p=argparse.ArgumentParser();p.add_argument("--config",required=True);a=p.parse_args()
+    p=argparse.ArgumentParser();p.add_argument("--config",required=True)
+    p.add_argument("--resume-from",help="checkpoint directory of this run to continue from")
+    p.add_argument("--override",action="append",default=[],help=f"KEY=VALUE, KEY in {sorted(RESUMABLE_OVERRIDES)} (resume only)")
+    a=p.parse_args()
+    if a.override and not a.resume_from:p.error("--override is only allowed with --resume-from")
+    overrides={}
+    for item in a.override:
+        k,_,v=item.partition("=")
+        if k not in RESUMABLE_OVERRIDES:p.error(f"{k} is not a resumable runtime knob")
+        overrides[k]=RESUMABLE_OVERRIDES[k](v)
     signal.signal(signal.SIGTERM,lambda *_:sys.exit("SIGTERM"))
-    run(load(a.config))
+    if a.resume_from:
+        c=load(Path(a.resume_from).parent/"config.json")  # the run's own recorded config, not the spec copy
+        run(c,{"checkpoint":a.resume_from,"overrides":overrides})
+    else:
+        run(load(a.config))
