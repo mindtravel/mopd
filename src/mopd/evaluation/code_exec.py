@@ -103,14 +103,27 @@ def _mbpp_script(code, metadata):
 _BUILDERS = {"humaneval": _humaneval_script, "mbpp": _mbpp_script}
 
 
+def _humaneval_stub(row):
+    """The original HumanEval prompt (signature, docstring, helpers, imports) embedded in our
+    instruction after the fixed preamble (scripts/prepare_code_benchmark.py)."""
+    marker = "nothing else.\n\n"
+    return row["prompt"].split(marker, 1)[1] if marker in row["prompt"] else None
+
+
 def grade_code(row, text, lenient=True):
-    """Strict fields as before; with lenient=True also `correct_lenient` (format-tolerant extraction)."""
+    """Strict fields as before; with lenient=True also `correct_lenient` (format tolerance):
+    unfenced code is extracted heuristically, and for HumanEval the original prompt stub is
+    prepended, as the official harness executes prompt + completion -- a reply that rewrites
+    only the target function then still has the stub's helper functions and imports."""
     result = _grade_extracted(row, extract_code(text))
     if lenient:
         loose = extract_code_lenient(text)
         # Lenient = strict plus format tolerance, so it never drops below strict.
-        result["correct_lenient"] = result["correct"] or (
-            loose != result["prediction"] and _grade_extracted(row, loose)["correct"])
+        ok = result["correct"] or (loose != result["prediction"] and _grade_extracted(row, loose)["correct"])
+        stub = _humaneval_stub(row) if row["metadata"]["benchmark"] == "humaneval" else None
+        if not ok and stub and loose.strip():
+            ok = _grade_extracted(row, stub + "\n\n" + loose)["correct"]
+        result["correct_lenient"] = ok
     return result
 
 
