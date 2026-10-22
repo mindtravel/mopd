@@ -50,6 +50,7 @@ def main():
         base.gradient_checkpointing_enable(gradient_checkpointing_kwargs={"use_reentrant": False})
     model = attach_student_adapter(base, {})
     model.enable_input_require_grads()
+    model.train()  # gradient checkpointing only recomputes (instead of retaining) activations in train mode
     params = [p for p in model.parameters() if p.requires_grad]
     pad = tok.pad_token_id or tok.eos_token_id
 
