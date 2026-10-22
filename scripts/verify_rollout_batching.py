@@ -15,6 +15,9 @@ import argparse,json,os,time
 from pathlib import Path
 def generate(a):
     os.environ["CUDA_VISIBLE_DEVICES"]=str(a.device)
+    # torch.compile caches are mutable: isolate per process (as vllm_processes does per worker), or two
+    # engines with the same config race on one cache directory and fail at startup.
+    os.environ["VLLM_CACHE_ROOT"]=str(Path(a.out).resolve().parent/f"vllm-cache-{Path(a.out).stem}")
     from vllm import LLM,SamplingParams
     from vllm.lora.request import LoRARequest
     from transformers import AutoTokenizer
