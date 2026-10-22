@@ -17,10 +17,14 @@ def main():
             run=Path(job["model_version"]).parent
             arm=run.name.removeprefix(spec["output_prefix"].rsplit("/",1)[1])
             step=int(job["checkpoint"].rsplit("-",1)[1])
-            summary=run/"evaluations"/job["checkpoint"]/protocol/"summary.json"
+            ev=run/"evaluations"/job["checkpoint"]/protocol
+            # grading-v2 (scripts/regrade_outputs.py) carries the current lenient scorer when present
+            summary=ev/"grading-v2/summary.json" if (ev/"grading-v2/summary.json").exists() else ev/"summary.json"
             commit=json.loads((run/"provenance.json").read_text())["commit"]
         elif job["kind"]=="eval_model":
-            arm=job["id"].split(":",1)[1];step=steps;summary=ROOT/job["out"]/"summary.json";commit=None
+            arm=job["id"].split(":",1)[1];step=steps;commit=None
+            summary=ROOT/job["out"]/"grading-v2/summary.json"
+            if not summary.exists():summary=ROOT/job["out"]/"summary.json"
         else:continue
         s=json.loads(summary.read_text())
         for bench,b in s["benchmarks"].items():
