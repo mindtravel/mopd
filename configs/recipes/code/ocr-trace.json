@@ -1,6 +1,6 @@
 {
  "name": "ocr-trace",
- "description": "OpenCodeReasoning：完整 R1 推理链，限 3500 token 内（偏短题）",
+ "description": "OpenCodeReasoning：完整 R1 推理链，限 3000 token 内（偏短题）",
  "parts": [
   {
    "subset": "opencodereasoning"
@@ -9,7 +9,7 @@
  "per_problem": 1,
  "prompt": "lcb",
  "response": "full",
- "max_response_tokens": 3500,
+ "max_response_tokens": 3000,
  "rows": 8192,
  "dev_rows": 64,
  "seed": 20261022

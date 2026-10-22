@@ -9,7 +9,7 @@
  "per_problem": 1,
  "prompt": "plain",
  "response": "full",
- "max_response_tokens": 3500,
+ "max_response_tokens": 3000,
  "rows": 8192,
  "dev_rows": 64,
  "seed": 20261022

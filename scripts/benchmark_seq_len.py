@@ -12,6 +12,7 @@ from pathlib import Path
 import pyarrow.parquet as pq
 import torch
 from transformers import AutoTokenizer
+from transformers import AutoModelForCausalLM
 from mopd.backends.student_adapter import attach_student_adapter
 from mopd.training.batching import pack, logps
 ROOT = Path(__file__).resolve().parents[1]
@@ -42,7 +43,8 @@ def main():
         pref[key] = tok(r["input"], add_special_tokens=False).input_ids
         resp[key] = tok(r["output"], add_special_tokens=False).input_ids + [tok.eos_token_id]
         lens[key] = len(pref[key]) + len(resp[key])
-    model = attach_student_adapter(a.student, a.device)
+    base = AutoModelForCausalLM.from_pretrained(a.student, torch_dtype=torch.bfloat16, local_files_only=True).to(a.device)
+    model = attach_student_adapter(base, {})
     params = [p for p in model.parameters() if p.requires_grad]
     pad = tok.pad_token_id or tok.eos_token_id
     for cap in a.caps:
