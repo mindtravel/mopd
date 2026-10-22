@@ -11,8 +11,8 @@ Sources (downloaded via hf-mirror, digests in manifest.json):
 
 Like v1, every sub-benchmark file holds the same JSON lines as all.jsonl. LiveCodeBench tests
 (public + decoded private) go to tests/livecodebench/<question_id>.json.gz, referenced by
-path and sha256 from each row. The manifest lists benchmark problems sharing a 13-gram with a
-training-pool prompt.
+path and sha256 from each row. The manifest lists benchmark problems whose 13-grams are largely
+covered by a single training-pool prompt (near-duplicates).
 """
 import gzip, hashlib, json, re
 from pathlib import Path
@@ -69,20 +69,35 @@ def livecodebench(tests_dir):
 
 def ngrams(text, n=13):
     words = re.findall(r"\w+", text.lower())
-    return {hash(" ".join(words[i:i + n])) for i in range(len(words) - n + 1)}
+    return {" ".join(words[i:i + n]) for i in range(len(words) - n + 1)}
 
 
-def overlap(rows, field):
-    """Benchmark rows sharing a 13-gram of their problem text with any training prompt."""
-    index = set()
+def overlap(rows, field, threshold=0.3):
+    """Per benchmark problem, the largest share of its 13-grams found in one training prompt.
+
+    Shared 13-grams alone are mostly boilerplate (number runs, LeetCode's "subsequence" wording);
+    a near-duplicate covers a large share of the problem from a single prompt. Rows at or above
+    the threshold are listed so a decontaminated score can be reported next to the full one."""
+    grams = {r["id"]: ngrams(field(r)) for r in rows}
+    where = {}
+    for rid, gs in grams.items():
+        for g in gs:
+            where.setdefault(g, []).append(rid)
+    best = dict.fromkeys(grams, 0.0)
     for pool in TRAIN_POOLS:
         for line in (ROOT / pool).open():
-            r = json.loads(line)
-            index |= ngrams(r["prompt"])
-    report = {}
+            shared = {}
+            for g in ngrams(json.loads(line)["prompt"]) & where.keys():
+                for rid in where[g]:
+                    shared[rid] = shared.get(rid, 0) + 1
+            for rid, c in shared.items():
+                best[rid] = max(best[rid], c / len(grams[rid]))
+    report = {"threshold": threshold}
     for bench in dict.fromkeys(r["benchmark"] for r in rows):
-        hits = [r["id"] for r in rows if r["benchmark"] == bench and ngrams(field(r)) & index]
-        report[bench] = {"rows": sum(r["benchmark"] == bench for r in rows), "overlapping": len(hits), "ids": hits[:50]}
+        ids = sorted((rid for rid in grams if rid in {r["id"] for r in rows if r["benchmark"] == bench} and best[rid] >= threshold),
+                     key=lambda rid: -best[rid])
+        report[bench] = {"rows": sum(r["benchmark"] == bench for r in rows), "near_duplicates": [[rid, round(best[rid], 3)] for rid in ids],
+                         "max_coverage": round(max(best[r["id"]] for r in rows if r["benchmark"] == bench), 3)}
     return report
 
 
@@ -108,7 +123,7 @@ def main():
     sources = [ROOT / "data/math/upstream/math500/test.jsonl", *(ROOT / "data/code/upstream/livecodebench").glob("test*.jsonl"),
                *(v1 / f"{b}.jsonl" for b in reused)]
     manifest["sources"] = {str(p): sha(p) for p in sources}
-    manifest["contamination_13gram_vs_train_pools"] = overlap(
+    manifest["contamination_vs_train_prompts"] = overlap(
         [r for r in rows if r["benchmark"] in ("math500", "livecodebench342")], lambda r: r.get("problem") or r["prompt"].split("Question: ", 1)[1])
     (OUT / "manifest.json").write_text(json.dumps(manifest, indent=2))
     print(json.dumps({k: v for k, v in manifest.items() if k != "sources"}, indent=2))
