@@ -1,6 +1,6 @@
 {
  "name": "mix-kc-ocr",
- "description": "kc-contest 与 ocr-final 各半（KodCode 完整回答，OCR 去掉推理链）",
+ "description": "kc-contest 与 ocr-code 各半（KodCode 完整回答，OCR 只留代码；R1 在推理链之后只给代码，去推理链与只留代码等价）",
  "parts": [
   {
    "subset": "kodcode-4o",
@@ -21,7 +21,7 @@
   {
    "subset": "opencodereasoning",
    "weight": 1,
-   "response": "final"
+   "response": "code"
   }
  ],
  "per_problem": 1,
