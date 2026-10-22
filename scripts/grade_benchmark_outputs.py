@@ -1,5 +1,6 @@
 """Score saved responses with the same official checks as HF evaluation."""
 import argparse,json,fcntl
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from eval_domains import check,summarize
 def main():
@@ -15,11 +16,15 @@ def main():
  complete=len(found)==len(expected) and set(found)==set(expected)
  if not a.partial and not complete:raise ValueError("Incomplete or duplicated benchmark outputs")
  results=[]
+ sources=[expected[(r["domain"],str(r["id"]))] for r in generated]
+ if any(r["prompt"]!=s["prompt"] for r,s in zip(generated,sources)):raise ValueError("Prompt mismatch")
+ # Code is graded by subprocesses, so it runs in threads; math-verify uses signals and stays on the main thread.
+ pool=ThreadPoolExecutor(32)
+ pending={i:pool.submit(check,s,r["response"]) for i,(r,s) in enumerate(zip(generated,sources)) if s["domain"]=="code"}
  with (out/"cases.partial").open("w",buffering=1) as f:
-  for r in generated:
-   source=expected[(r["domain"],str(r["id"]))]
-   if r["prompt"]!=source["prompt"]:raise ValueError("Prompt mismatch")
-   scored={**r,**({"benchmark":source["benchmark"]} if "benchmark" in source else {}),**check(source,r["response"]),"model_version_id":generation.get("model_version_id"),
+  for i,(r,source) in enumerate(zip(generated,sources)):
+   verdict=pending[i].result() if i in pending else check(source,r["response"])
+   scored={**r,**({"benchmark":source["benchmark"]} if "benchmark" in source else {}),**verdict,"model_version_id":generation.get("model_version_id"),
     "protocol_id":generation.get("protocol_id"),"protocol_sha256":generation.get("protocol_sha256"),
     "inference_backend":generation.get("backend")};results.append(scored)
    f.write(json.dumps(scored,ensure_ascii=False)+"\n")
@@ -34,7 +39,7 @@ def main():
  if not complete:return
  (out/"cases.partial").replace(out/"cases.jsonl")
  result={"done":len(results),"total":len(rows),"domains":domains,**({"benchmarks":benchmarks} if benchmarks else {}),
-  "scope":"All rows of recorded input; scorer per domain: math-verify (math), official strict IFEval (instruction), sandboxed test execution (code)",
+  "scope":"All rows of recorded input; scorer per domain: math-verify (math), official strict IFEval (instruction), sandboxed test execution (code; LiveCodeBench per official harness)",
   "generation":generation}
  (out/"summary.json").write_text(json.dumps(result,indent=2));print(json.dumps(result),flush=True)
 if __name__=="__main__":main()

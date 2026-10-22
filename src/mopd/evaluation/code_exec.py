@@ -115,6 +115,10 @@ def grade_code(row, text, lenient=True):
     unfenced code is extracted heuristically, and for HumanEval the original prompt stub is
     prepended, as the official harness executes prompt + completion -- a reply that rewrites
     only the target function then still has the stub's helper functions and imports."""
+    if row["metadata"]["benchmark"] == "livecodebench":
+        from mopd.evaluation import livecodebench
+        from mopd.evaluation.grading import ROOT
+        return livecodebench.grade(row, text, ROOT)
     result = _grade_extracted(row, extract_code(text))
     if lenient:
         loose = extract_code_lenient(text)
