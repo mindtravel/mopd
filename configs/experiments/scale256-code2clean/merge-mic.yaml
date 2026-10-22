@@ -1,0 +1,15 @@
+# experiment scale256-code2clean / merge-mic; spec sha256 5950f10efc513749d91c2862d5e19fbc75f8dbe48ceec4a3db85608c64977de4
+merge_method: linear
+models:
+  - model: /ssd/lzx/mopd/models/experts/scale256-expert-m
+    parameters:
+      weight: 1.0
+  - model: /ssd/lzx/mopd/models/experts/scale256-expert-i
+    parameters:
+      weight: 1.0
+  - model: /ssd/lzx/mopd/models/experts/scale256code2clean-expert-c
+    parameters:
+      weight: 1.0
+parameters:
+  normalize: true
+dtype: bfloat16
