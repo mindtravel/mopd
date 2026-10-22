@@ -31,6 +31,24 @@ SETS={
 }
 # educational_instruct alone: function-level Python with tests, the subset closest to HumanEval / MBPP.
 SETS["stage2edu"]={**SETS["stage2"],"out":"data/sft/opencoder_stage2_edu","sources":SETS["stage2"]["sources"][:1]}
+# stage2 with the leading boilerplate sentence removed from responses (see wash_opener).
+SETS["stage2clean"]={**SETS["stage2"],"out":"data/sft/opencoder_stage2_clean","wash":True}
+# educational_instruct prefixes every response with this fixed template line; evol_instruct (GPT-4 answers via
+# evol-codealpaca-v1 -> Magicoder-Evol-Instruct-110K) often opens with "Certainly! ..." / "Here is a solution:".
+# Under MOPD the opener spread to instruction prompts (IFEval responses opening with it: 1.5% -> 29.6%).
+_EDU_OPENER=re.compile(r"^\s*Here is the code to solve this problem:\s*\n",re.I)
+_LEAD_OPENER=re.compile(r"""^\s*(?:
+    (?:certainly|sure|of\ course|absolutely|great\ question)[!.,]?[^\n]{0,160}?(?:[:.!]\s*\n|[.!]\s+(?=[A-Z`]))
+  | here(?:'s|\ is|\ are)\b[^\n]{0,160}?:\s*\n
+)""",re.I|re.X)
+def wash_opener(text):
+    """Drop ONE leading boilerplate sentence when substantive content follows; content itself untouched.
+    Returns (new_text, removed_sentence_or_None)."""
+    m=_EDU_OPENER.match(text) or _LEAD_OPENER.match(text)
+    if not m:return text,None
+    rest=text[m.end():].lstrip("\n")
+    if len(rest.strip())<20:return text,None
+    return rest,text[:m.end()].strip()
 MAX_PROMPT_TOKENS=1024
 MAX_RESPONSE_TOKENS=1024
 DEV_SIZE=256
@@ -58,9 +76,13 @@ def main():
     template={g for g,c in df.items() if c>=5}
     benchmark_grams=set().union(*(grams(x) for x in benchmark_prompts))-template
     seen=set();kept=[];excluded=collections.Counter();by_source=collections.Counter()
+    washed=collections.Counter();removed_lines=collections.Counter()
     for source,prefix,i,r in raw:
         prompt=(r.get("instruction") or "").strip();response=(r.get("output") or "").strip()
         if not prompt or not response:excluded["empty_field"]+=1;continue
+        if cfg.get("wash"):
+            response,cut=wash_opener(response)
+            if cut:washed[source]+=1;removed_lines[cut[:80]]+=1
         h=text_hash(prompt)
         if h in seen:excluded["duplicate_prompt"]+=1;continue
         if grams(prompt)&benchmark_grams:excluded["benchmark_content_8gram"]+=1;continue
@@ -85,6 +107,8 @@ def main():
       "decontamination":"HumanEval (164) + MBPP sanitized all splits prompts: normalized exact-match dedup, 8-gram content "
                         "overlap excluding n-grams shared by >=5 training rows, and entry-point name equal to any benchmark "
                         "function name; semantic paraphrase and model pretraining contamination not ruled out",
+      **({"washed_leading_opener":{"rule":"scripts/prepare_code_pool.py wash_opener","rows_by_source":dict(washed),
+          "top_removed":removed_lines.most_common(15)}} if cfg.get("wash") else {}),
       "train_sha256":hashlib.sha256((out_root/"train.jsonl").read_bytes()).hexdigest()}
     (out_root/"preparation_report.json").write_text(json.dumps(report,ensure_ascii=False,indent=2))
     print(json.dumps(report,ensure_ascii=False))
