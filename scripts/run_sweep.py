@@ -91,6 +91,13 @@ class Sweep:
                 manifest = recipes.build(ROOT / v["recipe"])
                 self.log(variant=v["name"], stage="recipe", rows=manifest["train_rows"], version=manifest["version"])
                 if not self.trained(v):
+                    # train_sft.py refuses to resume (mkdir exist_ok=False): a prior killed/crashed
+                    # attempt leaves a directory train_sft.py won't touch, so clear it before retrying.
+                    run_dir = self.runs / v["name"]
+                    if run_dir.exists():
+                        import shutil
+                        shutil.rmtree(run_dir)
+                        self.log(variant=v["name"], stage="cleanup", removed=str(run_dir))
                     cfg_path = self.results / "configs" / f"{v['name']}.json"
                     cfg_path.parent.mkdir(exist_ok=True)
                     cfg_path.write_text(json.dumps(self.config(v, manifest, gpu), indent=1))
