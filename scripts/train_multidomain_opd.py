@@ -6,15 +6,16 @@ from mopd.backends.multi_teacher import load_models
 from mopd.backends.fairy2i_qat_adapter import save_fairy2i_qat_update
 from mopd.data.mixture import plan_domains
 from mopd.data.multidomain import domain_scale
-from mopd.protocol import teacher_prefix_ids
 from mopd.rollout.hf_batch import generate
 from mopd.rollout.replicas import RolloutReplicas
 from mopd.rollout.processes import ProcessRollouts
-from mopd.training.batching import pack,logps,generation_eos_ids,is_eos_token
+from mopd.training.batching import generation_eos_ids
 from mopd.config import load
-from mopd.training.dual_template import policy_loss
 from mopd.evaluation.versioning import write_manifest
 from mopd.training.schedule import build_scheduler
+from mopd.rollout.base import RolloutStream,open_stream
+from mopd.training.streaming import DomainBatcher
+from mopd.training.opd_step import OPDStepScorer
 from mopd.runtime.provenance import record as record_provenance
 from train_math_opd import fingerprint,dump
 
@@ -27,7 +28,8 @@ def plan(c):
     return plan_domains(c)
 # Runtime knobs a resume may change: they alter scheduling and batching only, not the objective,
 # data, or optimizer (verified before use: greedy rollouts batch-invariant, gradients micro-batch-invariant).
-RESUMABLE_OVERRIDES={"generation_batch_size":int,"micro_batch_size":int,"rollout_devices":lambda v:v.split(",")}
+RESUMABLE_OVERRIDES={"generation_batch_size":int,"micro_batch_size":int,"rollout_devices":lambda v:v.split(","),
+                    "rollout_streaming":lambda v:{"true":True,"false":False}[v.lower()]}
 def run(c,resume=None):
     """resume: {"checkpoint": Path, "overrides": {...}} continues an interrupted run in place."""
     devices={c["student_device"],*c.get("rollout_devices",[]),*(d["device"] for d in c["domains"].values())}
@@ -90,56 +92,19 @@ def run(c,resume=None):
                 if step<=start:continue
                 started=time.perf_counter();opt.zero_grad(set_to_none=True);lr=sched.get_last_lr()[0]
                 dump(out/"status.json",{"state":"training","step":step,"phase":"generating"})
+                # rollouts -> per-domain micro-batches (arrival order) -> teacher score + student backward
                 if replicas:
-                    trajectories,gen_seconds,rollout_stats=replicas.generate(student,rows,step-1)
+                    stream=open_stream(replicas,student,rows,step-1,streaming=bool(c.get("rollout_streaming")))
                 else:
                     trajectories,gen_seconds=generate(student,stok,rows,c["student_device"],c["max_new_tokens"],c["generation_batch_size"],prompt_format=c["student_prompt_format"])
-                    rollout_stats={}
-                stats={};teacher_seconds=0.;student_seconds=0.
-                for domain,spec in c["domains"].items():
-                    tt,teacher=teachers[domain]
-                    selected=[r for r in trajectories if r["row"]["domain"]==domain]
-                    entries=[];weighted_loss=0.
-                    before=[p.grad.detach().clone() if p.grad is not None else torch.zeros_like(p) for p in params]
-                    for offset in range(0,len(selected),c["micro_batch_size"]):
-                        chunk=selected[offset:offset+c["micro_batch_size"]]
-                        seqs=[r["prefix"]+r["answer"] for r in chunk]
-                        starts=[len(r["prefix"]) for r in chunk]
-                        tseqs=[];tstarts=[]
-                        for r in chunk:
-                            prefix=teacher_prefix_ids(tt,r["row"],spec.get("teacher_prompt_format","chat_template_v1"),r["prefix"])
-                            tseqs.append(prefix+r["answer"]);tstarts.append(len(prefix))
-                            assert tseqs[-1][tstarts[-1]:]==r["answer"]
-                        dump(out/"status.json",{"state":"training","step":step,"phase":"scoring","domain":domain})
-                        tid,ta,tm=pack(tseqs,tstarts,tt.pad_token_id,spec["device"])
-                        sync(c);mark=time.perf_counter()
-                        with torch.no_grad():tp=[v.to(c["student_device"]) for v in logps(teacher,tid,ta,tm)]
-                        sync(c);teacher_seconds+=time.perf_counter()-mark
-                        del tid,ta,tm
-                        sid,sa,sm=pack(seqs,starts,stok.pad_token_id,c["student_device"])
-                        student.train();mark=time.perf_counter()
-                        sp=logps(student,sid,sa,sm);losses=[]
-                        for i,(sv,tv,r) in enumerate(zip(sp,tp,chunk)):
-                            loss,info=policy_loss(sv,tv)
-                            if not torch.isfinite(loss):raise ValueError("Nonfinite loss")
-                            losses.append(loss)
-                            info.update(loss=loss.item(),tokens=len(r["answer"]),truncated=not is_eos_token(r["answer"][-1],eos_ids))
-                            entries.append(info)
-                            rollouts.write(json.dumps({"step":step,"student_version":step-1,
-                              "domain":domain,"teacher":spec["teacher"],"id":r["row"]["id"],
-                              "prompt":r["row"]["prompt"],"response":stok.decode(r["answer"]),
-                              "response_ids":r["answer"],**info},ensure_ascii=False)+"\n")
-                        domain_loss=torch.stack(losses).sum()*scales[domain]
-                        weighted_loss+=domain_loss.item();domain_loss.backward()
-                        sync(c);student_seconds+=time.perf_counter()-mark
-                        del sp,tp,losses,domain_loss,loss,sv,tv,sid,sa,sm
-                    contribution=sum((p.grad-v).float().square().sum().item() for p,v in zip(params,before))**0.5
-                    if not contribution>0:raise ValueError("Zero domain gradient: "+domain)
-                    del before
-                    stats[domain]={"grad_contribution_l2":contribution,"count":len(entries),"loss":sum(e["loss"] for e in entries)/len(entries),
-                      "weighted_loss":weighted_loss,"sampled_log_ratio":sum(e["sampled_log_ratio"] for e in entries)/len(entries),
-                      "clipped_fraction":sum(e["clipped_fraction"] for e in entries)/len(entries),
-                      "tokens":sum(e["tokens"] for e in entries),"truncated":sum(e["truncated"] for e in entries)}
+                    stream=RolloutStream(trajectories);stream._started-=gen_seconds
+                scorer=OPDStepScorer(config=c,student=student,student_tokenizer=stok,teachers=teachers,params=params,
+                    scales=scales,eos_ids=eos_ids,sync=lambda:sync(c),rollout_log=rollouts,step=step)
+                planned={d:sum(r["domain"]==d for r in rows) for d in c["domains"]}
+                for domain,chunk in DomainBatcher(c["micro_batch_size"],planned).consume(stream):
+                    scorer.process(domain,chunk)
+                stats=scorer.domain_stats();teacher_seconds=scorer.teacher_seconds;student_seconds=scorer.student_seconds
+                gen_seconds=stream.seconds;rollout_stats=stream.stats or {}
                 grad=torch.nn.utils.clip_grad_norm_(params,1.)
                 if not torch.isfinite(grad) or grad<=0:raise ValueError("Invalid student gradient")
                 opt.step();sched.step();sync(c)

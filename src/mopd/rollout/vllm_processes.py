@@ -1,11 +1,14 @@
-"""Isolated vLLM workers; all generation finishes before the next student update."""
-import atexit,hashlib,json,os,signal,subprocess,time
+"""Isolated vLLM workers; all generation finishes before the next student update.
+
+generate() returns a whole step; stream() yields the same trajectories as they finish."""
+import atexit,hashlib,json,os,queue,signal,subprocess,threading,time
 from pathlib import Path
 from concurrent.futures import ThreadPoolExecutor
 from transformers import AutoTokenizer
 from mopd.data.domains import student_prompt
-from mopd.rollout.vllm_protocol import validate_reply
-from mopd.rollout.dispatch import length_bucket_dispatch
+from mopd.rollout.base import RolloutStream
+from mopd.rollout.vllm_protocol import StreamValidator,validate_reply
+from mopd.rollout.dispatch import length_bucket_dispatch,length_sorted_batches
 class VllmRollouts:
     def __init__(self,c,student):
         self.c=c;self.workers=[]
@@ -53,35 +56,78 @@ class VllmRollouts:
                 proc.wait()
             log.close()
         self.workers=[]
-    def generate(self,student,rows,version,*,sample=True,min_new_tokens=0):
-        started=time.perf_counter()
+    def _publish(self,student,rows,version):
+        """Write this policy version's adapter once and encode the prompts."""
         adapter=self.root/f"adapter-{version:06d}"
         if adapter.exists():raise ValueError("Adapter versions must be immutable and unique")
         student.save_pretrained(adapter,safe_serialization=True)
         self.tokenizer.save_pretrained(adapter)
         digest=hashlib.sha256((adapter/"adapter_model.safetensors").read_bytes()).hexdigest()
         inputs=[{"index":i,"prefix":self.tokenizer.encode(student_prompt(self.tokenizer,r,self.c["student_prompt_format"])),"row":r} for i,r in enumerate(rows)]
-        n=len(self.workers)
+        return adapter,digest,inputs
+    def _send(self,worker_id,adapter,digest,batch,version,*,sample,min_new_tokens,stream):
+        device,proc,_=self.workers[worker_id]
+        request={"adapter":str(adapter),"adapter_sha256":digest,"inputs":batch,"version":version,
+            "max_new_tokens":self.c["max_new_tokens"],"sample":sample,"min_new_tokens":min_new_tokens,
+            "seed":self.c["seed"]+version*len(self.workers)+worker_id,"debug_logprobs":self.c.get("debug_logprobs"),
+            "stream":stream}
+        proc.stdin.write(json.dumps(request)+"\n");proc.stdin.flush()
+        return device,proc
+    def _batch_size(self):
+        return max(1,int(self.c.get("generation_batch_size",8)))
+    def generate(self,student,rows,version,*,sample=True,min_new_tokens=0):
+        started=time.perf_counter()
+        adapter,digest,inputs=self._publish(student,rows,version)
         sync_seconds=time.perf_counter()-started
         # Small length-sorted batches plus work stealing prevent one long tail
         # request from idling the other worker for the rest of the step.
-        batch_size=max(1, int(self.c.get("generation_batch_size", 8)))
         def run(worker_id,batch):
-            device,proc,_=self.workers[worker_id]
-            request={"adapter":str(adapter),"adapter_sha256":digest,"inputs":batch,"version":version,
-                "max_new_tokens":self.c["max_new_tokens"],"sample":sample,"min_new_tokens":min_new_tokens,
-                "seed":self.c["seed"]+version*n+worker_id,"debug_logprobs":self.c.get("debug_logprobs")}
-            proc.stdin.write(json.dumps(request)+"\n");proc.stdin.flush()
+            device,proc=self._send(worker_id,adapter,digest,batch,version,sample=sample,min_new_tokens=min_new_tokens,stream=False)
             reply=self.read(proc)
             output=validate_reply(reply,batch,version,digest,self.c["max_new_tokens"],self.tokenizer.eos_token_id)
             for r in output:r["rollout_device"]=device
-            stats={k:v for k,v in reply.items() if k!="output"}
-            return output,stats
+            return output,{k:v for k,v in reply.items() if k!="output"}
         started=time.perf_counter()
-        def row_length(x): return len(x["prefix"])
-        replies,dispatch=length_bucket_dispatch(inputs,workers=n,batch_size=batch_size,
-            length=row_length,run=run)
+        replies,dispatch=length_bucket_dispatch(inputs,workers=len(self.workers),batch_size=self._batch_size(),
+            length=lambda x:len(x["prefix"]),run=run)
         output=sorted([r for batch,_ in replies for r in batch],key=lambda r:r["index"])
         return output,time.perf_counter()-started,{"backend":"vllm-dynamic",
             "sync_seconds":sync_seconds,"dispatch":dispatch.__dict__,
             "workers":[s for _,s in replies]}
+    def stream(self,student,rows,version,*,sample=True,min_new_tokens=0):
+        """Same batches and work stealing as generate(); each trajectory is yielded as soon as its
+        worker reports it finished. One reader thread per worker feeds a queue."""
+        started=time.perf_counter()
+        adapter,digest,inputs=self._publish(student,rows,version)
+        sync_seconds=time.perf_counter()-started
+        batches=queue.SimpleQueue()
+        planned=length_sorted_batches(inputs,batch_size=self._batch_size(),length=lambda x:len(x["prefix"]))
+        for b in planned:batches.put([row for _,row in b])
+        results=queue.SimpleQueue();worker_stats=[];DONE=object()
+        def work(worker_id):
+            try:
+                while True:
+                    try:batch=batches.get_nowait()
+                    except queue.Empty:break
+                    device,proc=self._send(worker_id,adapter,digest,batch,version,sample=sample,min_new_tokens=min_new_tokens,stream=True)
+                    check=StreamValidator(batch,version,digest,self.c["max_new_tokens"],self.tokenizer.eos_token_id)
+                    while True:
+                        reply=self.read(proc)
+                        if reply.get("done"):worker_stats.append(check.done(reply));break
+                        results.put({**check.partial(reply),"rollout_device":device})
+            except BaseException as error:results.put(error)
+            finally:results.put(DONE)
+        threads=[threading.Thread(target=work,args=(i,),daemon=True) for i in range(min(len(self.workers),len(planned)))]
+        for t in threads:t.start()
+        def source():
+            finished=0
+            while finished<len(threads):
+                item=results.get()
+                if item is DONE:finished+=1
+                elif isinstance(item,BaseException):raise item
+                else:yield item
+            for t in threads:t.join()
+        sizes=[len(b) for b in planned]
+        return RolloutStream(source(),lambda:{"backend":"vllm-stream","sync_seconds":sync_seconds,
+            "dispatch":{"batches":len(planned),"workers":len(threads),"max_batch":max(sizes),"min_batch":min(sizes)},
+            "workers":worker_stats})

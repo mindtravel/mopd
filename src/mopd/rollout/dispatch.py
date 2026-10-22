@@ -14,6 +14,12 @@ class DispatchStats:
     workers: int
     max_batch: int
     min_batch: int
+def length_sorted_batches(rows: Sequence[T], *, batch_size: int, length: Callable[[T], int]) -> list[list[tuple[int, T]]]:
+    """Rows sorted by length (ties by position) cut into batches of (position, row)."""
+    ordered = sorted(enumerate(rows), key=lambda x: (length(x[1]), x[0]))
+    return [ordered[i:i + batch_size] for i in range(0, len(ordered), batch_size)]
+
+
 def length_bucket_dispatch(rows: Sequence[T], *, workers: int, batch_size: int,
                            length: Callable[[T], int],
                            run: Callable[[int, list[T]], R]) -> tuple[list[R], DispatchStats]:
@@ -21,8 +27,7 @@ def length_bucket_dispatch(rows: Sequence[T], *, workers: int, batch_size: int,
         raise ValueError("workers and batch_size must be positive")
     if not rows:
         return [], DispatchStats(0, workers, 0, 0)
-    ordered = sorted(enumerate(rows), key=lambda x: (length(x[1]), x[0]))
-    batches = [ordered[i:i + batch_size] for i in range(0, len(ordered), batch_size)]
+    batches = length_sorted_batches(rows, batch_size=batch_size, length=length)
     results: list[tuple[int, R]] = []
     next_batch = 0
     with ThreadPoolExecutor(max_workers=min(workers, len(batches))) as pool:
