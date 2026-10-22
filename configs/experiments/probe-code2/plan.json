@@ -1,0 +1,56 @@
+{
+  "experiment": {
+    "name": "probe-code2",
+    "arm": null,
+    "spec_path": "/ssd/lzx/mopd/configs/experiments/probe-code2.json",
+    "spec_sha256": "cc0bef374bb5e30d46474dc922ab7db286d75467431ecdacdd9c6d4ea9ce77cf"
+  },
+  "evaluation": {
+    "protocol_id": "unified-imc-plainqa-greedy4096-v1",
+    "data": "/ssd/lzx/mopd/data/full_eval/unified-v1/all.jsonl",
+    "checkpoints": [
+      32,
+      64
+    ],
+    "max_new_tokens": 4096
+  },
+  "gpus": [
+    0,
+    2,
+    3,
+    4,
+    5,
+    6,
+    7
+  ],
+  "student": "/ssd/lzx/mopd/models/Qwen3-4B-Base",
+  "jobs": [
+    {
+      "id": "train:expert-c",
+      "kind": "train_sft",
+      "gpus": 1,
+      "deps": [],
+      "config": "configs/experiments/probe-code2/expert-c.json"
+    },
+    {
+      "id": "eval:expert-c:32",
+      "kind": "eval_checkpoint",
+      "gpus": 1,
+      "deps": [
+        "train:expert-c"
+      ],
+      "model_version": "/ssd/lzx/mopd/runs/20261022-probe-code2-expert-c/model-version.json",
+      "checkpoint": "checkpoint-0032"
+    },
+    {
+      "id": "eval:expert-c:64",
+      "kind": "eval_checkpoint",
+      "gpus": 1,
+      "deps": [
+        "train:expert-c"
+      ],
+      "model_version": "/ssd/lzx/mopd/runs/20261022-probe-code2-expert-c/model-version.json",
+      "checkpoint": "checkpoint-0064"
+    }
+  ]
+}

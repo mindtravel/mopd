@@ -1,0 +1,42 @@
+{
+  "student": "/ssd/lzx/mopd/models/Qwen3-4B-Base",
+  "student_backend": "hf_lora",
+  "student_prompt_format": "plain_qa_v1",
+  "seed": 20261014,
+  "steps": 64,
+  "lr": 5e-05,
+  "lr_schedule": {
+    "type": "constant"
+  },
+  "micro_batch_size": 2,
+  "save_every": 32,
+  "output": "/ssd/lzx/mopd/runs/20261022-probe-code2-expert-c",
+  "data_pins": {
+    "/ssd/lzx/mopd/data/sft/opencoder_stage2/train.jsonl": "07fe66422752e925c67f6173e82a3bf03ea3d8dba100d95d2fabb8886de29776",
+    "/ssd/lzx/mopd/data/sft/opencoder_stage2/dev.jsonl": "3262ae31dcd317aa1fa612fe48df5fa89af52d3c36bf733e62a875587a740ffb",
+    "/ssd/lzx/mopd/data/full_eval/unified-v1/all.jsonl": "4d3df7acaea0fa9b3fc78a8dfe15ec193b8f0e841be9d5d4febc086a11f251d6",
+    "/ssd/lzx/mopd/models/Qwen3-4B-Base/model-00001-of-00003.safetensors": "4c807e2503d68ae373d508689d00a41f4b33f33c2536da97ab81a20caddc1241",
+    "/ssd/lzx/mopd/models/Qwen3-4B-Base/model-00002-of-00003.safetensors": "f4707585548b2fc75a6b1d732e8465c62040a8699903c32850781beeb9b27826",
+    "/ssd/lzx/mopd/models/Qwen3-4B-Base/model-00003-of-00003.safetensors": "c7b1aa8fb672de2e00423c99876926022e50b18d4f0d140670788510a27f9965"
+  },
+  "experiment": {
+    "name": "probe-code2",
+    "arm": "expert-c",
+    "spec_path": "/ssd/lzx/mopd/configs/experiments/probe-code2.json",
+    "spec_sha256": "cc0bef374bb5e30d46474dc922ab7db286d75467431ecdacdd9c6d4ea9ce77cf"
+  },
+  "training_method": "sft",
+  "student_device": "cuda:0",
+  "max_seq_len": 4096,
+  "domains": {
+    "code": {
+      "train_file": "/ssd/lzx/mopd/data/sft/opencoder_stage2/train.jsonl",
+      "holdout_files": [
+        "/ssd/lzx/mopd/data/sft/opencoder_stage2/dev.jsonl",
+        "/ssd/lzx/mopd/data/full_eval/unified-v1/all.jsonl"
+      ],
+      "count": 32,
+      "weight": 1.0
+    }
+  }
+}
