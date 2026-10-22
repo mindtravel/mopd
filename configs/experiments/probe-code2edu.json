@@ -1,0 +1,89 @@
+{
+  "name": "probe-code2edu",
+  "description": "Short check: code expert on OpenCoder stage-2 educational_instruct only (function-level Python with tests), 64 steps; otherwise identical to probe-code2.",
+  "output_prefix": "/ssd/lzx/mopd/runs/20261022-probe-code2edu-",
+  "expert_dir_prefix": "/ssd/lzx/mopd/models/experts/probe-code2edu-",
+  "merge_dir_prefix": "/ssd/lzx/mopd/models/merged/probe-code2edu-",
+  "controls": {
+    "student": "/ssd/lzx/mopd/models/Qwen3-4B-Base",
+    "student_backend": "hf_lora",
+    "student_prompt_format": "plain_qa_v1",
+    "seed": 20261014,
+    "steps": 64,
+    "samples_per_step": 32,
+    "lr": 5e-05,
+    "lr_schedule": {
+      "type": "constant"
+    },
+    "micro_batch_size": 2,
+    "save_every": 32,
+    "sft_max_seq_len": 4096,
+    "mopd_max_new_tokens": 8192,
+    "mopd_generation_batch_size": 8,
+    "mopd_vllm_memory_utilization": 0.8,
+    "teacher_prompt_format": "student_prefix_v1"
+  },
+  "quotas": {
+    "1": [
+      32
+    ],
+    "2": [
+      16,
+      16
+    ],
+    "3": [
+      11,
+      11,
+      10
+    ]
+  },
+  "domain_order": [
+    "math",
+    "instruction",
+    "code"
+  ],
+  "pools": {
+    "code": {
+      "train_file": "/ssd/lzx/mopd/data/sft/opencoder_stage2_edu/train.jsonl",
+      "holdout_files": [
+        "/ssd/lzx/mopd/data/sft/opencoder_stage2_edu/dev.jsonl",
+        "/ssd/lzx/mopd/data/full_eval/unified-v1/all.jsonl"
+      ]
+    }
+  },
+  "data_pins": {
+    "/ssd/lzx/mopd/data/sft/opencoder_stage2_edu/train.jsonl": "acb297556e842921f4f109c68b4c539ac9b3fe2cecc5d1aec26e61860b0012bb",
+    "/ssd/lzx/mopd/data/sft/opencoder_stage2_edu/dev.jsonl": "4d81801af277b97e033a6864f0d9c31a678249ef46326df4d260f03cf664871b",
+    "/ssd/lzx/mopd/data/full_eval/unified-v1/all.jsonl": "4d3df7acaea0fa9b3fc78a8dfe15ec193b8f0e841be9d5d4febc086a11f251d6",
+    "/ssd/lzx/mopd/models/Qwen3-4B-Base/model-00001-of-00003.safetensors": "4c807e2503d68ae373d508689d00a41f4b33f33c2536da97ab81a20caddc1241",
+    "/ssd/lzx/mopd/models/Qwen3-4B-Base/model-00002-of-00003.safetensors": "f4707585548b2fc75a6b1d732e8465c62040a8699903c32850781beeb9b27826",
+    "/ssd/lzx/mopd/models/Qwen3-4B-Base/model-00003-of-00003.safetensors": "c7b1aa8fb672de2e00423c99876926022e50b18d4f0d140670788510a27f9965"
+  },
+  "evaluation": {
+    "protocol_id": "unified-imc-plainqa-greedy4096-v1",
+    "data": "/ssd/lzx/mopd/data/full_eval/unified-v1/all.jsonl",
+    "checkpoints": [
+      32,
+      64
+    ],
+    "max_new_tokens": 4096
+  },
+  "gpus": [
+    0,
+    2,
+    3,
+    4,
+    5,
+    6,
+    7
+  ],
+  "arms": [
+    {
+      "name": "expert-c",
+      "method": "sft",
+      "domains": [
+        "code"
+      ]
+    }
+  ]
+}
