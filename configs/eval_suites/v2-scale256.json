@@ -1,0 +1,21 @@
+{
+ "name": "v2-scale256",
+ "protocol_id": "unified-v2-plainqa-greedy4096",
+ "data": "/ssd/lzx/mopd/data/full_eval/unified-v2/all.jsonl",
+ "data_sha256": "0ad5c9688d02813060c6fd16d2d5a7c87f8d2e7f23e86332c75b2abc7d491c03",
+ "max_new_tokens": 4096,
+ "gpus": [0, 2, 3, 4, 5, 6, 7],
+ "repeats": {"base": 3, "mopd-mic": 3},
+ "models": [
+  {"name": "base", "model": "/ssd/lzx/mopd/models/Qwen3-4B-Base", "model_version_id": "base:Qwen3-4B-Base"},
+  {"name": "expert-m", "model_version": "/ssd/lzx/mopd/runs/20261022-scale256-expert-m/model-version.json", "checkpoint": "checkpoint-0256"},
+  {"name": "expert-i", "model_version": "/ssd/lzx/mopd/runs/20261022-scale256-expert-i/model-version.json", "checkpoint": "checkpoint-0256"},
+  {"name": "expert-c", "model_version": "/ssd/lzx/mopd/runs/20261022-scale256code2clean-expert-c/model-version.json", "checkpoint": "checkpoint-0256"},
+  {"name": "mix-mi", "model_version": "/ssd/lzx/mopd/runs/20261022-scale256-mix-mi/model-version.json", "checkpoint": "checkpoint-0256"},
+  {"name": "mopd-mi", "model_version": "/ssd/lzx/mopd/runs/20261022-scale256-mopd-mi/model-version.json", "checkpoint": "checkpoint-0256"},
+  {"name": "merge-mi", "model": "/ssd/lzx/mopd/models/merged/scale256-merge-mi"},
+  {"name": "mix-mic", "model_version": "/ssd/lzx/mopd/runs/20261022-scale256code2clean-mix-mic/model-version.json", "checkpoint": "checkpoint-0256"},
+  {"name": "mopd-mic", "model_version": "/ssd/lzx/mopd/runs/20261022-scale256code2clean-mopd-mic/model-version.json", "checkpoint": "checkpoint-0256"},
+  {"name": "merge-mic", "model": "/ssd/lzx/mopd/models/merged/scale256code2clean-merge-mic"}
+ ]
+}
