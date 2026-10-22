@@ -15,6 +15,10 @@ to what the spec produces, so a hand-edited config is caught, and (b) the contro
 fields to be identical across all training arms. At run time mopd.runtime.provenance
 re-verifies the spec sha256 and every data pin before the first step.
 
+"reuse_experts" lets a spec take finished experts from an earlier experiment instead of
+retraining them; scripts/run_experiment.py refuses to start unless each reused expert's
+source run belongs to the named experiment and was trained with this spec's controls.
+
 Mixed SFT and MOPD arms use the same domain order, quotas and seed, and both entries
 plan batches with mopd.data.mixture.plan_domains, so they see the same prompts at every step.
 """
@@ -34,7 +38,9 @@ def generate(spec_path):
     experiment=lambda arm:{"name":spec["name"],"arm":arm,"spec_path":f"{REMOTE_ROOT}/{rel}",
                            "spec_sha256":hashlib.sha256(spec_bytes).hexdigest()}
     arms={a["name"]:a for a in spec["arms"]}
-    expert_dir=lambda name:spec["expert_dir_prefix"]+name
+    reuse=spec.get("reuse_experts",{})  # name -> {"dir", "from_experiment"}: trained by an earlier spec
+    expert_dir=lambda name:reuse[name]["dir"] if name in reuse else spec["expert_dir_prefix"]+name
+    expert_dep=lambda name:[] if name in reuse else [f"export:{name}"]
     run_dir=lambda name:spec["output_prefix"]+name
     final=f"checkpoint-{c['steps']:04d}"
     files,jobs={},[]
@@ -70,7 +76,7 @@ def generate(spec_path):
                  "vllm_memory_utilization":c["mopd_vllm_memory_utilization"]}
             files[f"{name}.json"]=dumps(cfg)
             gpus=sorted({dev["student"],*dev["teachers"],*dev["rollout"]})
-            jobs.append({"id":f"train:{name}","kind":"train_mopd","gpus":gpus,"deps":[f"export:{t}" for t in arm["teachers"].values()],
+            jobs.append({"id":f"train:{name}","kind":"train_mopd","gpus":gpus,"deps":[d for t in arm["teachers"].values() for d in expert_dep(t)],
                          "config":f"configs/experiments/{spec['name']}/{name}.json"})
             eval_jobs(name,[f"train:{name}"])
         elif arm["method"]=="merge_linear":
@@ -81,12 +87,14 @@ def generate(spec_path):
             lines+=["parameters:","  normalize: true","dtype: bfloat16"]
             files[f"{name}.yaml"]="\n".join(lines)+"\n"
             merged=spec["merge_dir_prefix"]+name
-            jobs.append({"id":f"merge:{name}","kind":"merge","gpus":1,"deps":[f"export:{arm['experts'][d]}" for d in doms],
+            jobs.append({"id":f"merge:{name}","kind":"merge","gpus":1,"deps":[x for d in doms for x in expert_dep(arm['experts'][d])],
                          "yaml":f"configs/experiments/{spec['name']}/{name}.yaml","out":merged})
             jobs.append({"id":f"eval:{name}","kind":"eval_model","gpus":1,"deps":[f"merge:{name}"],"model":merged,
                          "out":f"results/experiments/{spec['name']}/{name}/{ev['protocol_id']}"})
         else:raise ValueError(f"{name}: unknown method {arm['method']!r}")
-    plan={"experiment":experiment(None),"evaluation":ev,"gpus":spec["gpus"],"student":c["student"],"jobs":jobs}
+    controls={k:c[k] for k in ("student","seed","steps","samples_per_step","lr","lr_schedule","micro_batch_size","sft_max_seq_len")}
+    plan={"experiment":experiment(None),"evaluation":ev,"gpus":spec["gpus"],"student":c["student"],
+          **({"reuse_experts":reuse,"controls":controls} if reuse else {}),"jobs":jobs}  # older plans stay byte-identical
     files["plan.json"]=dumps(plan)
     return spec,files
 CONTROLLED=("student","student_backend","student_prompt_format","seed","steps","lr","lr_schedule","micro_batch_size","save_every","data_pins")

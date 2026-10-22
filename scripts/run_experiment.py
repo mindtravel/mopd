@@ -38,6 +38,16 @@ class Runner:
         source=_source(ROOT);_data({"data_pins":spec["data_pins"]})
         used=subprocess.run(["nvidia-smi","--query-gpu=index,memory.used","--format=csv,noheader,nounits"],capture_output=True,text=True).stdout
         busy={int(i):int(m) for i,m in (l.split(",") for l in used.strip().splitlines())}
+        for name,ref in self.plan.get("reuse_experts",{}).items():
+            src=json.loads((Path(ref["dir"])/"expert-source.json").read_text())["run_config"]
+            if (src.get("experiment") or {}).get("name")!=ref["from_experiment"]:
+                raise SystemExit(f"reused expert {name}: {ref['dir']} was not trained by experiment {ref['from_experiment']}")
+            mapping={"student":"student","seed":"seed","steps":"steps","lr":"lr","lr_schedule":"lr_schedule",
+                     "micro_batch_size":"micro_batch_size","sft_max_seq_len":"max_seq_len"}
+            diff={k:(self.plan["controls"][k],src.get(v)) for k,v in mapping.items() if self.plan["controls"][k]!=src.get(v)}
+            if sum(d["count"] for d in src["domains"].values())!=self.plan["controls"]["samples_per_step"]:diff["samples_per_step"]="differs"
+            if diff:raise SystemExit(f"reused expert {name} was trained with different controls: {diff}")
+            if not (Path(ref["dir"])/".finalized").exists():raise SystemExit(f"reused expert {name} is not finalized")
         taken=[g for g in self.plan["gpus"] if busy.get(g,0)>1000]
         if taken:raise SystemExit(f"GPUs not idle: {taken}")
         self.log("preflight_ok",source=source["source_version"],pins=len(spec["data_pins"]))
