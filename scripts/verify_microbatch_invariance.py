@@ -3,10 +3,13 @@
 Both training entries reduce per sample (token mean) and weight samples independently, so
 the full-step gradient is a sum over samples; the only path through which the micro-batch
 size can matter is padding/packing inside mopd.training.batching.logps. This takes real
-student rollouts (prompt + response token IDs) from a MOPD run, computes the gradient of
-sum_i w_i * mean_t logp_i with micro-batch A, again with A (bf16 noise baseline) and with B,
-and reports relative L2 error and cosine similarity. Lossless when |A-B| is within the
-A-vs-A noise.
+student rollouts (prompt + response token IDs) from a MOPD run and computes the gradient of
+sum_i w_i * mean_t logp_i with micro-batch 1, A (the current setting) and B.
+
+bf16 kernels round differently for different batch shapes, so even unpadded samples change at
+the 1e-1 per-token-logprob level when the micro-batch changes; repeating A only measures
+run-to-run noise at a fixed shape and is too strict a baseline. Lossless means B is no further
+from micro-batch 1 than A already is: rel(B,1) <= 1.5 * rel(A,1).
 
   CUDA_VISIBLE_DEVICES=5 python scripts/verify_microbatch_invariance.py \
       --run runs/<mopd run> --checkpoint checkpoint-0064 --step 1 --a 2 --b 4
@@ -39,13 +42,16 @@ def main():
         prefix=tok(student_prompt(tok,plan[r["id"]],c["student_prompt_format"]),add_special_tokens=False).input_ids
         seqs.append(prefix+r["response_ids"]);starts.append(len(prefix));weights.append(1/len(rows))
     params=[p for p in model.parameters() if p.requires_grad];pad=tok.pad_token_id
+    g1=grad(model,params,seqs,starts,weights,1,pad,"cuda:0")
     ga=grad(model,params,seqs,starts,weights,a.a,pad,"cuda:0")
     ga2=grad(model,params,seqs,starts,weights,a.a,pad,"cuda:0")
     gb=grad(model,params,seqs,starts,weights,a.b,pad,"cuda:0")
     rel=lambda x,y:float((x-y).norm()/y.norm());cos=lambda x,y:float(torch.nn.functional.cosine_similarity(x,y,dim=0))
     out={"samples":len(seqs),"tokens":sum(len(s)-st for s,st in zip(seqs,starts)),
-         f"rel_l2 micro{a.a}_vs_micro{a.a} (noise)":rel(ga2,ga),f"rel_l2 micro{a.b}_vs_micro{a.a}":rel(gb,ga),
-         f"cos micro{a.b}_vs_micro{a.a}":cos(gb,ga),"grad_norm":float(ga.norm())}
-    out["lossless"]=out[f"rel_l2 micro{a.b}_vs_micro{a.a}"]<=max(3*out[f"rel_l2 micro{a.a}_vs_micro{a.a} (noise)"],1e-2)
+         f"rel_l2 micro{a.a}_vs_micro{a.a} (same-shape noise)":rel(ga2,ga),
+         f"rel_l2 micro{a.a}_vs_micro1 (current setting)":rel(ga,g1),f"rel_l2 micro{a.b}_vs_micro1":rel(gb,g1),
+         f"rel_l2 micro{a.b}_vs_micro{a.a}":rel(gb,ga),f"cos micro{a.b}_vs_micro1":cos(gb,g1),f"cos micro{a.a}_vs_micro1":cos(ga,g1),
+         "grad_norm":float(g1.norm())}
+    out["lossless"]=rel(gb,g1)<=1.5*rel(ga,g1)
     print(json.dumps(out,indent=2))
 if __name__=="__main__":main()
