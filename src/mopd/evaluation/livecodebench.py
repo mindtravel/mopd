@@ -31,6 +31,19 @@ TEST_TIMEOUT_SECONDS = 6  # official per-test timeout
 MEMORY_LIMIT_BYTES = 4 << 30
 
 # Imports the official harness prepends to every candidate.
+# Prompt wording follows the official LCB generation prompt, adapted to one instruction.
+INSTRUCTION = ("You will be given a question (problem specification) and will generate a correct Python program "
+               "that matches the specification and passes all tests.\n\nQuestion: {question}\n\n")
+STDIN_FORMAT = ("Read the inputs from stdin, solve the problem and write the answer to stdout (do not directly test on "
+                "the sample inputs). Reply with the complete program in a single ```python code block.")
+FUNCTIONAL_FORMAT = ("Use the following starter code and reply with the complete solution in a single ```python code "
+                     "block.\n```python\n{starter}\n```")
+
+
+def prompt(question, kind, starter=""):
+    return INSTRUCTION.format(question=question) + (FUNCTIONAL_FORMAT.format(starter=starter) if kind == "functional" else STDIN_FORMAT)
+
+
 HEADER = """import sys, os, io, re, math, string, random, bisect, heapq, itertools, functools, collections, operator, copy, decimal, fractions, statistics
 from typing import *
 from collections import *
@@ -76,6 +89,31 @@ def decode_private_tests(blob):
     if not isinstance(raw, str):
         raise ValueError(f"expected a JSON string payload, got {type(raw).__name__}")
     return json.loads(raw)
+
+
+def benchmark_rows(files, tests_dir, root, tag):
+    """Benchmark rows from LCB release files; tests are written to tests_dir/<question_id>.json.gz."""
+    for f in files:
+        for line in Path(f).open():
+            r = json.loads(line)
+            tests = json.loads(r["public_test_cases"]) + decode_private_tests(r["private_test_cases"])
+            kinds = {t["testtype"] for t in tests}
+            if len(kinds) != 1:
+                raise ValueError(f"{r['question_id']}: mixed test types {kinds}")
+            kind = kinds.pop()
+            path = Path(tests_dir) / f"{r['question_id']}.json.gz"
+            path.write_bytes(gzip.compress(json.dumps(tests).encode(), mtime=0))
+            meta = {"benchmark": "livecodebench", "testtype": kind, "tests_path": str(path.relative_to(root)),
+                    "tests_sha256": hashlib.sha256(path.read_bytes()).hexdigest(), "num_tests": len(tests),
+                    "difficulty": r["difficulty"], "platform": r["platform"], "contest_date": r["contest_date"],
+                    "release_file": Path(f).name}
+            starter = ""
+            if kind == "functional":
+                meta["func_name"] = json.loads(r["metadata"])["func_name"]
+                starter = r["starter_code"]
+            yield {"id": f"lcb/{r['question_id']}", "domain": "code", "split": "eval",
+                   "source": "livecodebench/code_generation_lite", "prompt": prompt(r["question_content"], kind, starter),
+                   "metadata": meta, "benchmark": tag}
 
 
 def load_tests(metadata, root):

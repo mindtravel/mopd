@@ -14,18 +14,13 @@ Like v1, every sub-benchmark file holds the same JSON lines as all.jsonl. LiveCo
 path and sha256 from each row. The manifest lists benchmark problems whose 13-grams are largely
 covered by a single training-pool prompt (near-duplicates).
 """
-import gzip, hashlib, json, re
+import hashlib, json
 from pathlib import Path
-from mopd.evaluation.livecodebench import decode_private_tests
+from mopd.data import decontam
+from mopd.evaluation import livecodebench as lcb
 ROOT = Path(__file__).resolve().parents[1]
 VERSION = "unified-v2"
 OUT = ROOT / "data/full_eval" / VERSION
-LCB_INSTRUCTION = ("You will be given a question (problem specification) and will generate a correct Python program "
-                   "that matches the specification and passes all tests.\n\nQuestion: {question}\n\n")
-LCB_STDIN = ("Read the inputs from stdin, solve the problem and write the answer to stdout (do not directly test on "
-             "the sample inputs). Reply with the complete program in a single ```python code block.")
-LCB_FUNCTIONAL = ("Use the following starter code and reply with the complete solution in a single ```python code "
-                  "block.\n```python\n{starter}\n```")
 TRAIN_POOLS = ["data/sft/numina_v3/train.jsonl", "data/sft/smol_constraints/train.jsonl", "data/sft/opencoder/train.jsonl"]
 
 
@@ -43,61 +38,20 @@ def math500():
 
 
 def livecodebench(tests_dir):
-    for name in ("test5.jsonl", "test6.jsonl"):
-        for line in (ROOT / "data/code/upstream/livecodebench" / name).open():
-            r = json.loads(line)
-            tests = json.loads(r["public_test_cases"]) + decode_private_tests(r["private_test_cases"])
-            kinds = {t["testtype"] for t in tests}
-            if len(kinds) != 1:
-                raise ValueError(f"{r['question_id']}: mixed test types {kinds}")
-            kind = kinds.pop()
-            path = tests_dir / f"{r['question_id']}.json.gz"
-            path.write_bytes(gzip.compress(json.dumps(tests).encode(), mtime=0))
-            meta = {"benchmark": "livecodebench", "testtype": kind, "tests_path": str(path.relative_to(ROOT)),
-                    "tests_sha256": sha(path), "num_tests": len(tests), "difficulty": r["difficulty"],
-                    "platform": r["platform"], "contest_date": r["contest_date"], "release_file": name}
-            prompt = LCB_INSTRUCTION.format(question=r["question_content"])
-            if kind == "functional":
-                meta["func_name"] = json.loads(r["metadata"])["func_name"]
-                prompt += LCB_FUNCTIONAL.format(starter=r["starter_code"])
-            else:
-                prompt += LCB_STDIN
-            yield {"id": f"lcb/{r['question_id']}", "domain": "code", "split": "eval",
-                   "source": "livecodebench/code_generation_lite", "prompt": prompt, "metadata": meta,
-                   "benchmark": "livecodebench342"}
+    files = [ROOT / "data/code/upstream/livecodebench" / n for n in ("test5.jsonl", "test6.jsonl")]
+    return lcb.benchmark_rows(files, tests_dir, ROOT, "livecodebench342")
 
 
-def ngrams(text, n=13):
-    words = re.findall(r"\w+", text.lower())
-    return {" ".join(words[i:i + n]) for i in range(len(words) - n + 1)}
-
-
-def overlap(rows, field, threshold=0.3):
-    """Per benchmark problem, the largest share of its 13-grams found in one training prompt.
-
-    Shared 13-grams alone are mostly boilerplate (number runs, LeetCode's "subsequence" wording);
-    a near-duplicate covers a large share of the problem from a single prompt. Rows at or above
-    the threshold are listed so a decontaminated score can be reported next to the full one."""
-    grams = {r["id"]: ngrams(field(r)) for r in rows}
-    where = {}
-    for rid, gs in grams.items():
-        for g in gs:
-            where.setdefault(g, []).append(rid)
-    best = dict.fromkeys(grams, 0.0)
-    for pool in TRAIN_POOLS:
-        for line in (ROOT / pool).open():
-            shared = {}
-            for g in ngrams(json.loads(line)["prompt"]) & where.keys():
-                for rid in where[g]:
-                    shared[rid] = shared.get(rid, 0) + 1
-            for rid, c in shared.items():
-                best[rid] = max(best[rid], c / len(grams[rid]))
+def overlap(rows, field, threshold=decontam.THRESHOLD):
+    """Per benchmark, problems whose 13-grams are largely covered by one training prompt."""
+    index = decontam.BenchmarkIndex({r["id"]: field(r) for r in rows})
+    best = index.max_coverage(json.loads(line)["prompt"] for pool in TRAIN_POOLS for line in (ROOT / pool).open())
     report = {"threshold": threshold}
     for bench in dict.fromkeys(r["benchmark"] for r in rows):
-        ids = sorted((rid for rid in grams if rid in {r["id"] for r in rows if r["benchmark"] == bench} and best[rid] >= threshold),
-                     key=lambda rid: -best[rid])
-        report[bench] = {"rows": sum(r["benchmark"] == bench for r in rows), "near_duplicates": [[rid, round(best[rid], 3)] for rid in ids],
-                         "max_coverage": round(max(best[r["id"]] for r in rows if r["benchmark"] == bench), 3)}
+        ids = [r["id"] for r in rows if r["benchmark"] == bench]
+        dups = sorted((i for i in ids if best[i] >= threshold), key=lambda i: -best[i])
+        report[bench] = {"rows": len(ids), "near_duplicates": [[i, round(best[i], 3)] for i in dups],
+                         "max_coverage": round(max(best[i] for i in ids), 3)}
     return report
 
 
