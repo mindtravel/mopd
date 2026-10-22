@@ -29,6 +29,8 @@ SETS={
                          ("OpenCoder-LLM/opc-sft-stage2:evol_instruct","opc2_evol",
                           UP/"opc_sft_stage2/evol_instruct-train-00000-of-00001.parquet")]},
 }
+# educational_instruct alone: function-level Python with tests, the subset closest to HumanEval / MBPP.
+SETS["stage2edu"]={**SETS["stage2"],"out":"data/sft/opencoder_stage2_edu","sources":SETS["stage2"]["sources"][:1]}
 MAX_PROMPT_TOKENS=1024
 MAX_RESPONSE_TOKENS=1024
 DEV_SIZE=256
