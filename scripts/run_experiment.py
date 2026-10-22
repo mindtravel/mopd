@@ -17,6 +17,10 @@ ROOT=Path(__file__).resolve().parents[1]
 sys.path.insert(0,str(ROOT/"src"))
 from mopd.runtime.provenance import _source,_data,sha256
 PY=sys.executable
+# Whole benchmark in one continuous-batching pass. Verified against the earlier 64-row batches on
+# scale256 mix-mi step 256: cross-setting differences (581/1090 identical, 41 verdict flips) match
+# same-setting repeats (589/38 and 594/40); generation wall time 482 s -> 155 s.
+EVAL_SCHEDULING=["--batch-size","4096","--max-seqs","256","--max-num-batched-tokens","8192"]
 def free_gib():
     s=os.statvfs(ROOT);return s.f_bfree*s.f_frsize/2**30
 class Runner:
@@ -69,7 +73,7 @@ class Runner:
         if k=="eval_checkpoint":
             return [([PY,"scripts/evaluate_model_version.py","--model-version",j["model_version"],"--checkpoint",j["checkpoint"],
                       "--data",ev["data"],"--protocol-id",ev["protocol_id"],"--device",str(gpus[0]),
-                      "--max-new-tokens",str(ev["max_new_tokens"]),"--batch-size","64","--max-seqs","64"],{})]
+                      "--max-new-tokens",str(ev["max_new_tokens"])]+EVAL_SCHEDULING,{})]
         if k=="export_expert":
             return [([PY,"scripts/export_lora_expert.py","--base",base,"--adapter",j["adapter"],"--out",j["out"]],{"CUDA_VISIBLE_DEVICES":""}),
                     ([PY,"scripts/finalize_merged_model.py","--base",base,j["out"]],{})]
@@ -81,7 +85,7 @@ class Runner:
             return [([str(ROOT/"mopd_infer/bin/python"),"scripts/generate_benchmark_vllm.py","--model",j["model"],"--data",ev["data"],
                       "--out",str(out),"--device",str(gpus[0]),"--model-version-id",f"merge:{Path(j['model']).name}",
                       "--protocol-id",ev["protocol_id"],"--student-prompt-format","plain_qa_v1",
-                      "--max-new-tokens",str(ev["max_new_tokens"]),"--max-seqs","64","--batch-size","64"],{}),
+                      "--max-new-tokens",str(ev["max_new_tokens"])]+EVAL_SCHEDULING,{}),
                     ([PY,"scripts/grade_benchmark_outputs.py","--data",ev["data"],"--out",str(out)],{})]
         raise ValueError(k)
     def finish_artifact(self,j):

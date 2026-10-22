@@ -69,6 +69,7 @@ def build_command(args):
             "--device", str(args.device), "--model-version-id", checkpoint["version_id"],
             "--protocol-id", args.protocol_id, "--max-new-tokens", str(args.max_new_tokens),
             "--max-seqs", str(args.max_seqs), "--batch-size", str(args.batch_size),
+            "--max-num-batched-tokens", str(args.max_num_batched_tokens),
             "--student-prompt-format", prompt_format]
         if checkpoint["path"]:
             command.extend(["--adapter", checkpoint["path"]])
@@ -91,6 +92,7 @@ def main():
     parser.add_argument("--max-model-len", type=int, default=16384)
     parser.add_argument("--max-seqs", type=int, default=8)
     parser.add_argument("--batch-size", type=int, default=2)
+    parser.add_argument("--max-num-batched-tokens", type=int, default=2048, help="vLLM prefill token budget")
     parser.add_argument("--seed", type=int, default=20261014)
     parser.add_argument("--student-prompt-format", help="required only for manifests without student prompt_format")
     args = parser.parse_args()
