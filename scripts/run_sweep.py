@@ -190,8 +190,11 @@ def main():
     ap.add_argument("--only", nargs="*")
     ap.add_argument("--final", nargs="*", default=[])
     ap.add_argument("--collect", action="store_true")
+    ap.add_argument("--gpus", type=int, nargs="*", help="override spec[\"gpus\"] (e.g. to rerun failed variants on GPUs not busy with another in-flight sweep run)")
     a = ap.parse_args()
     s = Sweep(a.sweep)
+    if a.gpus:
+        s.spec["gpus"] = a.gpus
     if a.collect:
         s.collect()
     else:
