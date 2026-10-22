@@ -1,0 +1,145 @@
+"""Training-data subsets: one canonical, decontaminated row set per source.
+
+A subset turns one raw download into rows of a fixed schema:
+  {"id", "problem_id", "source", "problem", "response", "code", "kind", "meta": {...}}
+  kind: "stdin" (read stdin / print), "function" (write a named function), "class" (LeetCode
+  `class Solution` starter), "unknown".  response is the full reply (explanation + code, or a
+  reasoning trace); code is the final program alone.
+Builders only parse and normalize. Selection (which sources, difficulty, correctness), formatting
+(prompt template, code-only vs full reply) and sizes belong to recipes (mopd.data.recipes), so an
+ablation never rebuilds a subset.
+
+Build steps, recorded in data/subsets/<name>/manifest.json with counts after each step:
+  read -> drop empty -> exact dedup of (problem, response) -> drop rows that near-duplicate any
+  benchmark problem (mopd.data.decontam over every evaluation file in EVAL_FILES).
+"""
+import glob, hashlib, inspect, json, re
+from pathlib import Path
+
+from mopd.data import decontam
+
+ROOT = Path("/ssd/lzx/mopd")
+EVAL_FILES = ["data/full_eval/unified-v2/all.jsonl", "data/full_eval/lcb-dev-v1/lcbdev.jsonl"]
+FENCE = re.compile(r"```(?:python|py|Python)?\s*\n(.*?)```", re.DOTALL)
+THINK = re.compile(r"<think>.*?</think>\s*", re.DOTALL)
+
+
+def last_code(text):
+    blocks = FENCE.findall(text or "")
+    return blocks[-1].strip("\n") if blocks else ""
+
+
+def parquet_rows(pattern, columns=None):
+    import pyarrow.parquet as pq
+    for f in sorted(glob.glob(str(ROOT / pattern))):
+        for batch in pq.ParquetFile(f).iter_batches(batch_size=2048, columns=columns):
+            yield from batch.to_pylist()
+
+
+# ---------------------------------------------------------------- source readers
+def read_kodcode():
+    """KodCode-V1-SFT-4o: synthetic function-style tasks (incl. ones derived from Taco, Codeforces, Apps,
+    Code_Contests, Leetcode), GPT-4o reply with explanation + code, verified by unit tests."""
+    for r in parquet_rows("data/raw/kodcode-v1-sft-4o/data/train-*.parquet"):
+        reply = next((c["value"] for c in r["conversations"] if c["from"] == "gpt"), "")
+        yield {"id": f"kodcode/{r['question_id']}", "problem_id": r["question_id"], "source": r["subset"],
+               "problem": r["question"], "response": reply, "code": last_code(reply) or r["4o_solution"],
+               "kind": "function",
+               "meta": {"style": r["style"], "correct": r["4o_correctness"] == "True", "gpt_difficulty": r["gpt_difficulty"],
+                        "pass_rate": r["gpt_pass_percentage"]}}
+
+
+def read_opencodereasoning():
+    """OpenCodeReasoning split_0: competitive programming (CodeContests, TACO, APPS, Codeforces) with a
+    DeepSeek-R1 reply (reasoning + code) and the code alone; several replies per problem, not verified."""
+    for r in parquet_rows("data/raw/opencodereasoning/split_0/*.parquet"):
+        reply = THINK.sub("", r["output"]) if "</think>" in r["output"] else r["output"]
+        kind = "stdin" if re.search(r"input\(\)|sys\.stdin", r["solution"]) else "function" if "def " in r["solution"] else "unknown"
+        yield {"id": f"ocr/{r['id']}", "problem_id": hashlib.sha1(r["input"].encode()).hexdigest()[:16], "source": r["dataset"],
+               "problem": r["input"], "response": r["output"], "code": last_code(r["solution"]) or r["solution"],
+               "kind": kind,
+               "meta": {"difficulty": r["difficulty"], "trace_chars": len(r["output"]), "final_chars": len(reply)}}
+
+
+def read_opencoder_clean():
+    """The current code pool (OpenCoder stage 2 educational + evol, opener boilerplate removed)."""
+    for line in (ROOT / "data/sft/opencoder_stage2_clean/train.jsonl").open():
+        r = json.loads(line)
+        yield {"id": f"opencoder/{r['id']}", "problem_id": str(r["id"]), "source": r.get("source", "opencoder"),
+               "problem": r["prompt"], "response": r["response"], "code": last_code(r["response"]), "kind": "function",
+               "meta": {}}
+
+
+SUBSETS = {
+    "kodcode-4o": {"reader": read_kodcode, "raw": "data/raw/kodcode-v1-sft-4o"},
+    "opencodereasoning": {"reader": read_opencodereasoning, "raw": "data/raw/opencodereasoning"},
+    "opencoder-clean": {"reader": read_opencoder_clean, "raw": "data/sft/opencoder_stage2_clean"},
+}
+
+
+# ---------------------------------------------------------------- build
+def builder_version(name):
+    """Digest of this subset's reader, the shared build steps, the decontamination code and the raw
+    download manifest: changing any of them yields a new version; other subsets are unaffected."""
+    h = hashlib.sha256()
+    for part in (SUBSETS[name]["reader"], build, last_code):
+        h.update(inspect.getsource(part).encode())
+    h.update(Path(decontam.__file__).read_bytes() + json.dumps(EVAL_FILES).encode())
+    raw = ROOT / SUBSETS[name]["raw"] / "download-manifest.json"
+    h.update(raw.read_bytes() if raw.exists() else SUBSETS[name]["raw"].encode())
+    return h.hexdigest()[:12]
+
+
+def eval_index():
+    problems = {}
+    for f in EVAL_FILES:
+        for line in (ROOT / f).open():
+            r = json.loads(line)
+            problems[f"{r['benchmark']}:{r['id']}"] = r.get("problem") or r["prompt"].split("Question: ", 1)[-1]
+    return decontam.BenchmarkIndex(problems)
+
+
+def build(name, out_root=ROOT / "data/subsets"):
+    out = out_root / name
+    version = builder_version(name)
+    manifest_path = out / "manifest.json"
+    if manifest_path.exists() and json.loads(manifest_path.read_text())["version"] == version:
+        return json.loads(manifest_path.read_text())
+    out.mkdir(parents=True, exist_ok=True)
+    index = eval_index()
+    counts = {"read": 0, "empty": 0, "duplicate": 0, "contaminated": 0, "kept": 0}
+    seen, dropped, verdict = set(), [], {}
+    tmp = out / "rows.jsonl.tmp"
+    with tmp.open("w") as f:
+        for r in SUBSETS[name]["reader"]():
+            counts["read"] += 1
+            if not r["problem"].strip() or not (r["response"].strip() or r["code"].strip()):
+                counts["empty"] += 1; continue
+            key = hashlib.sha1((" ".join(r["problem"].split()) + "\0" + r["response"]).encode()).digest()
+            if key in seen:
+                counts["duplicate"] += 1; continue
+            seen.add(key)
+            pkey = hashlib.sha1(r["problem"].encode()).digest()  # several replies share one problem
+            if pkey not in verdict:
+                verdict[pkey] = index.worst(r["problem"])
+            pid, cov = verdict[pkey]
+            if cov >= decontam.THRESHOLD:
+                counts["contaminated"] += 1; dropped.append([r["id"], pid, round(cov, 3)]); continue
+            counts["kept"] += 1
+            f.write(json.dumps(r, ensure_ascii=False) + "\n")
+    tmp.replace(out / "rows.jsonl")
+    sha = hashlib.sha256((out / "rows.jsonl").read_bytes()).hexdigest()
+    manifest = {"name": name, "version": version, "rows_sha256": sha, "counts": counts,
+                "decontam": {"threshold": decontam.THRESHOLD, "eval_files": EVAL_FILES, "dropped": dropped[:2000]},
+                "raw": SUBSETS[name]["raw"]}
+    manifest_path.write_text(json.dumps(manifest, indent=1))
+    return manifest
+
+
+def rows(name, root=ROOT / "data/subsets"):
+    manifest = json.loads((root / name / "manifest.json").read_text())
+    if manifest["version"] != builder_version(name):
+        raise ValueError(f"subset {name} is stale: rebuild it (scripts/subsets.py build {name})")
+    with (root / name / "rows.jsonl").open() as f:
+        for line in f:
+            yield json.loads(line)

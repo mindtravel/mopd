@@ -1,0 +1,28 @@
+{
+ "name": "kc-contest-code",
+ "description": "同 kc-contest，回答只保留代码块（看解释文字的作用）",
+ "parts": [
+  {
+   "subset": "kodcode-4o",
+   "where": {
+    "source": [
+     "Taco",
+     "Codeforces",
+     "Apps",
+     "Code_Contests",
+     "Leetcode"
+    ],
+    "meta.correct": [
+     true
+    ]
+   }
+  }
+ ],
+ "per_problem": 1,
+ "prompt": "lcb",
+ "response": "code",
+ "max_response_tokens": 3500,
+ "rows": 8192,
+ "dev_rows": 64,
+ "seed": 20261022
+}

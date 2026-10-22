@@ -1,0 +1,16 @@
+{
+ "name": "ocr-final",
+ "description": "OpenCodeReasoning：R1 回答去掉 <think> 推理，只留最终解答",
+ "parts": [
+  {
+   "subset": "opencodereasoning"
+  }
+ ],
+ "per_problem": 1,
+ "prompt": "lcb",
+ "response": "final",
+ "max_response_tokens": 3500,
+ "rows": 8192,
+ "dev_rows": 64,
+ "seed": 20261022
+}

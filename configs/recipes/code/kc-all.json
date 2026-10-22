@@ -1,0 +1,21 @@
+{
+ "name": "kc-all",
+ "description": "KodCode-4o 全部来源，只留 4o 通过测试的",
+ "parts": [
+  {
+   "subset": "kodcode-4o",
+   "where": {
+    "meta.correct": [
+     true
+    ]
+   }
+  }
+ ],
+ "per_problem": 1,
+ "prompt": "lcb",
+ "response": "full",
+ "max_response_tokens": 3500,
+ "rows": 8192,
+ "dev_rows": 64,
+ "seed": 20261022
+}

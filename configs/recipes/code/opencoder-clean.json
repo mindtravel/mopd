@@ -1,0 +1,16 @@
+{
+ "name": "opencoder-clean",
+ "description": "现有代码池（对照）：OpenCoder stage2 educational+evol，去开头套话",
+ "parts": [
+  {
+   "subset": "opencoder-clean"
+  }
+ ],
+ "per_problem": 1,
+ "prompt": "plain",
+ "response": "full",
+ "max_response_tokens": 3500,
+ "rows": 8192,
+ "dev_rows": 64,
+ "seed": 20261022
+}

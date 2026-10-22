@@ -1,0 +1,16 @@
+{
+ "name": "ocr-code",
+ "description": "OpenCodeReasoning：只留代码（以 stdin 程序为主，最接近 LCB 格式）",
+ "parts": [
+  {
+   "subset": "opencodereasoning"
+  }
+ ],
+ "per_problem": 1,
+ "prompt": "lcb",
+ "response": "code",
+ "max_response_tokens": 3500,
+ "rows": 8192,
+ "dev_rows": 64,
+ "seed": 20261022
+}
