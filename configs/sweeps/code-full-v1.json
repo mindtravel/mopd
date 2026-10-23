@@ -49,6 +49,10 @@
   {
    "name": "oci",
    "recipe": "configs/recipes/code/oci.json"
+  },
+  {
+   "name": "oci-final",
+   "recipe": "configs/recipes/code/oci-final.json"
   }
  ]
 }

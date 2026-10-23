@@ -1,0 +1,15 @@
+{
+ "name": "oci-final",
+ "description": "与 oci 同源同题同代码，只去掉 <think> 推理、直接给最终代码——带短思维链的 oci 在 lcb-dev 上 greedy 解码陷入枚举循环（ck256 18.4 vs base 31.8，405/713 截断）后的对照",
+ "parts": [
+  {"subset": "opencodeinstruct", "where": {"meta.has_code": [true]}}
+ ],
+ "per_problem": 1,
+ "prompt": "lcb",
+ "response": "final",
+ "rows": 8192,
+ "dev_rows": 64,
+ "seed": 20261022,
+ "max_total_tokens": 10240,
+ "micro_batch_size": 4
+}
