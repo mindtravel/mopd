@@ -70,6 +70,7 @@ def build_command(args):
             "--protocol-id", args.protocol_id, "--max-new-tokens", str(args.max_new_tokens),
             "--max-seqs", str(args.max_seqs), "--batch-size", str(args.batch_size),
             "--max-num-batched-tokens", str(args.max_num_batched_tokens),
+            "--max-model-len", str(args.max_model_len),
             "--student-prompt-format", prompt_format]
         if checkpoint["path"]:
             command.extend(["--adapter", checkpoint["path"]])

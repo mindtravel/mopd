@@ -13,6 +13,7 @@ def main():
  # vLLM prefill token budget per scheduler step. 2048 reproduces every earlier evaluation's runtime;
  # with --batch-size >= rows and a large --max-seqs, the whole set goes through continuous batching at once.
  p.add_argument("--max-num-batched-tokens",type=int,default=2048)
+ p.add_argument("--max-model-len",type=int,default=16384)
  a=p.parse_args()
  if not a.teacher and not a.student_prompt_format:p.error("--student-prompt-format is required for student generation")
  os.environ["CUDA_VISIBLE_DEVICES"]=str(a.device)
@@ -32,7 +33,7 @@ def main():
  if not model_version_id:
   model_version_id=("teacher:" if a.teacher else "base:")+Path(a.model).name
  protocol_id=a.protocol_id or f"mopd-{Path(a.data).stem}-greedy-{a.max_new_tokens}-v1"
- generation_options={"temperature":0,"max_new_tokens":a.max_new_tokens,"max_model_len":16384,"seed":20261013}
+ generation_options={"temperature":0,"max_new_tokens":a.max_new_tokens,"max_model_len":a.max_model_len,"seed":20261013}
  adapter_sha256=hashlib.sha256((Path(a.adapter)/"adapter_model.safetensors").read_bytes()).hexdigest() if a.adapter else None
  config=build_generation_manifest(
   run_id=model_version_id.rsplit(":step-",1)[0] if ":step-" in model_version_id else model_version_id,
@@ -69,7 +70,7 @@ def main():
  from vllm.lora.request import LoRARequest
  from mopd.data.domains import student_prompt,teacher_content
  from mopd.data.templates import apply_chat_template_ids
- engine=LLM(model=a.model,dtype="bfloat16",max_model_len=16384,
+ engine=LLM(model=a.model,dtype="bfloat16",max_model_len=a.max_model_len,
   gpu_memory_utilization=.85,max_num_seqs=a.max_seqs,max_num_batched_tokens=a.max_num_batched_tokens,
   enable_chunked_prefill=True,enable_prefix_caching=True,generation_config="vllm",
   enable_lora=bool(a.adapter),max_lora_rank=16,seed=20261013)
