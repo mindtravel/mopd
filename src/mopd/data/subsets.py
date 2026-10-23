@@ -68,6 +68,24 @@ def read_opencodereasoning():
                "meta": {"difficulty": r["difficulty"], "trace_chars": len(r["output"]), "final_chars": len(reply), "upstream_id": r["id"]}}
 
 
+def read_rstar_seed():
+    """rStar-Coder seed_sft: QwQ-32B reasoning+code solutions for real competitive-programming
+    problems (AIZU/AtCoder/CodeChef/Codeforces/USACO), majority-verified against generated tests
+    (microsoft/rStar-Coder, arXiv:2505.21297). `verified`/`is_passed` select the usable rows (recipe
+    `where`, like KodCode's `correct`). QwQ shows the same failure as OpenCodeReasoning's R1 teacher
+    -- switching to Chinese/Cyrillic mid-response -- at a far lower rate (5.3% of verified+passed
+    rows here vs 0.1% of all OpenCodeReasoning rows, which still blew up to 66% of a trained model's
+    outputs); `clean_language` flags it so recipes can filter it out rather than learn it again."""
+    nonlatin = re.compile(r"[Ѐ-ӿ一-鿿]")
+    for r in parquet_rows("data/raw/rstar-coder/seed_sft/*.parquet"):
+        kind = "function" if r["starter_code"].strip() else "stdin"
+        yield {"id": f"rstar/{r['question_id']}", "problem_id": r["question_id"], "source": "rstar-coder-seed",
+               "problem": r["question"], "response": r["response"], "code": r["code"] or last_code(r["response"]),
+               "kind": kind,
+               "meta": {"verified": bool(r["verified"]), "is_passed": bool(r["is_passed"]),
+                        "clean_language": not bool(nonlatin.search(r["response"]))}}
+
+
 def read_opencoder_clean():
     """The current code pool (OpenCoder stage 2 educational + evol, opener boilerplate removed)."""
     for line in (ROOT / "data/sft/opencoder_stage2_clean/train.jsonl").open():
@@ -81,6 +99,7 @@ SUBSETS = {
     "kodcode-4o": {"reader": read_kodcode, "raw": "data/raw/kodcode-v1-sft-4o"},
     "opencodereasoning": {"reader": read_opencodereasoning, "raw": "data/raw/opencodereasoning"},
     "opencoder-clean": {"reader": read_opencoder_clean, "raw": "data/sft/opencoder_stage2_clean"},
+    "rstar-seed": {"reader": read_rstar_seed, "raw": "data/raw/rstar-coder"},
 }
 
 

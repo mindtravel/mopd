@@ -1,0 +1,15 @@
+{
+ "name": "rstar-seed",
+ "description": "rStar-Coder seed_sft（QwQ-32B 推理+代码，真实竞赛题，已验证），过滤掉含中文/西里尔字符的回答（5.3% 基数，照搬 OCR 的教训从源头掐掉）",
+ "parts": [
+  {"subset": "rstar-seed", "where": {"meta.verified": [true], "meta.is_passed": [true], "meta.clean_language": [true]}}
+ ],
+ "per_problem": 1,
+ "prompt": "lcb",
+ "response": "full",
+ "rows": 8192,
+ "dev_rows": 64,
+ "seed": 20261022,
+ "max_total_tokens": 20480,
+ "micro_batch_size": 1
+}
