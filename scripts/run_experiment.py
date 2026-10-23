@@ -24,6 +24,12 @@ def expert_run_config(expert):
     (expert-source.json); a full-parameter expert is its run's own final checkpoint directory."""
     if (expert/"expert-source.json").is_file():return json.loads((expert/"expert-source.json").read_text())["run_config"]
     return json.loads((expert.parent/"config.json").read_text())
+def expert_identity(expert):
+    """What a merge was built from: the LoRA adapter's sha256, or for a full-parameter expert its run,
+    checkpoint and weight-file digests."""
+    if (expert/"expert-source.json").is_file():return json.loads((expert/"expert-source.json").read_text())["adapter_sha256"]
+    return {"run":str(expert.parent),"checkpoint":expert.name,
+            "weights_sha256":{f.name:sha256(f) for f in sorted(expert.glob("*.safetensors"))}}
 def expert_finished(expert):
     if (expert/"expert-source.json").is_file():return (expert/".finalized").exists()
     status=expert.parent/"status.json"
@@ -102,7 +108,7 @@ class Runner:
             shutil.copy(ROOT/j["yaml"],out/Path(j["yaml"]).name)
             experts=[l.split("model:",1)[1].strip() for l in (ROOT/j["yaml"]).read_text().splitlines() if "model:" in l]
             (out/"merge-source.json").write_text(json.dumps({"yaml":j["yaml"],"yaml_sha256":sha256(ROOT/j["yaml"]),
-                "experts":{e:json.loads((Path(e)/"expert-source.json").read_text())["adapter_sha256"] for e in experts}},indent=2))
+                "experts":{e:expert_identity(Path(e)) for e in experts}},indent=2))
         (out/".finalized").write_text(time.strftime("%Y-%m-%dT%H:%M:%S"))
     def run_job(self,j,gpus):
         log=self.logdir/(j["id"].replace(":","__")+".log")
