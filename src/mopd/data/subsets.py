@@ -23,11 +23,24 @@ ROOT = Path("/ssd/lzx/mopd")
 EVAL_FILES = ["data/full_eval/unified-v2/all.jsonl", "data/full_eval/lcb-dev-v1/lcbdev.jsonl"]
 FENCE = re.compile(r"```(?:python|py|Python)?\s*\n(.*?)```", re.DOTALL)
 THINK = re.compile(r"<think>.*?</think>\s*", re.DOTALL)
+# Reasoning-chain self-correction markers ("Wait, ... Hmm, so ... Let me think ..."). A normal,
+# occasionally-backtracking chain uses a few of these; a non-converging one repeats them for
+# hundreds of occurrences without reaching a conclusion (found diagnosing rstar-seed: training
+# responses that pass their tests still median 67 of these in ~26k characters, and the eval-time
+# failures that never produced code at all median 120 -- not a different failure mode, a denser
+# version of what the training data already does a lot of). Readers that count this in `meta` let
+# a recipe prefer the least hedgy of several candidate solutions to one problem, instead of a
+# random one, without discarding data: mopd.data.recipes' `prefer_fewest`.
+HEDGE = re.compile(r"\bWait\b|\bHmm\b|\bLet me think\b", re.I)
 
 
 def last_code(text):
     blocks = FENCE.findall(text or "")
     return blocks[-1].strip("\n") if blocks else ""
+
+
+def hedge_count(text):
+    return len(HEDGE.findall(text or ""))
 
 
 def parquet_rows(pattern, columns=None):
@@ -87,6 +100,11 @@ def read_rstar_seed():
     -- switching to Chinese/Cyrillic mid-response -- at a far lower rate (5.3% of verified+passed
     rows here vs 0.1% of all OpenCodeReasoning rows, which still blew up to 66% of a trained model's
     outputs); `clean_language` flags it so recipes can filter it out rather than learn it again.
+    `hedge_markers` (mopd.data.subsets.hedge_count) lets a recipe prefer the least rambling of a
+    problem's several passing solutions instead of a random one (most problems have several: median
+    15 candidates, 90% have >=3) -- diagnosed separately: trained models reproduce this teacher's
+    heavy self-correction style and, on problems they cannot actually solve, loop in it forever
+    instead of concluding; training responses that DO pass already median 67 of these markers.
     Upstream `question_id` is shared across a problem's sampled solutions too (up to 16 rows/id,
     same issue as OpenCodeReasoning's `id`), so it is only used to break ties; problem_id itself is
     a text digest -- two different question_ids for byte-identical questions (observed: duplicate
@@ -101,7 +119,8 @@ def read_rstar_seed():
                "problem": r["question"], "response": r["response"], "code": r["code"] or last_code(r["response"]),
                "kind": kind,
                "meta": {"verified": bool(r["verified"]), "is_passed": bool(r["is_passed"]),
-                        "clean_language": not bool(nonlatin.search(r["response"]))}}
+                        "clean_language": not bool(nonlatin.search(r["response"])),
+                        "hedge_markers": hedge_count(r["response"])}}
 
 
 def read_opencoder_clean():

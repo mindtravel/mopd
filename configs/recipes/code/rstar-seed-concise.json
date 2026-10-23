@@ -1,0 +1,16 @@
+{
+ "name": "rstar-seed-concise",
+ "description": "rStar-Coder seed_sft，和 rstar-seed 完全同源同过滤条件，唯一区别：同一题的多条候选解里优先选犹豫词（Wait/Hmm/Let me think）最少的那条，而不是随机选——诊断 rstar-seed 推理不收敛问题后的消融实验（随机选中位数 74 次/条，优先选最少能降到 46 次/条）",
+ "parts": [
+  {"subset": "rstar-seed", "where": {"meta.verified": [true], "meta.is_passed": [true], "meta.clean_language": [true]}}
+ ],
+ "per_problem": 1,
+ "prefer_fewest": "meta.hedge_markers",
+ "prompt": "lcb",
+ "response": "full",
+ "rows": 8192,
+ "dev_rows": 64,
+ "seed": 20261022,
+ "max_total_tokens": 20480,
+ "micro_batch_size": 1
+}

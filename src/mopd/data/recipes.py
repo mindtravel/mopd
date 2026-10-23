@@ -5,6 +5,9 @@
    "parts": [{"subset": "kodcode-4o", "where": {"source": ["Taco", "Codeforces"], "meta.correct": [true]},
               "weight": 1.0}],
    "per_problem": 1,                     # at most this many replies per problem
+   "prefer_fewest": "meta.hedge_markers",# optional; of a problem's shuffled candidates, keep the
+                                          # `per_problem` with the lowest value of this field first
+                                          # (e.g. subsets.hedge_count), not a random pick
    "prompt": "lcb" | "plain",            # lcb: same instruction wording as the LiveCodeBench eval prompt
    "response": "full" | "final" | "code",# full reply / reply without <think> trace / fenced code only
    "max_total_tokens": 20480,            # prompt + response + EOS above this is skipped (student
@@ -96,10 +99,13 @@ def build(recipe_path, out_root=ROOT / "data/recipes"):
         for r in subsets.rows(part["subset"]):
             if matches(r, part.get("where")):
                 by_problem.setdefault(r["problem_id"], []).append(r)
+        prefer = part.get("prefer_fewest", recipe.get("prefer_fewest"))
         candidates = []
         for pid in sorted(by_problem):
             group = by_problem[pid]
-            rng.shuffle(group)
+            rng.shuffle(group)  # random order; stable sort below keeps this as the tiebreak
+            if prefer:
+                group.sort(key=lambda r: field(r, prefer))
             candidates += group[:recipe.get("per_problem", 1)]
         rng.shuffle(candidates)
         taken, too_long, empty = [], 0, 0
