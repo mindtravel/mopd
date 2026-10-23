@@ -95,16 +95,17 @@ def main():
   work.append((i,ids))
  worker_config=json.dumps({"model":a.model,"adapter":a.adapter,"max_model_len":a.max_model_len,"max_seqs":a.max_seqs,
   "max_num_batched_tokens":a.max_num_batched_tokens,"max_new_tokens":a.max_new_tokens,"temperature":a.temperature,"top_p":a.top_p})
- lock=threading.Lock();failures=[];started=time.monotonic();written=0;workers=[]
+ lock=threading.Lock();failures=[];started=time.monotonic();written=0;workers=[];per_gpu=collections.Counter()
  with records.open("a",buffering=1) as f:
-  def record(row,m):
+  def record(row,m,device):
    nonlocal written
+   per_gpu[str(device)]+=1
    rec={"id":row["id"],"domain":row["domain"],"prompt":row["prompt"],"response":m["text"],
      "response_ids":m["token_ids"],"tokens":len(m["token_ids"]),
      "truncated":m["finish_reason"]=="length","finish_reason":m["finish_reason"]}
    f.write(json.dumps(rec,ensure_ascii=False)+"\n");f.flush()
    done.add((row["domain"],str(row["id"])));written+=1
-   fields=dict(done=len(done),total=len(rows),seconds_this_session=time.monotonic()-started,backend="vllm",gpus=len(a.device),queued=len(work))
+   fields=dict(done=len(done),total=len(rows),seconds_this_session=time.monotonic()-started,backend="vllm",queued=len(work),per_gpu=dict(per_gpu))
    progress.write(out/"generation-progress.json",**fields)  # every row: cheap, and this is the point
    if written%20==0 or len(done)==len(rows):
     os.fsync(f.fileno())  # durability; the flush() above already makes rows visible to readers
@@ -129,7 +130,7 @@ def main():
        rows_=[work.popleft() for _ in range(min(grant,len(work)))]
       proc.stdin.write(json.dumps({"rows":rows_} if rows_ else {"eof":True})+"\n");proc.stdin.flush()
      elif "key" in m:
-      with lock:record(pending[m["key"]],m)
+      with lock:record(pending[m["key"]],m,device)
     if proc.wait():raise RuntimeError(f"GPU {device} worker exited with {proc.returncode}; see {log.name}")
    except BaseException as e:
     failures.append(e)

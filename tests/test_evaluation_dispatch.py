@@ -34,7 +34,7 @@ class EvaluationDispatchTests(unittest.TestCase):
         return SimpleNamespace(
             model_version=str(manifest), checkpoint=checkpoint, data=str(data),
             protocol_id="ifeval-v1", out=out, backend=backend, device=[3],
-            max_new_tokens=128, max_model_len=4096, max_seqs=4, batch_size=2, seed=7,
+            max_new_tokens=128, max_model_len=4096, max_seqs=4, batch_size=2, max_num_batched_tokens=2048, seed=7,
             student_prompt_format=student_prompt_format,
         )
 
