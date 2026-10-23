@@ -39,10 +39,14 @@ def generate(spec_path):
                            "spec_sha256":hashlib.sha256(spec_bytes).hexdigest()}
     arms={a["name"]:a for a in spec["arms"]}
     reuse=spec.get("reuse_experts",{})  # name -> {"dir", "from_experiment"}: trained by an earlier spec
-    expert_dir=lambda name:reuse[name]["dir"] if name in reuse else spec["expert_dir_prefix"]+name
-    expert_dep=lambda name:[] if name in reuse else [f"export:{name}"]
+    # Full fine-tuning (student_backend hf_full, mopd.training.fsdp): every SFT run spans all of the
+    # experiment's GPUs, and its final checkpoint already is a standalone model -- it is the expert
+    # directly, with no LoRA export step.
+    full=c["student_backend"]=="hf_full"
     run_dir=lambda name:spec["output_prefix"]+name
     final=f"checkpoint-{c['steps']:04d}"
+    expert_dir=lambda name:reuse[name]["dir"] if name in reuse else f"{run_dir(name)}/{final}" if full else spec["expert_dir_prefix"]+name
+    expert_dep=lambda name:[] if name in reuse else [f"train:{name}"] if full else [f"export:{name}"]
     files,jobs={},[]
     ev=spec["evaluation"]
     def eval_jobs(name,deps):
@@ -53,17 +57,20 @@ def generate(spec_path):
         common={"student":c["student"],"student_backend":c["student_backend"],"student_prompt_format":c["student_prompt_format"],
                 "seed":c["seed"],"steps":c["steps"],"lr":c["lr"],"lr_schedule":c["lr_schedule"],
                 "micro_batch_size":c["micro_batch_size"],"save_every":c["save_every"],"output":run_dir(name),
-                "data_pins":spec["data_pins"],"experiment":experiment(name)}
+                "data_pins":spec["data_pins"],"experiment":experiment(name),
+                **({"fsdp":c["fsdp"]} if "fsdp" in c else {})}
         if arm["method"]=="sft":
             cfg={**common,"training_method":"sft","student_device":"cuda:0","max_seq_len":c["sft_max_seq_len"],
                  "domains":domains_spec(spec,ordered(spec,arm["domains"]))}
             files[f"{name}.json"]=dumps(cfg)
-            jobs.append({"id":f"train:{name}","kind":"train_sft","gpus":1,"deps":[],"config":f"configs/experiments/{spec['name']}/{name}.json"})
+            jobs.append({"id":f"train:{name}","kind":"train_sft","gpus":list(spec["gpus"]) if full else 1,"deps":[],
+                         "config":f"configs/experiments/{spec['name']}/{name}.json"})
             eval_jobs(name,[f"train:{name}"])
-            if any(name in a.get("experts",{}).values() or name in a.get("teachers",{}).values() for a in arms.values()):
+            if not full and any(name in a.get("experts",{}).values() or name in a.get("teachers",{}).values() for a in arms.values()):
                 jobs.append({"id":f"export:{name}","kind":"export_expert","gpus":0,"deps":[f"train:{name}"],
                              "adapter":f"{run_dir(name)}/{final}","out":expert_dir(name)})
         elif arm["method"]=="mopd":
+            if full:raise ValueError(f"{name}: MOPD has no full-parameter student yet (rollout syncs LoRA adapters only)")
             doms=ordered(spec,arm["teachers"]);dev=arm["devices"]
             if len(dev["teachers"])!=len(doms):raise ValueError(f"{name}: one teacher device per domain")
             dspec=domains_spec(spec,doms)

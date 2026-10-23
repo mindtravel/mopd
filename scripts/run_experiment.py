@@ -3,7 +3,7 @@
 Before anything starts: the deployed source must be a clean, unmodified commit, the spec
 sha256 must match plan.json, every data pin must verify (mopd.runtime.provenance), and the
 experiment's GPUs must be idle. Then jobs start as soon as their dependencies finish:
-  train_sft / eval_* / merge use one free GPU; train_mopd needs its fixed GPU set, which is
+  eval_* / merge use one free GPU; train_mopd and full-parameter train_sft need a fixed GPU set, which is
   reserved as soon as it is ready so single-GPU jobs cannot starve it; export runs on CPU.
 A job already finished (run complete, summary.json present, .finalized marker) is skipped,
 so the same command resumes after an interruption; a half-written training run fails the
@@ -64,7 +64,9 @@ class Runner:
         raise ValueError(k)
     def commands(self,j,gpus):
         ev=self.plan["evaluation"];k=j["kind"];base=self.plan["student"]
-        if k=="train_sft":return [([PY,"scripts/train_sft.py","--config",j["config"]],{"CUDA_VISIBLE_DEVICES":str(gpus[0])})]
+        if k=="train_sft":  # torchrun for any GPU count: one GPU behaves like a plain run, several shard (hf_full)
+            return [([PY,"-m","torch.distributed.run","--standalone",f"--nproc_per_node={len(gpus)}","scripts/train_sft.py","--config",j["config"]],
+                     {"CUDA_VISIBLE_DEVICES":",".join(map(str,gpus))})]
         if k=="train_mopd":return [([PY,"-u","scripts/train_multidomain_opd.py","--config",j["config"]],{})]
         if k=="eval_checkpoint":
             return eval_commands(data=ev["data"],protocol_id=ev["protocol_id"],max_new_tokens=ev["max_new_tokens"],

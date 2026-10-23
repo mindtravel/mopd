@@ -1,0 +1,253 @@
+{
+  "experiment": {
+    "name": "full256",
+    "arm": null,
+    "spec_path": "/ssd/lzx/mopd/configs/experiments/full256.json",
+    "spec_sha256": "45e2da56a5f7856bce336e246c33c38f7086fe00120170245acc0b4a91b335f9"
+  },
+  "evaluation": {
+    "protocol_id": "unified-v2-plainqa-greedy8192",
+    "data": "/ssd/lzx/mopd/data/full_eval/unified-v2/all.jsonl",
+    "checkpoints": [
+      128,
+      256
+    ],
+    "max_new_tokens": 8192
+  },
+  "gpus": [
+    0,
+    1,
+    2,
+    3,
+    4,
+    5,
+    6,
+    7
+  ],
+  "student": "/ssd/lzx/mopd/models/Qwen3-4B-Base",
+  "jobs": [
+    {
+      "id": "train:expert-c",
+      "kind": "train_sft",
+      "gpus": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7
+      ],
+      "deps": [],
+      "config": "configs/experiments/full256/expert-c.json"
+    },
+    {
+      "id": "eval:expert-c:128",
+      "kind": "eval_checkpoint",
+      "gpus": 1,
+      "deps": [
+        "train:expert-c"
+      ],
+      "model_version": "/ssd/lzx/mopd/runs/20261024-full256-expert-c/model-version.json",
+      "checkpoint": "checkpoint-0128"
+    },
+    {
+      "id": "eval:expert-c:256",
+      "kind": "eval_checkpoint",
+      "gpus": 1,
+      "deps": [
+        "train:expert-c"
+      ],
+      "model_version": "/ssd/lzx/mopd/runs/20261024-full256-expert-c/model-version.json",
+      "checkpoint": "checkpoint-0256"
+    },
+    {
+      "id": "train:expert-m",
+      "kind": "train_sft",
+      "gpus": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7
+      ],
+      "deps": [],
+      "config": "configs/experiments/full256/expert-m.json"
+    },
+    {
+      "id": "eval:expert-m:128",
+      "kind": "eval_checkpoint",
+      "gpus": 1,
+      "deps": [
+        "train:expert-m"
+      ],
+      "model_version": "/ssd/lzx/mopd/runs/20261024-full256-expert-m/model-version.json",
+      "checkpoint": "checkpoint-0128"
+    },
+    {
+      "id": "eval:expert-m:256",
+      "kind": "eval_checkpoint",
+      "gpus": 1,
+      "deps": [
+        "train:expert-m"
+      ],
+      "model_version": "/ssd/lzx/mopd/runs/20261024-full256-expert-m/model-version.json",
+      "checkpoint": "checkpoint-0256"
+    },
+    {
+      "id": "train:expert-i",
+      "kind": "train_sft",
+      "gpus": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7
+      ],
+      "deps": [],
+      "config": "configs/experiments/full256/expert-i.json"
+    },
+    {
+      "id": "eval:expert-i:128",
+      "kind": "eval_checkpoint",
+      "gpus": 1,
+      "deps": [
+        "train:expert-i"
+      ],
+      "model_version": "/ssd/lzx/mopd/runs/20261024-full256-expert-i/model-version.json",
+      "checkpoint": "checkpoint-0128"
+    },
+    {
+      "id": "eval:expert-i:256",
+      "kind": "eval_checkpoint",
+      "gpus": 1,
+      "deps": [
+        "train:expert-i"
+      ],
+      "model_version": "/ssd/lzx/mopd/runs/20261024-full256-expert-i/model-version.json",
+      "checkpoint": "checkpoint-0256"
+    },
+    {
+      "id": "train:mix-mic",
+      "kind": "train_sft",
+      "gpus": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7
+      ],
+      "deps": [],
+      "config": "configs/experiments/full256/mix-mic.json"
+    },
+    {
+      "id": "eval:mix-mic:128",
+      "kind": "eval_checkpoint",
+      "gpus": 1,
+      "deps": [
+        "train:mix-mic"
+      ],
+      "model_version": "/ssd/lzx/mopd/runs/20261024-full256-mix-mic/model-version.json",
+      "checkpoint": "checkpoint-0128"
+    },
+    {
+      "id": "eval:mix-mic:256",
+      "kind": "eval_checkpoint",
+      "gpus": 1,
+      "deps": [
+        "train:mix-mic"
+      ],
+      "model_version": "/ssd/lzx/mopd/runs/20261024-full256-mix-mic/model-version.json",
+      "checkpoint": "checkpoint-0256"
+    },
+    {
+      "id": "train:mix-mi",
+      "kind": "train_sft",
+      "gpus": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7
+      ],
+      "deps": [],
+      "config": "configs/experiments/full256/mix-mi.json"
+    },
+    {
+      "id": "eval:mix-mi:128",
+      "kind": "eval_checkpoint",
+      "gpus": 1,
+      "deps": [
+        "train:mix-mi"
+      ],
+      "model_version": "/ssd/lzx/mopd/runs/20261024-full256-mix-mi/model-version.json",
+      "checkpoint": "checkpoint-0128"
+    },
+    {
+      "id": "eval:mix-mi:256",
+      "kind": "eval_checkpoint",
+      "gpus": 1,
+      "deps": [
+        "train:mix-mi"
+      ],
+      "model_version": "/ssd/lzx/mopd/runs/20261024-full256-mix-mi/model-version.json",
+      "checkpoint": "checkpoint-0256"
+    },
+    {
+      "id": "merge:merge-mi",
+      "kind": "merge",
+      "gpus": 1,
+      "deps": [
+        "train:expert-m",
+        "train:expert-i"
+      ],
+      "yaml": "configs/experiments/full256/merge-mi.yaml",
+      "out": "/ssd/lzx/mopd/models/merged/full256-merge-mi"
+    },
+    {
+      "id": "eval:merge-mi",
+      "kind": "eval_model",
+      "gpus": 1,
+      "deps": [
+        "merge:merge-mi"
+      ],
+      "model": "/ssd/lzx/mopd/models/merged/full256-merge-mi",
+      "out": "results/experiments/full256/merge-mi/unified-v2-plainqa-greedy8192"
+    },
+    {
+      "id": "merge:merge-mic",
+      "kind": "merge",
+      "gpus": 1,
+      "deps": [
+        "train:expert-m",
+        "train:expert-i",
+        "train:expert-c"
+      ],
+      "yaml": "configs/experiments/full256/merge-mic.yaml",
+      "out": "/ssd/lzx/mopd/models/merged/full256-merge-mic"
+    },
+    {
+      "id": "eval:merge-mic",
+      "kind": "eval_model",
+      "gpus": 1,
+      "deps": [
+        "merge:merge-mic"
+      ],
+      "model": "/ssd/lzx/mopd/models/merged/full256-merge-mic",
+      "out": "results/experiments/full256/merge-mic/unified-v2-plainqa-greedy8192"
+    }
+  ]
+}

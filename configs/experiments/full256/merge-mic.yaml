@@ -1,0 +1,15 @@
+# experiment full256 / merge-mic; spec sha256 45e2da56a5f7856bce336e246c33c38f7086fe00120170245acc0b4a91b335f9
+merge_method: linear
+models:
+  - model: /ssd/lzx/mopd/runs/20261024-full256-expert-m/checkpoint-0256
+    parameters:
+      weight: 1.0
+  - model: /ssd/lzx/mopd/runs/20261024-full256-expert-i/checkpoint-0256
+    parameters:
+      weight: 1.0
+  - model: /ssd/lzx/mopd/runs/20261024-full256-expert-c/checkpoint-0256
+    parameters:
+      weight: 1.0
+parameters:
+  normalize: true
+dtype: bfloat16
