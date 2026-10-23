@@ -22,6 +22,8 @@ def main():
  # vLLM prefill token budget per scheduler step. 2048 reproduces every earlier evaluation's runtime;
  # with --batch-size >= rows and a large --max-seqs, the whole set goes through continuous batching at once.
  p.add_argument("--max-num-batched-tokens",type=int,default=2048)
+ p.add_argument("--temperature",type=float,default=0.0,help="0 = greedy; long-reasoning students loop under greedy, use ~0.6")
+ p.add_argument("--top-p",type=float,default=1.0)
  p.add_argument("--max-model-len",type=int,help="default: max(16384, max-new-tokens+4096)")
  a=p.parse_args()
  from mopd.evaluation.context import default_max_model_len
@@ -45,6 +47,7 @@ def main():
   model_version_id=("teacher:" if a.teacher else "base:")+Path(a.model).name
  protocol_id=a.protocol_id or f"mopd-{Path(a.data).stem}-greedy-{a.max_new_tokens}-v1"
  generation_options={"temperature":0,"max_new_tokens":a.max_new_tokens,"max_model_len":a.max_model_len,"seed":20261013}
+ if a.temperature>0:generation_options.update(temperature=a.temperature,top_p=a.top_p)  # greedy configs stay byte-identical
  adapter_sha256=hashlib.sha256((Path(a.adapter)/"adapter_model.safetensors").read_bytes()).hexdigest() if a.adapter else None
  config=build_generation_manifest(
   run_id=model_version_id.rsplit(":step-",1)[0] if ":step-" in model_version_id else model_version_id,
@@ -88,7 +91,8 @@ def main():
   enable_lora=bool(a.adapter),max_lora_rank=16,seed=20261013)
  tok=engine.get_tokenizer()
  adapter=LoRARequest("evaluated-student",1,a.adapter) if a.adapter else None
- params=SamplingParams(temperature=0,max_tokens=a.max_new_tokens,stop_token_ids=[tok.eos_token_id])
+ params=SamplingParams(temperature=a.temperature,top_p=a.top_p if a.temperature>0 else 1.0,seed=20261013 if a.temperature>0 else None,
+  max_tokens=a.max_new_tokens,stop_token_ids=[tok.eos_token_id])
  prompts=[]
  for r in pending:
   ids=apply_chat_template_ids(tok,[{"role":"user","content":teacher_content(r)}],add_generation_prompt=True,enable_thinking=False) if a.teacher else tok.encode(student_prompt(tok,r,a.student_prompt_format))

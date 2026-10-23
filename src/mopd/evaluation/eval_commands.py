@@ -24,7 +24,8 @@ def eval_commands(*, data, protocol_id, max_new_tokens, device, student_prompt_f
                               # required for the raw-model branch, which has no run to write inside
                    model=None, model_version_id=None, adapter=None,  # a raw model directory (base or merged)
                    model_version=None, checkpoint=None,  # a training run's model-version.json + checkpoint
-                   max_model_len=None, scheduling=SCHEDULING, mopd_infer_python=None):
+                   max_model_len=None, scheduling=SCHEDULING, mopd_infer_python=None,
+                   temperature=0.0, top_p=1.0):  # sampling: raw-model branch only for now
     """Returns [(argv, extra_env), ...] -- run each in order; the output directory ends up holding
     generated.jsonl, cases.jsonl and summary.json either way. Exactly one of (model_version,
     checkpoint) or (model,) must be given."""
@@ -36,6 +37,8 @@ def eval_commands(*, data, protocol_id, max_new_tokens, device, student_prompt_f
     if max_model_len is not None:
         common += ["--max-model-len", str(max_model_len)]
     if model_version:
+        if temperature:
+            raise ValueError("sampling is only wired for the raw-model branch (model=..., adapter=...)")
         cmd = [PY, "scripts/evaluate_model_version.py", "--model-version", str(model_version),
                "--checkpoint", checkpoint, "--device", str(device), *common, *scheduling]
         if out is not None:
@@ -49,5 +52,7 @@ def eval_commands(*, data, protocol_id, max_new_tokens, device, student_prompt_f
            "--student-prompt-format", student_prompt_format, *common, *scheduling]
     if adapter:
         gen += ["--adapter", str(adapter)]
+    if temperature:
+        gen += ["--temperature", str(temperature), "--top-p", str(top_p)]
     grade = [PY, "scripts/grade_benchmark_outputs.py", "--data", str(data), "--out", str(out)]
     return [(gen, {}), (grade, {})]

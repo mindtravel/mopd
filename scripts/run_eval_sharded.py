@@ -26,11 +26,14 @@ def main():
     ap.add_argument("--student-prompt-format", default="plain_qa_v1")
     ap.add_argument("--model-version-id", required=True)
     ap.add_argument("--protocol-id", required=True)
+    ap.add_argument("--temperature", type=float, default=0.0)
+    ap.add_argument("--top-p", type=float, default=1.0)
     a = ap.parse_args()
     ok = sharded.evaluate(data=a.data, out=a.out, gpus=a.gpus, log=sys.stdout, protocol_id=a.protocol_id,
                           max_new_tokens=a.max_new_tokens, max_model_len=a.max_model_len,
                           student_prompt_format=a.student_prompt_format, model=a.base,
-                          model_version_id=a.model_version_id, adapter=a.adapter)
+                          model_version_id=a.model_version_id, adapter=a.adapter,
+                          temperature=a.temperature, top_p=a.top_p)
     if not ok:
         raise SystemExit("sharded eval failed")
     print((Path(a.out) / "summary.json").read_text())
