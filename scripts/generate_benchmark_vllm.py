@@ -1,14 +1,23 @@
-"""Resumable benchmark generation only; grading runs in the training environment."""
+"""Resumable benchmark generation only; grading runs in the training environment.
+
+Streams: every finished row is written to generated.jsonl and generation-progress.json the moment
+it completes (mopd.rollout.engine_stream), not after the whole submitted set finishes -- the same
+technique MOPD's training rollout uses, so a long run (long outputs, large benchmarks) is visibly
+making progress instead of looking stuck until it writes everything at once."""
 import argparse,fcntl,hashlib,json,os,time
 from pathlib import Path
 from mopd.evaluation.generation_manifest import build_generation_manifest
 from mopd.data.templates import STUDENT_PROMPT_MODES
+from mopd.runtime import progress
 def main():
  p=argparse.ArgumentParser()
  for name in ("model","data","out"):p.add_argument("--"+name,required=True)
  p.add_argument("--device",type=int,default=3);p.add_argument("--adapter");p.add_argument("--teacher",action="store_true")
  p.add_argument("--model-version-id");p.add_argument("--protocol-id")
- p.add_argument("--max-new-tokens",type=int,default=8192);p.add_argument("--max-seqs",type=int,default=32);p.add_argument("--batch-size",type=int,default=16)
+ p.add_argument("--max-new-tokens",type=int,default=8192);p.add_argument("--max-seqs",type=int,default=32)
+ p.add_argument("--batch-size",type=int,default=16,help="vestigial: every pending row is submitted "
+  "to the engine at once regardless (streaming makes chunking for progress visibility pointless); "
+  "kept so existing callers that pass it do not need to change")
  p.add_argument("--student-prompt-format",choices=sorted(STUDENT_PROMPT_MODES))
  # vLLM prefill token budget per scheduler step. 2048 reproduces every earlier evaluation's runtime;
  # with --batch-size >= rows and a large --max-seqs, the whole set goes through continuous batching at once.
@@ -72,6 +81,7 @@ def main():
  from vllm.lora.request import LoRARequest
  from mopd.data.domains import student_prompt,teacher_content
  from mopd.data.templates import apply_chat_template_ids
+ from mopd.rollout.engine_stream import stream_requests
  engine=LLM(model=a.model,dtype="bfloat16",max_model_len=a.max_model_len,
   gpu_memory_utilization=.85,max_num_seqs=a.max_seqs,max_num_batched_tokens=a.max_num_batched_tokens,
   enable_chunked_prefill=True,enable_prefix_caching=True,generation_config="vllm",
@@ -79,24 +89,27 @@ def main():
  tok=engine.get_tokenizer()
  adapter=LoRARequest("evaluated-student",1,a.adapter) if a.adapter else None
  params=SamplingParams(temperature=0,max_tokens=a.max_new_tokens,stop_token_ids=[tok.eos_token_id])
+ prompts=[]
+ for r in pending:
+  ids=apply_chat_template_ids(tok,[{"role":"user","content":teacher_content(r)}],add_generation_prompt=True,enable_thinking=False) if a.teacher else tok.encode(student_prompt(tok,r,a.student_prompt_format))
+  if len(ids)+a.max_new_tokens>a.max_model_len:raise ValueError("Prompt exceeds configured context: "+str(r["id"]))
+  prompts.append({"prompt_token_ids":ids})
  started=time.monotonic()
  with records.open("a",buffering=1) as f:
-  for offset in range(0,len(pending),a.batch_size):
-   batch=pending[offset:offset+a.batch_size];prompts=[]
-   for r in batch:
-    ids=apply_chat_template_ids(tok,[{"role":"user","content":teacher_content(r)}],add_generation_prompt=True,enable_thinking=False) if a.teacher else tok.encode(student_prompt(tok,r,a.student_prompt_format))
-    if len(ids)+a.max_new_tokens>a.max_model_len:raise ValueError("Prompt exceeds configured context: "+str(r["id"]))
-    prompts.append({"prompt_token_ids":ids})
-   outputs=engine.generate(prompts,params,lora_request=adapter,use_tqdm=False)
-   if len(outputs)!=len(batch):raise ValueError("Missing outputs")
-   for row,result in zip(batch,outputs):
-    answer=result.outputs[0]
-    record={"id":row["id"],"domain":row["domain"],"prompt":row["prompt"],"response":answer.text,
-      "response_ids":list(answer.token_ids),"tokens":len(answer.token_ids),
-      "truncated":answer.finish_reason=="length","finish_reason":answer.finish_reason}
-    f.write(json.dumps(record,ensure_ascii=False)+"\n");done.add((row["domain"],str(row["id"])))
-   f.flush();os.fsync(f.fileno())
-   progress={"done":len(done),"total":len(rows),"seconds_this_session":time.monotonic()-started,"backend":"vllm"}
-   tmp=out/"generation-progress.partial";tmp.write_text(json.dumps(progress,indent=2));tmp.replace(out/"generation-progress.json")
-   print(json.dumps(progress),flush=True)
+  written=0
+  def on_finish(i,output):
+   nonlocal written
+   row=pending[i];answer=output.outputs[0]
+   record={"id":row["id"],"domain":row["domain"],"prompt":row["prompt"],"response":answer.text,
+     "response_ids":list(answer.token_ids),"tokens":len(answer.token_ids),
+     "truncated":answer.finish_reason=="length","finish_reason":answer.finish_reason}
+   f.write(json.dumps(record,ensure_ascii=False)+"\n");f.flush()
+   done.add((row["domain"],str(row["id"])));written+=1
+   fields=dict(done=len(done),total=len(rows),seconds_this_session=time.monotonic()-started,backend="vllm")
+   progress.write(out/"generation-progress.json",**fields)  # every row: cheap, and this is the point
+   if written%20==0 or len(done)==len(rows):
+    os.fsync(f.fileno())  # durability; the flush() above already makes rows visible to readers
+    print(json.dumps(fields),flush=True)
+  stream_requests(engine,prompts,params,adapter,on_finish)
+  os.fsync(f.fileno())
 if __name__=="__main__":main()
