@@ -33,7 +33,15 @@ def last_code(text):
 def parquet_rows(pattern, columns=None):
     import pyarrow.parquet as pq
     for f in sorted(glob.glob(str(ROOT / pattern))):
-        for batch in pq.ParquetFile(f).iter_batches(batch_size=2048, columns=columns):
+        try:
+            pf = pq.ParquetFile(f)
+        except Exception as e:
+            # A file mid-download is unreadable (no footer yet), not corrupt data: skip it rather
+            # than crash, but say so loudly -- a subset built this way is a preliminary read, not
+            # the full source, and builder_version() won't catch that it changed mid-read.
+            print(f"parquet_rows: skipping unreadable (likely still downloading) {f}: {e!r}")
+            continue
+        for batch in pf.iter_batches(batch_size=2048, columns=columns):
             yield from batch.to_pylist()
 
 
