@@ -24,21 +24,17 @@ def batch_generate(engine,rows,params,adapter,emit,header):
 
 def stream_generate(engine,rows,params,adapter,emit,header):
     """What LLM.generate does (add every request, then step the engine until none is left),
-    except each finished sequence is emitted immediately. Request i gets id first_id + i."""
+    except each finished sequence is emitted immediately (mopd.rollout.engine_stream)."""
+    from mopd.rollout.engine_stream import stream_requests
     started=time.perf_counter()
     prompts=[{"prompt_token_ids":r["prefix"]} for r in rows]
-    first_id=engine.request_counter.counter
-    engine._validate_and_add_requests(prompts=prompts,params=params,use_tqdm=False,
-        lora_request=engine._get_modality_specific_lora_reqs(prompts,adapter),priority=None)
-    if engine.llm_engine.get_num_unfinished_requests()!=len(rows):raise RuntimeError("Unexpected engine queue")
     sent=0;tokens=0
-    while engine.llm_engine.has_unfinished_requests():
-        for output in engine.llm_engine.step():
-            if not output.finished:continue
-            item=answer_item(rows[int(output.request_id)-first_id],output)
-            sent+=1;tokens+=len(item["answer"])
-            emit({**header,"partial":item})
-    if sent!=len(rows):raise RuntimeError("Streamed fewer outputs than requests")
+    def on_finish(i,output):
+        nonlocal sent,tokens
+        item=answer_item(rows[i],output)
+        sent+=1;tokens+=len(item["answer"])
+        emit({**header,"partial":item})
+    stream_requests(engine,prompts,params,adapter,on_finish)
     emit({**header,"done":True,"seconds":time.perf_counter()-started,"count":sent,"tokens":tokens})
 
 
