@@ -6,6 +6,7 @@ from pathlib import Path
 from concurrent.futures import ThreadPoolExecutor
 from transformers import AutoTokenizer
 from mopd.data.domains import student_prompt
+from mopd.runtime import compile_cache
 from mopd.rollout.base import RolloutStream
 from mopd.rollout.vllm_protocol import StreamValidator,validate_reply
 from mopd.rollout.dispatch import length_bucket_dispatch,length_sorted_batches
@@ -24,11 +25,7 @@ class VllmRollouts:
                 args=[python,"-u","-m","mopd.rollout.vllm_worker","--model",c["student"],
                     "--device",device,"--max-seqs",str(c["generation_batch_size"]),
                     "--memory",str(c.get("vllm_memory_utilization",.85))]
-                env=os.environ.copy()
-                # Compiler caches are mutable: isolate workers and environments.
-                cache=self.root/"compile_cache"/device.replace(":","-")
-                for key,folder in (("TORCHINDUCTOR_CACHE_DIR","torch"),("TRITON_CACHE_DIR","triton"),("VLLM_CACHE_ROOT","vllm")):
-                    dest=cache/folder;dest.mkdir(parents=True,exist_ok=True);env[key]=str(dest)
+                env={**os.environ,**compile_cache.isolated(self.root/"compile_cache"/device.replace(":","-"))}
                 proc=subprocess.Popen(args,env=env,stdin=subprocess.PIPE,stdout=subprocess.PIPE,
                     stderr=log,text=True,bufsize=1,start_new_session=True)
                 self.workers.append((device,proc,log))

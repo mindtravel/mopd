@@ -18,11 +18,11 @@ from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 from mopd.evaluation.eval_commands import eval_commands, PY, ROOT
-from mopd.runtime import progress
+from mopd.runtime import compile_cache, progress
 
 
-def _run(cmds, log):
-    return all(subprocess.run(cmd, cwd=ROOT, env={**os.environ, **extra}, stdout=log, stderr=subprocess.STDOUT).returncode == 0
+def _run(cmds, log, env=None):
+    return all(subprocess.run(cmd, cwd=ROOT, env={**os.environ, **(env or {}), **extra}, stdout=log, stderr=subprocess.STDOUT).returncode == 0
                for cmd, extra in cmds)
 
 
@@ -64,7 +64,9 @@ def evaluate(*, data, out, gpus, log=None, **command_args):
     def shard(job):
         gpu, shard_data, d = job
         with (shards / f"{d.name}.log").open("a") as shard_log:
-            return _run(eval_commands(data=shard_data, out=d, device=gpu, **command_args), shard_log)
+            # shards start together: separate compile caches, or they race on one directory
+            return _run(eval_commands(data=shard_data, out=d, device=gpu, **command_args), shard_log,
+                        compile_cache.isolated(ROOT / "cache/compile/eval-shard" / d.name))
 
     monitor = threading.Thread(target=report, daemon=True)
     monitor.start()
