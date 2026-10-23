@@ -27,6 +27,7 @@ sys.path.insert(0, str(ROOT / "src"))
 from mopd.data import recipes
 from mopd.runtime.provenance import sha256
 from mopd.runtime.gpus import idle_gpus
+from mopd.students.registry import is_sharded
 from mopd.evaluation.eval_commands import eval_commands, PY
 
 BASE_WEIGHTS = ["model-00001-of-00003.safetensors", "model-00002-of-00003.safetensors", "model-00003-of-00003.safetensors"]
@@ -53,6 +54,7 @@ class GPUPool:
     def __init__(self, gpus, jobs):
         self._free = list(gpus)
         self._remaining = jobs
+        self._holding = 0  # grants currently out; their jobs are not competing for the free GPUs
         self._cv = threading.Condition()
 
     def want(self, min_gpus=1, max_gpus=None):
@@ -61,15 +63,19 @@ class GPUPool:
         with self._cv:
             while len(self._free) < min_gpus:
                 self._cv.wait()
-            share = min(max(min_gpus, len(self._free) // max(1, self._remaining)), len(self._free))
+            # split the free GPUs among the jobs that do not hold any right now: a job already
+            # running on its own grant is not a competitor for what is left
+            share = min(max(min_gpus, len(self._free) // max(1, self._remaining - self._holding)), len(self._free))
             if max_gpus is not None:
                 share = min(share, max_gpus)
             taken, self._free = self._free[:share], self._free[share:]
+            self._holding += 1
             return taken
 
     def give_back(self, gpus):
         with self._cv:
             self._free.extend(gpus)
+            self._holding -= 1
             self._cv.notify_all()
 
     def done(self):
@@ -163,7 +169,7 @@ class Sweep:
         cfg_path = self.results / "configs" / f"{v['name']}.json"
         cfg_path.parent.mkdir(exist_ok=True)
         cfg_path.write_text(json.dumps(self.config(v, manifest), indent=1))
-        gpus = pool.want()
+        gpus = pool.want(min_gpus=4 if is_sharded(self.config(v, manifest)) else 1)  # full fine-tuning: see train_sft
         try:
             self.log(variant=v["name"], stage="train_start", gpus=gpus)
             start = time.time()

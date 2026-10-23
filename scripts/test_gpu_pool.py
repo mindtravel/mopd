@@ -8,6 +8,9 @@ Two real bugs this guards against:
     arrives first sees nobody else waiting yet and grabs everything, silently serializing jobs
     that were meant to run in parallel. Seeding the denominator with the known job count up front,
     and only shrinking it via done() when a job verifiably finishes, removes the race.
+  - the denominator also counted jobs that already held a grant: with 2 jobs on 8 GPUs, the first
+    took 4 and the second was offered 4 // 2 = 2 of the remaining 4 -- too few for a full
+    fine-tuning run, which then failed at start-up.
 """
 import threading
 import time
@@ -20,6 +23,11 @@ class GPUPoolTest(unittest.TestCase):
     def test_lone_job_takes_every_idle_gpu(self):
         pool = GPUPool(range(7), jobs=1)
         self.assertEqual(sorted(pool.want()), list(range(7)))
+
+    def test_job_already_holding_gpus_does_not_shrink_the_next_share(self):
+        pool = GPUPool(range(8), jobs=2)
+        self.assertEqual(len(pool.want()), 4)
+        self.assertEqual(len(pool.want()), 4)  # the bug: 2, leaving 2 GPUs idle
 
     def test_max_gpus_caps_a_lone_job(self):
         pool = GPUPool(range(7), jobs=1)
