@@ -3,7 +3,9 @@
   configs/sweeps/<name>.json
   {"name", "description",
    "controls": {"student", "seed", "steps", "samples_per_step", "lr", "lr_schedule",
-                "save_every"},                     # max_seq_len and micro_batch_size come from each recipe
+                "save_every",                      # max_seq_len and micro_batch_size come from each recipe
+                "student_backend",                 # optional: "hf_lora" (default) or "hf_full"
+                "fsdp", "gradient_checkpointing"}, # optional, hf_full: mopd.training.fsdp.shard kwargs
    "eval": {"protocol_id", "data", "data_sha256", "max_new_tokens", "checkpoints": [128, 256]},
    "test": {"protocol_id", "data", "data_sha256"},       # only with --final
    "gpus": [0, 2, ...],
@@ -105,7 +107,10 @@ class Sweep:
         # assigned GPU(s) to start at index 0 (single-GPU convention used throughout this codebase).
         # Under torchrun with world_size > 1, train_sft.py derives the real per-rank device from
         # LOCAL_RANK instead and ignores this field; it only takes effect for a single-GPU run.
-        return {"student": c["student"], "student_backend": "hf_lora", "student_prompt_format": "plain_qa_v1",
+        # optional training-system knobs, same for every variant of a sweep
+        system = {k: c[k] for k in ("fsdp", "gradient_checkpointing") if k in c}
+        return {"student": c["student"], "student_backend": c.get("student_backend", "hf_lora"), **system,
+                "student_prompt_format": "plain_qa_v1",
                 "seed": c["seed"], "steps": c["steps"], "lr": c["lr"], "lr_schedule": c["lr_schedule"],
                 "micro_batch_size": micro, "save_every": c["save_every"], "max_seq_len": manifest["recipe"]["max_total_tokens"],
                 "output": str(self.runs / v["name"]), "data_pins": pins, "training_method": "sft", "student_device": "cuda:0",

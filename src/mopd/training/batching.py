@@ -17,21 +17,39 @@ def pack(sequences, starts, pad, device):
         attention[i,:n]=1;response[i,start:n]=True
     return ids,attention,response
 
+class TokenLogProbs(torch.nn.Module):
+    """Per-token log-probs of the response tokens, as one module forward. The chunked lm_head (never
+    materializes [batch, seq, vocab] logits) goes through the inner decoder and lm_head directly;
+    keeping all of it inside this forward is what lets FSDP wrap this module as its root unit --
+    FSDP unshards parameters and schedules gradient reduction from module forward hooks, so code
+    that called base.model / base.lm_head from outside any wrapped forward would bypass both."""
+
+    def __init__(self, model):
+        super().__init__()
+        self.base = model.get_base_model() if hasattr(model, "get_base_model") else model
+
+    def forward(self, ids, attention, response):
+        base = self.base
+        positions = (attention.cumsum(-1) - 1).clamp_min(0)
+        hidden = base.model(input_ids=ids, attention_mask=attention,
+            position_ids=positions, use_cache=False).last_hidden_state
+        mask = response[:, 1:] & attention[:, 1:].bool()
+        hs = hidden[:, :-1][mask]; targets = ids[:, 1:][mask]
+
+        def head(h, y):
+            return -torch.nn.functional.cross_entropy(base.lm_head(h).float(), y, reduction="none")
+        values = []
+        for i in range(0, len(targets), 128):
+            h = hs[i:i + 128]; y = targets[i:i + 128]
+            values.append(checkpoint(head, h, y, use_reentrant=False) if torch.is_grad_enabled() else head(h, y))
+        return torch.cat(values)
+
+
 def logps(model, ids, attention, response):
-    base=model.get_base_model() if hasattr(model,"get_base_model") else model
-    positions=(attention.cumsum(-1)-1).clamp_min(0)
-    hidden=base.model(input_ids=ids,attention_mask=attention,
-        position_ids=positions,use_cache=False).last_hidden_state
-    mask=response[:,1:] & attention[:,1:].bool()
-    hs=hidden[:,:-1][mask];targets=ids[:,1:][mask]
-    def head(h,y):
-        return -torch.nn.functional.cross_entropy(base.lm_head(h).float(),y,reduction="none")
-    values=[]
-    for i in range(0,len(targets),128):
-        h=hs[i:i+128];y=targets[i:i+128]
-        values.append(checkpoint(head,h,y,use_reentrant=False) if torch.is_grad_enabled() else head(h,y))
-    all_values=torch.cat(values)
-    return list(all_values.split(mask.sum(1).tolist()))
+    """model: a (PEFT-wrapped) causal LM, or a TokenLogProbs (e.g. the FSDP-sharded one)."""
+    scorer = model if isinstance(model, TokenLogProbs) else TokenLogProbs(model)
+    mask = response[:, 1:] & attention[:, 1:].bool()
+    return list(scorer(ids, attention, response).split(mask.sum(1).tolist()))
 
 def trim_generated(tokens,eos):
     values=tokens.tolist()

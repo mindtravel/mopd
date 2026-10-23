@@ -29,7 +29,7 @@ def build_command(args):
         requested = "hf_qat" if student.get("backend") == "fairy2i_qat" else "vllm"
     if requested == "hf_qat" and student.get("backend") != "fairy2i_qat":
         raise ValueError("hf_qat backend requires a Fairy2i QAT student")
-    if requested == "vllm" and checkpoint["artifact_type"] not in {"base_weights", "lora_adapter"}:
+    if requested == "vllm" and checkpoint["artifact_type"] not in {"base_weights", "lora_adapter", "full_model"}:
         raise ValueError(f"vLLM cannot load checkpoint artifact {checkpoint['artifact_type']!r}")
     if requested == "hf_qat" and checkpoint["artifact_type"] not in {"base_weights", "fairy2i_qat_scale_update"}:
         raise ValueError(f"HF QAT cannot load checkpoint artifact {checkpoint['artifact_type']!r}")
@@ -67,14 +67,16 @@ def build_command(args):
     else:
         generator = ROOT / "scripts/generate_benchmark_vllm.py"
         command = [str(ROOT / "mopd_infer/bin/python"), str(generator),
-            "--model", student["base_model"], "--data", str(data_path), "--out", str(output),
+            # a fully fine-tuned checkpoint is itself the model; a LoRA one is an adapter on the base
+            "--model", checkpoint["path"] if checkpoint["artifact_type"] == "full_model" else student["base_model"],
+            "--data", str(data_path), "--out", str(output),
             "--device", *map(str, args.device), "--model-version-id", checkpoint["version_id"],
             "--protocol-id", args.protocol_id, "--max-new-tokens", str(args.max_new_tokens),
             "--max-seqs", str(args.max_seqs), "--batch-size", str(args.batch_size),
             "--max-num-batched-tokens", str(args.max_num_batched_tokens),
             "--max-model-len", str(args.max_model_len),
             "--student-prompt-format", prompt_format]
-        if checkpoint["path"]:
+        if checkpoint["path"] and checkpoint["artifact_type"] == "lora_adapter":
             command.extend(["--adapter", checkpoint["path"]])
         env = os.environ.copy()
         env["PYTHONPATH"] = str(ROOT / "src") + (":" + env["PYTHONPATH"] if env.get("PYTHONPATH") else "")

@@ -42,7 +42,8 @@ import torch.distributed as dist
 from mopd.data.mixture import resolve_domain,plan_domains
 from mopd.data.token_budget import plan_by_tokens
 from mopd.protocol import student_prompt
-from mopd.students.registry import build_student,save_student
+from mopd.students.registry import build_student,save_student,is_sharded
+from mopd.training import fsdp
 from mopd.training.batching import pack,logps
 from mopd.training.schedule import build_scheduler,describe
 from mopd.evaluation.versioning import write_manifest
@@ -97,7 +98,10 @@ def main():
         if main_rank:record_provenance(c,out)
         if world_size>1:dist.barrier()
         torch.manual_seed(c["seed"])  # identical on every rank: same LoRA init before training starts
+        sharded=is_sharded(c)
+        if sharded and world_size<4:raise ValueError("full fine-tuning (fp32 weights + AdamW) needs >= 4 GPUs to fit")
         tok,model=build_student(c);model.train()  # gradient checkpointing only recomputes (instead of retaining) activations in train mode
+        scorer=fsdp.shard(model,**c.get("fsdp",{})) if sharded else model  # what logps() runs and the optimizer updates
         device=c["student_device"];pad=tok.pad_token_id;eos=tok.eos_token_id
         max_len=c.get("max_seq_len")
         if c.get("token_budget"):
@@ -109,8 +113,9 @@ def main():
         if main_rank:dump(out/"batch_plan.json",plan)
         weights={d:s["weight"] for d,s in c["domains"].items()}
         micro=c["micro_batch_size"]
-        params=[p for p in model.parameters() if p.requires_grad]
-        initial=[p.detach().cpu().clone() for p in params] if main_rank else None
+        params=[p for p in scorer.parameters() if p.requires_grad]
+        # sharded: each rank keeps its own shard and the norms are summed over ranks at the end
+        initial=[fsdp.local(p).detach().cpu().clone() for p in params] if main_rank or sharded else None
         opt=torch.optim.AdamW(params,lr=c["lr"]);sched=build_scheduler(opt,c)
         mf=(out/"metrics.jsonl").open("w",buffering=1) if main_rank else None
         ckpt=None
@@ -132,16 +137,18 @@ def main():
                         if not response:raise ValueError(f"prompt alone exceeds max_seq_len: {row['id']}")
                         seqs.append(prefix+response);starts.append(len(prefix));truncated.append(cut)
                     ids,attention,response_mask=pack(seqs,starts,pad,device)
-                    per_sample=[-v.mean() for v in logps(model,ids,attention,response_mask)]
+                    per_sample=[-v.mean() for v in logps(scorer,ids,attention,response_mask)]
                     loss=sum(scales[r["domain"]]*l for r,l in zip(items,per_sample))
                     loss.backward()
                     for r,l,s,start,cut in zip(items,per_sample,seqs,starts,truncated):
                         d=stats[r["domain"]];d["samples"]+=1;d["loss_sum"]+=float(l.detach())
                         d["tokens"]+=len(s)-start;d["truncated"]+=int(cut)
                 if world_size>1:
-                    for p in params:dist.all_reduce(p.grad,op=dist.ReduceOp.SUM)
+                    if not sharded:  # FSDP already reduce-scattered sharded gradients (as a SUM, see fsdp.py)
+                        for p in params:dist.all_reduce(p.grad,op=dist.ReduceOp.SUM)
                     stats=sync_stats(stats,device)
                 grad=torch.nn.utils.clip_grad_norm_(params,1.)
+                grad=grad.full_tensor() if hasattr(grad,"full_tensor") else grad
                 if not torch.isfinite(grad) or grad<=0:raise ValueError("Invalid student gradient")
                 opt.step();sched.step()
                 if main_rank:
@@ -151,20 +158,27 @@ def main():
                         "grad_norm":float(grad),"domains":domains,
                         "tokens":sum(v["tokens"] for v in domains.values()),
                         "truncated":sum(v["truncated"] for v in domains.values()),
-                        "seconds":time.perf_counter()-started,"world_size":world_size}
+                        "seconds":time.perf_counter()-started,"world_size":world_size,
+                        "max_memory_gib":round(torch.cuda.max_memory_allocated()/2**30,2)}
                     mf.write(json.dumps(report)+"\n");print(json.dumps(report),flush=True)
                     dump(out/"status.json",{"state":"training",**report})
-                    if step%c["save_every"]==0 or step==c["steps"]:
-                        ckpt=out/f"checkpoint-{step:04d}"
-                        save_student(model,c,ckpt,step)
-                        torch.save({"step":step,"optimizer":opt.state_dict(),"scheduler":sched.state_dict(),
-                            "rng":torch.get_rng_state(),"cuda_rng":torch.cuda.get_rng_state_all()},ckpt/"training_state.pt")
+                if step%c["save_every"]==0 or step==c["steps"]:
+                    ckpt=out/f"checkpoint-{step:04d}"
+                    if sharded or main_rank:save_student(scorer if sharded else model,c,ckpt,step,main_rank)
+                    if main_rank:
+                        if not sharded:  # a sharded optimizer's rank-0 state is a fragment; runs never resume anyway
+                            torch.save({"step":step,"optimizer":opt.state_dict(),"scheduler":sched.state_dict(),
+                                "rng":torch.get_rng_state(),"cuda_rng":torch.cuda.get_rng_state_all()},ckpt/"training_state.pt")
                         write_manifest(c,out,{"state":"training","step":step})
                 if world_size>1:dist.barrier()
         finally:
             if mf:mf.close()
+        if main_rank or sharded:
+            delta2=sum((fsdp.local(p).detach().cpu()-v).float().square().sum().item() for p,v in zip(params,initial))
+            if sharded:
+                total=torch.tensor(delta2,device=device,dtype=torch.float64);dist.all_reduce(total);delta2=float(total)
         if main_rank:
-            delta=sum((p.detach().cpu()-v).float().square().sum().item() for p,v in zip(params,initial))**.5
+            delta=delta2**.5
             assert delta>0
             dump(out/"status.json",{"state":"complete","steps":c["steps"],
                 "adapter_delta_l2":delta,"final_adapter":str(ckpt)})

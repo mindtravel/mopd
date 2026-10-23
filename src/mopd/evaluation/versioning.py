@@ -85,7 +85,8 @@ def build_manifest(
             artifact_type = "fairy2i_qat_scale_update"
             complete = (checkpoint / "qat-update.json").is_file()
         else:
-            artifact_type = "lora_adapter" if (checkpoint / "adapter_config.json").is_file() else "checkpoint"
+            artifact_type = ("lora_adapter" if (checkpoint / "adapter_config.json").is_file()
+                             else "full_model" if (checkpoint / "config.json").is_file() else "checkpoint")
             complete = (checkpoint / "adapter_model.safetensors").is_file() or any(checkpoint.glob("*.safetensors"))
         checkpoints.append({
             "version_id": f"{run.name}:step-{suffix}",
@@ -103,7 +104,7 @@ def build_manifest(
     student = {
         "base_model": config.get("student"),
         "backend": student_backend,
-        "update_type": config.get("update_type", "quant_scale_only" if student_backend == "fairy2i_qat" else "lora"),
+        "update_type": config.get("update_type", {"fairy2i_qat": "quant_scale_only", "hf_full": "full"}.get(student_backend, "lora")),
         "initial_adapter": config.get("student_adapter"),
         "prompt_format": config.get("student_prompt_format"),
         "forward_precision": student_precision,
