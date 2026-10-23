@@ -9,7 +9,7 @@ from mopd.students.registry import build_student,save_student,is_sharded
 from mopd.training import fsdp
 from mopd.training.fsdp import local
 from mopd.training.distributed import dist_info
-from mopd.rollout.policy import publish
+from mopd.rollout.policy import publish,cleanup as policy_cleanup
 from mopd.backends.fairy2i_qat_adapter import save_fairy2i_qat_update
 from mopd.data.mixture import plan_domains
 from mopd.data.multidomain import domain_scale
@@ -194,6 +194,7 @@ def run(c,resume=None):
             write_manifest(c,out,{"state":state})
         raise
     finally:
+        if main:policy_cleanup(c)
         if world_size>1:dist.destroy_process_group()
 if __name__=="__main__":
     p=argparse.ArgumentParser();p.add_argument("--config",required=True)

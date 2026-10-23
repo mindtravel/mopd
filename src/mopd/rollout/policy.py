@@ -15,11 +15,21 @@ from pathlib import Path
 from mopd.students.registry import is_sharded
 
 
+def shm_dir(config):
+    return Path("/dev/shm/mopd") / Path(config["output"]).name
+
+
+def cleanup(config):
+    """Free the RAM held by a run's last published full-weight file (call once training ends)."""
+    import shutil
+    shutil.rmtree(shm_dir(config), ignore_errors=True)
+
+
 def publish(student, config, root, version, tokenizer, main_rank):
     """Collective for sharded students (every rank calls); returns the descriptor on rank 0."""
     if is_sharded(config):
         from mopd.training import fsdp
-        shm = Path("/dev/shm/mopd") / Path(config["output"]).name
+        shm = shm_dir(config)
         path = shm / f"policy-{version:06d}.safetensors"
         if main_rank:
             shm.mkdir(parents=True, exist_ok=True)
