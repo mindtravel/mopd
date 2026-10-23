@@ -72,6 +72,10 @@
   {
    "name": "mix-kc-ocr",
    "recipe": "configs/recipes/code/mix-kc-ocr.json"
+  },
+  {
+   "name": "rstar-seed",
+   "recipe": "configs/recipes/code/rstar-seed.json"
   }
  ]
 }
