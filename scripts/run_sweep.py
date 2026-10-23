@@ -16,13 +16,13 @@ runs/sweeps/<sweep>/<variant>/; leaderboard: results/sweeps/<sweep>/leaderboard.
 
   python scripts/run_sweep.py configs/sweeps/code-data-v1.json [--only a b] [--final a b] [--collect]
 """
-import argparse, json, queue, subprocess, sys, threading, time
+import argparse, json, os, queue, subprocess, sys, threading, time
 from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 from mopd.data import recipes
 from mopd.runtime.provenance import sha256
-from run_experiment import EVAL_SCHEDULING, PY
+from mopd.evaluation.eval_commands import eval_commands
 
 BASE_WEIGHTS = ["model-00001-of-00003.safetensors", "model-00002-of-00003.safetensors", "model-00003-of-00003.safetensors"]
 
@@ -73,16 +73,13 @@ class Sweep:
         out = self.eval_dir(v, ckpt, kind)
         if (out / "summary.json").exists():
             return True
-        common = ["--data", ev["data"], "--protocol-id", ev["protocol_id"], "--max-new-tokens", str(ev["max_new_tokens"])]
+        common = dict(data=ev["data"], protocol_id=ev["protocol_id"], max_new_tokens=ev["max_new_tokens"], device=gpu)
         if v.get("base"):
-            cmds = [[str(ROOT / "mopd_infer/bin/python"), "scripts/generate_benchmark_vllm.py", "--model", self.spec["controls"]["student"],
-                     "--out", str(out), "--device", str(gpu), "--model-version-id", "base:Qwen3-4B-Base",
-                     "--student-prompt-format", "plain_qa_v1", *common, *EVAL_SCHEDULING],
-                    [PY, "scripts/grade_benchmark_outputs.py", "--data", ev["data"], "--out", str(out)]]
+            cmds = eval_commands(**common, out=out, model=self.spec["controls"]["student"], model_version_id="base:Qwen3-4B-Base")
         else:
-            cmds = [[PY, "scripts/evaluate_model_version.py", "--model-version", str(self.runs / v["name"] / "model-version.json"),
-                     "--checkpoint", f"checkpoint-{ckpt:04d}", "--device", str(gpu), *common, *EVAL_SCHEDULING]]
-        return all(subprocess.run(cmd, cwd=ROOT, stdout=log, stderr=subprocess.STDOUT).returncode == 0 for cmd in cmds)
+            cmds = eval_commands(**common, model_version=str(self.runs / v["name"] / "model-version.json"), checkpoint=f"checkpoint-{ckpt:04d}")
+        return all(subprocess.run(cmd, cwd=ROOT, env={**os.environ, **extra}, stdout=log, stderr=subprocess.STDOUT).returncode == 0
+                  for cmd, extra in cmds)
 
     def run_variant(self, v, gpu, final):
         logdir = self.results / "logs"; logdir.mkdir(exist_ok=True)
@@ -103,7 +100,7 @@ class Sweep:
                     cfg_path.write_text(json.dumps(self.config(v, manifest, gpu), indent=1))
                     start = time.time()
                     rc = subprocess.run([PY, "scripts/train_sft.py", "--config", str(cfg_path)], cwd=ROOT, stdout=log,
-                                        stderr=subprocess.STDOUT, env={**__import__("os").environ, "CUDA_VISIBLE_DEVICES": str(gpu)}).returncode
+                                        stderr=subprocess.STDOUT, env={**os.environ, "CUDA_VISIBLE_DEVICES": str(gpu)}).returncode
                     self.log(variant=v["name"], stage="train", ok=rc == 0, minutes=round((time.time() - start) / 60, 1))
                     if rc:
                         return False

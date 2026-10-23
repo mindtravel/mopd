@@ -18,7 +18,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 from mopd.runtime.provenance import sha256
-from run_experiment import EVAL_SCHEDULING, PY
+from mopd.evaluation.eval_commands import eval_commands
 
 
 def target(suite, m, out):
@@ -29,14 +29,10 @@ def target(suite, m, out):
 
 
 def commands(suite, m, out, gpu):
-    common = ["--data", suite["data"], "--protocol-id", suite["protocol_id"], "--max-new-tokens", str(suite["max_new_tokens"])]
+    common = dict(data=suite["data"], protocol_id=suite["protocol_id"], max_new_tokens=suite["max_new_tokens"], device=gpu, out=out)
     if "model_version" in m:
-        return [[PY, "scripts/evaluate_model_version.py", "--model-version", m["model_version"], "--checkpoint", m["checkpoint"],
-                 "--out", str(out), "--device", str(gpu), *common, *EVAL_SCHEDULING]]
-    return [[str(ROOT / "mopd_infer/bin/python"), "scripts/generate_benchmark_vllm.py", "--model", m["model"], "--out", str(out),
-             "--device", str(gpu), "--model-version-id", m.get("model_version_id", f"model:{Path(m['model']).name}"),
-             "--student-prompt-format", "plain_qa_v1", *common, *EVAL_SCHEDULING],
-            [PY, "scripts/grade_benchmark_outputs.py", "--data", suite["data"], "--out", str(out)]]
+        return eval_commands(**common, model_version=m["model_version"], checkpoint=m["checkpoint"])
+    return eval_commands(**common, model=m["model"], model_version_id=m.get("model_version_id"))
 
 
 def main():
@@ -66,8 +62,8 @@ def main():
                 out.symlink_to(real, target_is_directory=True)
             start = time.time()
             with open(str(out) + ".log", "a") as log:
-                for cmd in commands(suite, m, real, gpu):
-                    if subprocess.run(cmd, cwd=ROOT, stdout=log, stderr=subprocess.STDOUT).returncode:
+                for cmd, extra in commands(suite, m, real, gpu):
+                    if subprocess.run(cmd, cwd=ROOT, env={**os.environ, **extra}, stdout=log, stderr=subprocess.STDOUT).returncode:
                         failed.append(str(out)); break
             print(json.dumps({"done": str(out.relative_to(root)), "gpu": gpu, "seconds": round(time.time() - start),
                               "ok": str(out) not in failed}), flush=True)
