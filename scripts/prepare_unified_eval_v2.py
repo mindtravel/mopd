@@ -21,7 +21,9 @@ from mopd.evaluation import livecodebench as lcb
 ROOT = Path(__file__).resolve().parents[1]
 VERSION = "unified-v2"
 OUT = ROOT / "data/full_eval" / VERSION
-TRAIN_POOLS = ["data/sft/numina_v3/train.jsonl", "data/sft/smol_constraints/train.jsonl", "data/sft/opencoder/train.jsonl"]
+TRAIN_POOLS = ["data/sft/numina_v3/train.jsonl", "data/sft/smol_constraints/train.jsonl", "data/sft/opencoder_stage2_clean/train.jsonl"]
+# must match the pools production experts actually train on (configs/experiments/*/expert-c.json);
+# this listed the retired stage1 opencoder pool until caught in an architecture review (2026-10-23)
 
 
 def sha(path):
