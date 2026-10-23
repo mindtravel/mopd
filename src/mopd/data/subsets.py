@@ -91,6 +91,37 @@ def parallel_parquet_rows(pattern, transform, columns=None, workers=None):
             yield from rows
 
 
+def _read_jsonl_range(args):
+    """Worker for parallel_jsonl_rows: the lines that *start* inside [begin, end)."""
+    path, begin, end, transform = args
+    rows = []
+    with open(path, "rb") as f:
+        if begin:
+            f.seek(begin - 1)
+            f.readline()  # finish the line straddling `begin`; it belongs to the previous range
+        while f.tell() < end:
+            line = f.readline()
+            if not line:
+                break
+            row = transform(json.loads(line))
+            if row is not None:
+                rows.append(row)
+    return rows
+
+
+def parallel_jsonl_rows(path, transform, chunks=64, workers=None):
+    """parallel_parquet_rows for one large JSON-lines file: split by byte range, transform per line
+    in worker processes, yield in file order."""
+    import os
+    from concurrent.futures import ProcessPoolExecutor
+    path = str(ROOT / path)
+    size = os.path.getsize(path)
+    bounds = [size * i // chunks for i in range(chunks + 1)]
+    with ProcessPoolExecutor(min(chunks, workers or os.cpu_count() or 1)) as pool:
+        for rows in pool.map(_read_jsonl_range, [(path, bounds[i], bounds[i + 1], transform) for i in range(chunks)]):
+            yield from rows
+
+
 # ---------------------------------------------------------------- source readers
 def read_kodcode():
     """KodCode-V1-SFT-4o: synthetic function-style tasks (incl. ones derived from Taco, Codeforces, Apps,
@@ -166,6 +197,33 @@ def _rstar_row(r):
                      "hedge_markers": hedge_count(r["response"])}}
 
 
+OCI_FILE = "data/raw/opencodeinstruct-clean-low/opencodeinstruct-clean-low-753623-20261015/train.jsonl"
+TOP_DEF = re.compile(r"^(?:def|class)\s+(\w+)", re.M)
+
+
+def read_opencodeinstruct():
+    """OpenCodeInstruct, cleaned low-reasoning-effort subset (data/raw/opencodeinstruct-clean-low,
+    see its download-manifest.json and README.txt): one Python solution per problem, the reply is a
+    short <think> trace (median ~535 supervised tokens in its own tokenizer) then the final code.
+    Its bundled DeepSeek-style chat template, generic system prompt and token offsets are dropped:
+    recipes render problem/response with this project's prompt formats and the Qwen3 tokenizer,
+    like every other subset. kind: "function" when the final code defines anything besides main()
+    (the problem asks for a named function or class), "stdin" otherwise."""
+    return parallel_jsonl_rows(OCI_FILE, _oci_row)
+
+
+def _oci_row(r):
+    problem = next(m["content"] for m in r["messages"] if m["role"] == "user")
+    response = next(m["content"] for m in r["messages"] if m["role"] == "assistant")
+    final = response.split("</think>", 1)[-1]
+    code = last_code(final)
+    kind = "function" if any(name != "main" for name in TOP_DEF.findall(code)) else "stdin"
+    return {"id": f"oci/{r['id'][:20]}", "problem_id": text_hash(problem)[:16], "source": "opencodeinstruct",
+            "problem": problem, "response": response, "code": code, "kind": kind,
+            "meta": {"revision": r["revision"], "upstream_targets": r["targets"],
+                     "think_chars": len(response) - len(final), "has_code": bool(code)}}
+
+
 def read_opencoder_clean():
     """The current code pool (OpenCoder stage 2 educational + evol, opener boilerplate removed)."""
     for line in (ROOT / "data/sft/opencoder_stage2_clean/train.jsonl").open():
@@ -180,6 +238,7 @@ SUBSETS = {
     "opencodereasoning": {"reader": read_opencodereasoning, "raw": "data/raw/opencodereasoning"},
     "opencoder-clean": {"reader": read_opencoder_clean, "raw": "data/sft/opencoder_stage2_clean"},
     "rstar-seed": {"reader": read_rstar_seed, "transform": _rstar_row, "raw": "data/raw/rstar-coder"},
+    "opencodeinstruct": {"reader": read_opencodeinstruct, "transform": _oci_row, "raw": "data/raw/opencodeinstruct-clean-low"},
 }
 
 

@@ -1,0 +1,15 @@
+{
+ "name": "oci",
+ "description": "OpenCodeInstruct 清洗后 low reasoning effort 子集：短 <think> 推理 + 最终代码，每题一条，按评测同款 lcb prompt 渲染",
+ "parts": [
+  {"subset": "opencodeinstruct", "where": {"meta.has_code": [true]}}
+ ],
+ "per_problem": 1,
+ "prompt": "lcb",
+ "response": "full",
+ "rows": 8192,
+ "dev_rows": 64,
+ "seed": 20261022,
+ "max_total_tokens": 10240,
+ "micro_batch_size": 4
+}
