@@ -28,37 +28,50 @@ BASE_WEIGHTS = ["model-00001-of-00003.safetensors", "model-00002-of-00003.safete
 
 
 class GPUPool:
-    """Shared GPUs, handed out in a fair-ish share among however many callers are currently trying
-    to get some. want() blocks until at least one GPU is free, then claims max(1, free // waiters)
-    of them -- recomputed from how many OTHER callers are registered *at that moment*, so a variant
-    that finishes and gives its GPUs back immediately frees them for whoever is still waiting, and
-    a variant that is the only one left claims every idle GPU instead of leaving them unused. This
-    is the honest version of "dynamic scheduling": a job's GPU count is decided fresh each time it
-    asks (train start, each eval checkpoint), not fixed for the sweep's lifetime. True elastic
-    scaling -- growing a torchrun job that is already running, without restarting it -- is a
-    separate, much larger feature (needs an elastic rendezvous and checkpoint-resume on membership
-    change) and is out of scope here."""
+    """Shared GPUs, handed out in a fair share of free // remaining_jobs: a variant that is the
+    only one left claims every idle GPU instead of leaving them unused, and this is the honest
+    version of "dynamic scheduling" -- a job's GPU count is decided fresh each time it asks (train
+    start, each eval checkpoint), not fixed for the sweep's lifetime. True elastic scaling --
+    growing a torchrun job that is already running, without restarting it -- is a separate, much
+    larger feature (needs an elastic rendezvous and checkpoint-resume on membership change) and is
+    out of scope here.
 
-    def __init__(self, gpus):
+    remaining_jobs is seeded with the job count and decremented once per job via done(), not a
+    count of callers *currently* inside want(): sizing the share from "how many are blocked right
+    now" sounds more responsive, but is racy -- whichever caller's want() happens to run first
+    would see nobody else waiting yet and grab everything, silently serializing jobs that were
+    meant to run in parallel (caught by test_gpu_pool.py: N jobs arriving within a few scheduler
+    ticks of each other reliably hit this, since Python thread start-up has no synchronization
+    point to guarantee they all register before the first one computes its share). remaining_jobs
+    only drops when a job is verifiably done, so it cannot be fooled by arrival order."""
+
+    def __init__(self, gpus, jobs):
         self._free = list(gpus)
-        self._waiting = 0
+        self._remaining = jobs
         self._cv = threading.Condition()
 
-    def want(self, min_gpus=1):
+    def want(self, min_gpus=1, max_gpus=None):
+        """min_gpus is a floor (wait until at least this many are free); max_gpus is a ceiling on
+        what this caller can use (e.g. eval only ever uses one GPU, however many sit idle)."""
         with self._cv:
-            self._waiting += 1
-            try:
-                while len(self._free) < min_gpus:
-                    self._cv.wait()
-                share = min(max(min_gpus, len(self._free) // self._waiting), len(self._free))
-                taken, self._free = self._free[:share], self._free[share:]
-                return taken
-            finally:
-                self._waiting -= 1
+            while len(self._free) < min_gpus:
+                self._cv.wait()
+            share = min(max(min_gpus, len(self._free) // max(1, self._remaining)), len(self._free))
+            if max_gpus is not None:
+                share = min(share, max_gpus)
+            taken, self._free = self._free[:share], self._free[share:]
+            return taken
 
     def give_back(self, gpus):
         with self._cv:
             self._free.extend(gpus)
+            self._cv.notify_all()
+
+    def done(self):
+        """Call once per job (train + all its evals), success or failure, when it will never call
+        want() again -- shrinks the denominator so whoever is left gets a bigger share."""
+        with self._cv:
+            self._remaining -= 1
             self._cv.notify_all()
 
 
@@ -148,6 +161,12 @@ class Sweep:
         return rc == 0
 
     def run_variant(self, v, pool, final):
+        try:
+            return self._run_variant(v, pool, final)
+        finally:
+            pool.done()
+
+    def _run_variant(self, v, pool, final):
         logdir = self.results / "logs"; logdir.mkdir(exist_ok=True)
         with (logdir / f"{v['name']}.log").open("a") as log:
             if not v.get("base"):
@@ -157,7 +176,7 @@ class Sweep:
                     return False
             ckpts = [0] if v.get("base") else self.spec["eval"]["checkpoints"]
             for ck in ckpts:
-                gpu, = pool.want(min_gpus=1)  # one GPU is enough to generate+grade one checkpoint
+                gpu, = pool.want(min_gpus=1, max_gpus=1)  # eval only ever uses one GPU, however many sit idle
                 try:
                     ok = self.evaluate(v, ck, gpu, log)
                 finally:
@@ -166,7 +185,7 @@ class Sweep:
                 if not ok:
                     return False
             if final:
-                gpu, = pool.want(min_gpus=1)
+                gpu, = pool.want(min_gpus=1, max_gpus=1)
                 try:
                     ok = self.evaluate(v, ckpts[-1], gpu, log, kind="test")
                 finally:
@@ -178,7 +197,7 @@ class Sweep:
         if sha256(self.spec["eval"]["data"]) != self.spec["eval"]["data_sha256"]:
             raise SystemExit("dev benchmark digest differs from the sweep pin")
         todo = [v for v in self.spec["variants"] if not only or v["name"] in only]
-        pool = GPUPool(self.spec["gpus"])
+        pool = GPUPool(self.spec["gpus"], jobs=len(todo))
         failed = []
 
         def worker(v):
