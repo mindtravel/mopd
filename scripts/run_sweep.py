@@ -10,7 +10,7 @@
    "variants": [{"name": "base", "base": true}, {"name": "...", "recipe": "configs/recipes/code/<x>.json"}]}
 
 Per variant: build the recipe pool (mopd.data.recipes) -> scripts/train_sft.py -> evaluate the
-listed checkpoints on the dev data (mopd.evaluation.sharded); both stages take a fair share of the
+listed checkpoints on the dev data; both stages take a fair share of the
 idle GPUs from GPUPool, so a lone variant uses every one of them. Every stage is
 skipped when its output exists, so adding a variant to the sweep and re-running only trains the new
 one. Runs: runs/sweeps/<sweep>/<variant>/; leaderboard: results/sweeps/<sweep>/leaderboard.{json,md}.
@@ -24,8 +24,7 @@ sys.path.insert(0, str(ROOT / "src"))
 from mopd.data import recipes
 from mopd.runtime.provenance import sha256
 from mopd.runtime.gpus import idle_gpus
-from mopd.evaluation.eval_commands import PY
-from mopd.evaluation import sharded
+from mopd.evaluation.eval_commands import eval_commands, PY
 
 BASE_WEIGHTS = ["model-00001-of-00003.safetensors", "model-00002-of-00003.safetensors", "model-00003-of-00003.safetensors"]
 
@@ -124,20 +123,22 @@ class Sweep:
         return self.runs / v["name"] / "evaluations" / f"checkpoint-{ckpt:04d}" / protocol
 
     def evaluate(self, v, ckpt, pool, log, kind="eval"):
-        """Sharded over however many GPUs the pool grants right now (mopd.evaluation.sharded)."""
+        """On however many GPUs the pool grants right now; generate_benchmark_vllm.py hands rows to
+        whichever of them has room."""
         ev = {**self.spec["eval"], **self.spec.get(kind, {})}
         out = self.eval_dir(v, ckpt, kind)
         if (out / "summary.json").exists():
             return True
-        common = dict(data=ev["data"], out=out, protocol_id=ev["protocol_id"], max_new_tokens=ev["max_new_tokens"], log=log)
-        if v.get("base"):
-            model = dict(model=self.spec["controls"]["student"], model_version_id="base:Qwen3-4B-Base")
-        else:
-            model = dict(model_version=str(self.runs / v["name"] / "model-version.json"), checkpoint=f"checkpoint-{ckpt:04d}")
         gpus = pool.want()
         try:
             self.log(variant=v["name"], stage=f"{kind}_start", checkpoint=ckpt, gpus=gpus)
-            return sharded.evaluate(gpus=gpus, **common, **model)
+            common = dict(data=ev["data"], protocol_id=ev["protocol_id"], max_new_tokens=ev["max_new_tokens"], device=gpus)
+            if v.get("base"):
+                cmds = eval_commands(**common, out=out, model=self.spec["controls"]["student"], model_version_id="base:Qwen3-4B-Base")
+            else:
+                cmds = eval_commands(**common, model_version=str(self.runs / v["name"] / "model-version.json"), checkpoint=f"checkpoint-{ckpt:04d}")
+            return all(subprocess.run(cmd, cwd=ROOT, env={**os.environ, **extra}, stdout=log, stderr=subprocess.STDOUT).returncode == 0
+                       for cmd, extra in cmds)
         finally:
             pool.give_back(gpus)
 

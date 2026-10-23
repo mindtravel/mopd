@@ -33,7 +33,7 @@ class EvaluationDispatchTests(unittest.TestCase):
              student_prompt_format="plain_qa_v1"):
         return SimpleNamespace(
             model_version=str(manifest), checkpoint=checkpoint, data=str(data),
-            protocol_id="ifeval-v1", out=out, backend=backend, device=3,
+            protocol_id="ifeval-v1", out=out, backend=backend, device=[3],
             max_new_tokens=128, max_model_len=4096, max_seqs=4, batch_size=2, seed=7,
             student_prompt_format=student_prompt_format,
         )

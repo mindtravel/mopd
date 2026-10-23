@@ -1,5 +1,5 @@
 """One place that builds "generate then grade" commands, used by every eval orchestrator
-(run_experiment.py, run_sweep.py, run_eval_suite.py, run_eval_sharded.py). Before this, each
+(run_experiment.py, run_sweep.py, run_eval_suite.py, run_eval.py). Before this, each
 callsite hand-built the same two-branch logic (a trained checkpoint goes through
 evaluate_model_version.py, which generates and grades in one call; a raw model directory -- base
 or a merged model -- has no model-version.json, so it chains generate_benchmark_vllm.py and
@@ -33,6 +33,7 @@ def eval_commands(*, data, protocol_id, max_new_tokens, device, student_prompt_f
         raise ValueError("model_version and checkpoint must be given together")
     if bool(model_version) == bool(model):
         raise ValueError("give exactly one of (model_version, checkpoint) or model")
+    devices = [str(d) for d in (device if isinstance(device, (list, tuple)) else [device])]  # one GPU or several
     common = ["--data", str(data), "--protocol-id", protocol_id, "--max-new-tokens", str(max_new_tokens)]
     if max_model_len is not None:
         common += ["--max-model-len", str(max_model_len)]
@@ -40,14 +41,14 @@ def eval_commands(*, data, protocol_id, max_new_tokens, device, student_prompt_f
         if temperature:
             raise ValueError("sampling is only wired for the raw-model branch (model=..., adapter=...)")
         cmd = [PY, "scripts/evaluate_model_version.py", "--model-version", str(model_version),
-               "--checkpoint", checkpoint, "--device", str(device), *common, *scheduling]
+               "--checkpoint", checkpoint, "--device", *devices, *common, *scheduling]
         if out is not None:
             cmd += ["--out", str(out)]
         return [(cmd, {})]
     if out is None:
         raise ValueError("out is required when evaluating a raw model (no run to default into)")
     gen = [str(mopd_infer_python or ROOT / "mopd_infer/bin/python"), "scripts/generate_benchmark_vllm.py",
-           "--model", str(model), "--out", str(out), "--device", str(device),
+           "--model", str(model), "--out", str(out), "--device", *devices,
            "--model-version-id", model_version_id or f"model:{Path(model).name}",
            "--student-prompt-format", student_prompt_format, *common, *scheduling]
     if adapter:

@@ -58,7 +58,9 @@ def build_command(args):
             "--max-model-len", str(args.max_model_len), "--batch-size", str(args.batch_size),
             "--seed", str(args.seed), "--student-prompt-format", prompt_format]
         env = os.environ.copy()
-        env["CUDA_VISIBLE_DEVICES"] = str(args.device)
+        if len(args.device) != 1:
+            raise ValueError("the hf_qat backend runs on one GPU")
+        env["CUDA_VISIBLE_DEVICES"] = str(args.device[0])
         env["PYTHONPATH"] = str(ROOT / "src") + (":" + env["PYTHONPATH"] if env.get("PYTHONPATH") else "")
         env["HF_HOME"] = str(ROOT / "cache/huggingface")
         env["NLTK_DATA"] = str(ROOT / "cache/nltk")
@@ -66,7 +68,7 @@ def build_command(args):
         generator = ROOT / "scripts/generate_benchmark_vllm.py"
         command = [str(ROOT / "mopd_infer/bin/python"), str(generator),
             "--model", student["base_model"], "--data", str(data_path), "--out", str(output),
-            "--device", str(args.device), "--model-version-id", checkpoint["version_id"],
+            "--device", *map(str, args.device), "--model-version-id", checkpoint["version_id"],
             "--protocol-id", args.protocol_id, "--max-new-tokens", str(args.max_new_tokens),
             "--max-seqs", str(args.max_seqs), "--batch-size", str(args.batch_size),
             "--max-num-batched-tokens", str(args.max_num_batched_tokens),
@@ -88,7 +90,7 @@ def main():
     parser.add_argument("--protocol-id", required=True)
     parser.add_argument("--out")
     parser.add_argument("--backend", choices=("auto", "hf_qat", "vllm"), default="auto")
-    parser.add_argument("--device", type=int, required=True, help="physical GPU ID")
+    parser.add_argument("--device", type=int, nargs="+", required=True, help="physical GPU ID(s); vLLM spreads rows over all of them")
     parser.add_argument("--max-new-tokens", type=int, default=2048)
     parser.add_argument("--max-model-len", type=int, help="default: max(16384, max-new-tokens+4096)")
     parser.add_argument("--max-seqs", type=int, default=8)

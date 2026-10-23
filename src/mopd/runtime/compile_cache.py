@@ -2,7 +2,7 @@
 
 torch.compile / Triton / vLLM caches are written in place; several engines compiling the same new
 configuration at once into one shared directory race on its temp-file renames (seen as a
-FileNotFoundError in one of 7 sharded-eval engines). Give each concurrent process its own stable
+FileNotFoundError in one of 7 engines started together for one eval). Give each concurrent process its own stable
 directory: it is still reused by the next run in the same slot.
 """
 from pathlib import Path
