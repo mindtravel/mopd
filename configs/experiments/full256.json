@@ -1,6 +1,6 @@
 {
   "name": "full256",
-  "description": "scale256 的全参微调版本（FSDP2，hf_full）：数学/指令/代码三个 SFT 专家、混合 SFT、线性平均合并；代码专家换成 OpenCodeInstruct（clean low）。评测换成 unified-v2（MATH500+IFEval+LCB v5/v6）。MOPD 臂暂缺：rollout 只能同步 LoRA 学生。",
+  "description": "scale256 的全参微调版本（FSDP2，hf_full）：数学/指令/代码三个 SFT 专家、混合 SFT、线性平均合并；代码专家换成 OpenCodeInstruct（clean low）。评测换成 unified-v2（MATH500+IFEval+LCB v5/v6）。MOPD 臂暂缺：rollout 只能同步 LoRA 学生。 训练系统用 ZeRO-3（reshard_after_forward=true）：ZeRO-2 风格在长样本批次上 OOM（expert-c 第 10 步）；expert-m/expert-i 已用 ZeRO-2 风格训完，两者 loss 逐位一致，只影响速度和显存。",
   "output_prefix": "/ssd/lzx/mopd/runs/20261024-full256-",
   "expert_dir_prefix": "/ssd/lzx/mopd/models/experts/full256-",
   "merge_dir_prefix": "/ssd/lzx/mopd/models/merged/full256-",
@@ -19,7 +19,7 @@
     "save_every": 64,
     "sft_max_seq_len": 10240,
     "fsdp": {
-      "reshard_after_forward": false
+      "reshard_after_forward": true
     }
   },
   "quotas": {

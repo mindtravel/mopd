@@ -27,10 +27,10 @@
     "name": "full256",
     "arm": "expert-i",
     "spec_path": "/ssd/lzx/mopd/configs/experiments/full256.json",
-    "spec_sha256": "45e2da56a5f7856bce336e246c33c38f7086fe00120170245acc0b4a91b335f9"
+    "spec_sha256": "9b8fe50e81fb8c85e92d3ce2dbf24303329a4ecf69f020d1a809e773841207e7"
   },
   "fsdp": {
-    "reshard_after_forward": false
+    "reshard_after_forward": true
   },
   "training_method": "sft",
   "student_device": "cuda:0",

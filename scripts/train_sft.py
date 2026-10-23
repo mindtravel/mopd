@@ -130,7 +130,9 @@ def main():
                     for r,l,s,start,cut in zip(items,per_sample,seqs,starts,truncated):
                         d=stats[r["domain"]];d["samples"]+=1;d["loss_sum"]+=float(l.detach())
                         d["tokens"]+=len(s)-start;d["truncated"]+=int(cut)
+                peak=torch.tensor(torch.cuda.max_memory_allocated(device)/2**30,device=device)
                 if world_size>1:
+                    dist.all_reduce(peak,op=dist.ReduceOp.MAX)  # the rank closest to OOM, not rank 0
                     if not sharded:  # FSDP already reduce-scattered sharded gradients (as a SUM, see fsdp.py)
                         for p in params:dist.all_reduce(p.grad,op=dist.ReduceOp.SUM)
                     stats=sync_stats(stats,device)
@@ -146,7 +148,7 @@ def main():
                         "tokens":sum(v["tokens"] for v in domains.values()),
                         "truncated":sum(v["truncated"] for v in domains.values()),
                         "seconds":time.perf_counter()-started,"world_size":world_size,
-                        "max_memory_gib":round(torch.cuda.max_memory_allocated()/2**30,2)}
+                        "max_memory_gib":round(float(peak),2)}
                     mf.write(json.dumps(report)+"\n");print(json.dumps(report),flush=True)
                     dump(out/"status.json",{"state":"training",**report})
                 if step%c["save_every"]==0 or step==c["steps"]:
