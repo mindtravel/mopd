@@ -90,13 +90,16 @@ def main():
     parser.add_argument("--backend", choices=("auto", "hf_qat", "vllm"), default="auto")
     parser.add_argument("--device", type=int, required=True, help="physical GPU ID")
     parser.add_argument("--max-new-tokens", type=int, default=2048)
-    parser.add_argument("--max-model-len", type=int, default=16384)
+    parser.add_argument("--max-model-len", type=int, help="default: max(16384, max-new-tokens+4096)")
     parser.add_argument("--max-seqs", type=int, default=8)
     parser.add_argument("--batch-size", type=int, default=2)
     parser.add_argument("--max-num-batched-tokens", type=int, default=2048, help="vLLM prefill token budget")
     parser.add_argument("--seed", type=int, default=20261014)
     parser.add_argument("--student-prompt-format", help="required only for manifests without student prompt_format")
     args = parser.parse_args()
+    if args.max_model_len is None:
+        from mopd.evaluation.context import default_max_model_len
+        args.max_model_len = default_max_model_len(args.max_new_tokens)
 
     command, env, output, backend = build_command(args)
     output.mkdir(parents=True, exist_ok=True)

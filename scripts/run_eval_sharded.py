@@ -27,11 +27,14 @@ def main():
     ap.add_argument("--out", required=True)
     ap.add_argument("--gpus", type=int, nargs="+", required=True)
     ap.add_argument("--max-new-tokens", type=int, default=8192)
-    ap.add_argument("--max-model-len", type=int, default=16384)
+    ap.add_argument("--max-model-len", type=int, help="default: max(16384, max-new-tokens+4096)")
     ap.add_argument("--student-prompt-format", default="plain_qa_v1")
     ap.add_argument("--model-version-id", required=True)
     ap.add_argument("--protocol-id", required=True)
     a = ap.parse_args()
+    if a.max_model_len is None:
+        from mopd.evaluation.context import default_max_model_len
+        a.max_model_len = default_max_model_len(a.max_new_tokens)
 
     rows = [json.loads(l) for l in Path(a.data).read_text().splitlines() if l.strip()]
     out = Path(a.out)

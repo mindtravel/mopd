@@ -73,12 +73,15 @@ def main():
     parser.add_argument("--device", default="cuda:0")
     parser.add_argument("--protocol-id", required=True)
     parser.add_argument("--max-new-tokens", type=int, default=2048)
-    parser.add_argument("--max-model-len", type=int, default=16384)
+    parser.add_argument("--max-model-len", type=int, help="default: max(16384, max-new-tokens+4096)")
     parser.add_argument("--batch-size", type=int, default=2)
     parser.add_argument("--seed", type=int, default=20261014)
     from mopd.data.templates import STUDENT_PROMPT_MODES
     parser.add_argument("--student-prompt-format", required=True, choices=sorted(STUDENT_PROMPT_MODES))
     args = parser.parse_args()
+    if args.max_model_len is None:
+        from mopd.evaluation.context import default_max_model_len
+        args.max_model_len = default_max_model_len(args.max_new_tokens)
 
     manifest_path = Path(args.model_version).resolve()
     data_path = Path(args.data).resolve()

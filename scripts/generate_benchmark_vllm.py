@@ -13,8 +13,10 @@ def main():
  # vLLM prefill token budget per scheduler step. 2048 reproduces every earlier evaluation's runtime;
  # with --batch-size >= rows and a large --max-seqs, the whole set goes through continuous batching at once.
  p.add_argument("--max-num-batched-tokens",type=int,default=2048)
- p.add_argument("--max-model-len",type=int,default=16384)
+ p.add_argument("--max-model-len",type=int,help="default: max(16384, max-new-tokens+4096)")
  a=p.parse_args()
+ from mopd.evaluation.context import default_max_model_len
+ if a.max_model_len is None:a.max_model_len=default_max_model_len(a.max_new_tokens)
  if not a.teacher and not a.student_prompt_format:p.error("--student-prompt-format is required for student generation")
  os.environ["CUDA_VISIBLE_DEVICES"]=str(a.device)
  out=Path(a.out).resolve();root=Path("/ssd/lzx/mopd")
