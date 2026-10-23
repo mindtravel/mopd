@@ -83,11 +83,14 @@ def read_rstar_seed():
     `where`, like KodCode's `correct`). QwQ shows the same failure as OpenCodeReasoning's R1 teacher
     -- switching to Chinese/Cyrillic mid-response -- at a far lower rate (5.3% of verified+passed
     rows here vs 0.1% of all OpenCodeReasoning rows, which still blew up to 66% of a trained model's
-    outputs); `clean_language` flags it so recipes can filter it out rather than learn it again."""
+    outputs); `clean_language` flags it so recipes can filter it out rather than learn it again.
+    Upstream `question_id` is shared across a problem's sampled solutions too (up to 16 rows/id,
+    same issue as OpenCodeReasoning's `id`), so it is only the problem_id, not the row id."""
     nonlatin = re.compile(r"[Ѐ-ӿ一-鿿]")
-    for r in parquet_rows("data/raw/rstar-coder/seed_sft/*.parquet"):
+    for i, r in enumerate(parquet_rows("data/raw/rstar-coder/seed_sft/*.parquet")):
         kind = "function" if r["starter_code"].strip() else "stdin"
-        yield {"id": f"rstar/{r['question_id']}", "problem_id": r["question_id"], "source": "rstar-coder-seed",
+        yield {"id": f"rstar/{i}-{text_hash(r['question'] + chr(0) + r['response'])[:12]}",
+               "problem_id": r["question_id"], "source": "rstar-coder-seed",
                "problem": r["question"], "response": r["response"], "code": r["code"] or last_code(r["response"]),
                "kind": kind,
                "meta": {"verified": bool(r["verified"]), "is_passed": bool(r["is_passed"]),
