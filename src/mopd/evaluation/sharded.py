@@ -53,13 +53,13 @@ def evaluate(*, data, out, gpus, log=None, **command_args):
 
     stop = threading.Event()
 
-    def report():  # one total for the whole benchmark, alongside each shard's own progress file
+    def write_progress():  # one total for the whole benchmark, alongside each shard's own progress file
+        done = sum(sum(1 for _ in f.open()) for f in (d / "generated.jsonl" for _, _, d in jobs) if f.exists())
+        progress.write(out / "generation-progress.json", done=done, total=len(rows), shards=n)
+
+    def report():
         while not stop.wait(15):
-            done = 0
-            for _, _, d in jobs:
-                f = d / "generated.jsonl"
-                done += sum(1 for _ in f.open()) if f.exists() else 0
-            progress.write(out / "generation-progress.json", done=done, total=len(rows), shards=n)
+            write_progress()
 
     def shard(job):
         gpu, shard_data, d = job
@@ -73,6 +73,7 @@ def evaluate(*, data, out, gpus, log=None, **command_args):
             ok = list(pool.map(shard, jobs))
     finally:
         stop.set()
+        write_progress()
     if not all(ok):
         if log:
             log.write(f"sharded eval: failed shards {[d.name for (_, _, d), k in zip(jobs, ok) if not k]}, logs in {shards}\n")
