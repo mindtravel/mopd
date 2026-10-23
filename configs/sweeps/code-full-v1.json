@@ -11,7 +11,10 @@
    "type": "constant"
   },
   "save_every": 64,
-  "student_backend": "hf_full"
+  "student_backend": "hf_full",
+  "fsdp": {
+   "reshard_after_forward": false
+  }
  },
  "eval": {
   "protocol_id": "lcbdev-plainqa-greedy8192",
