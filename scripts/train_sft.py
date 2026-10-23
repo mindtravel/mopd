@@ -15,10 +15,30 @@ is token-level negative log-likelihood of its fixed reference answer.
 
 Does not go through mopd.config.load: that schema requires a teacher and a rollout
 backend per domain, which do not exist for SFT.
+
+Multi-GPU: launch with `torchrun --standalone --nproc_per_node=N scripts/train_sft.py
+--config ...` to data-parallelize one run across N GPUs; a plain `python scripts/train_sft.py
+--config ...` (no torchrun) is unchanged single-GPU behavior, reading config["student_device"]
+exactly as before -- every distributed code path below is gated on world_size > 1 and is a no-op
+otherwise, so existing single-GPU callers (scripts/run_experiment.py) need no changes.
+
+Design: NOT torch.nn.parallel.DistributedDataParallel. logps() (mopd/training/batching.py)
+deliberately bypasses the student's top-level forward to chunk the LM head manually, so nothing
+ever calls a module whose forward DDP could hook; wrapping in DDP would silently not synchronize
+gradients. Instead each rank runs the unmodified single-GPU forward/backward on its own shard of
+the step's batch, then every trainable parameter's .grad is summed (not averaged) across ranks:
+every rank already scales its per-sample loss by the *global* per-step domain weight (computed
+from the full, unsharded batch), so summing the disjoint per-rank shards reproduces exactly the
+gradient a single GPU would compute over the whole step -- multi-GPU training is numerically the
+same experiment, just sharded, not a different setting. Reported per-step metrics are likewise
+summed across ranks so they describe the whole step. Only rank 0 writes files (metrics, status,
+checkpoints, manifest); every rank still runs the full compute loop to stay in lockstep, since
+each holds its own replica of the model and optimizer and needs to apply the same update.
 """
-import argparse,json,time,traceback
+import argparse,json,os,time,traceback
 from pathlib import Path
 import torch
+import torch.distributed as dist
 from mopd.data.mixture import resolve_domain,plan_domains
 from mopd.data.token_budget import plan_by_tokens
 from mopd.protocol import student_prompt
@@ -36,39 +56,73 @@ def encode(tok,row,prompt_format,eos,max_len):
         return prefix,response[:max_len-len(prefix)],True
     return prefix,response,False
 
+def dist_info():
+    """(rank, world_size, device) from the torchrun environment, or (0, 1, None) outside it.
+    device is None when not distributed, so the caller falls back to config["student_device"]."""
+    world_size=int(os.environ.get("WORLD_SIZE",1))
+    if world_size==1:return 0,1,None
+    local_rank=int(os.environ["LOCAL_RANK"])
+    torch.cuda.set_device(local_rank)
+    dist.init_process_group(backend="nccl")
+    return int(os.environ["RANK"]),world_size,f"cuda:{local_rank}"
+
+def sync_stats(stats,device):
+    """Sum each domain's local sample/loss/token/truncated counters across ranks: every rank only
+    processed a shard of the step, so the reported metrics must cover the whole step, not one shard."""
+    domains=sorted(stats)
+    packed=torch.tensor([[stats[d]["samples"],stats[d]["loss_sum"],stats[d]["tokens"],stats[d]["truncated"]]
+                         for d in domains],device=device,dtype=torch.float64)
+    dist.all_reduce(packed,op=dist.ReduceOp.SUM)
+    return {d:{"samples":int(packed[i,0]),"loss_sum":float(packed[i,1]),"tokens":int(packed[i,2]),
+               "truncated":int(packed[i,3])} for i,d in enumerate(domains)}
+
 def main():
     ap=argparse.ArgumentParser();ap.add_argument("--config",required=True);a=ap.parse_args()
     c=json.loads(Path(a.config).read_text());out=Path(c["output"])
+    rank,world_size,dist_device=dist_info()
+    if dist_device:c["student_device"]=dist_device
+    main_rank=rank==0
     for name,spec in c["domains"].items():resolve_domain(name,spec)
-    describe(c)
-    out.mkdir(parents=True,exist_ok=False)
-    dump(out/"config.json",c);dump(out/"status.json",{"state":"loading"})
+    describe(c)  # pure validation, no side effect; run on every rank
+    if main_rank:
+        out.mkdir(parents=True,exist_ok=False)
+        dump(out/"config.json",c);dump(out/"status.json",{"state":"loading"})
+    if world_size>1:
+        dist.barrier()  # other ranks wait for `out` to exist before training, though none read it
     try:
-        record_provenance(c,out)
-        torch.manual_seed(c["seed"])
+        if main_rank:record_provenance(c,out)
+        if world_size>1:dist.barrier()
+        torch.manual_seed(c["seed"])  # identical on every rank: same LoRA init before training starts
         tok,model=build_student(c);model.train()  # gradient checkpointing only recomputes (instead of retaining) activations in train mode
         device=c["student_device"];pad=tok.pad_token_id;eos=tok.eos_token_id
         max_len=c.get("max_seq_len")
         if c.get("token_budget"):
             plan=plan_by_tokens(c,lambda row:len(encode(tok,row,c["student_prompt_format"],eos,max_len)[1]))
         else:
-            plan=plan_domains(c)
-        dump(out/"batch_plan.json",plan)
+            plan=plan_domains(c)  # identical on every rank: deterministic from config["seed"] + data files
+        if world_size>1 and any(len(rows)<world_size for rows in plan):
+            raise ValueError(f"samples_per_step is smaller than world_size={world_size}: some ranks would get no rows")
+        if main_rank:dump(out/"batch_plan.json",plan)
         weights={d:s["weight"] for d,s in c["domains"].items()}
         micro=c["micro_batch_size"]
         params=[p for p in model.parameters() if p.requires_grad]
-        initial=[p.detach().cpu().clone() for p in params]
+        initial=[p.detach().cpu().clone() for p in params] if main_rank else None
         opt=torch.optim.AdamW(params,lr=c["lr"]);sched=build_scheduler(opt,c)
-        with (out/"metrics.jsonl").open("w",buffering=1) as mf:
+        mf=(out/"metrics.jsonl").open("w",buffering=1) if main_rank else None
+        ckpt=None
+        try:
             for step,rows in enumerate(plan,1):
                 opt.zero_grad(set_to_none=True);started=time.perf_counter();lr=sched.get_last_lr()[0]
                 stats={d:{"samples":0,"loss_sum":0.,"tokens":0,"truncated":0} for d in weights}
                 # Per-sample weight = domain weight / that domain's samples this step: per-sample token
                 # mean, then domain mean, then domain weights (MOPD's domain_scale when counts are fixed).
+                # Computed from the full step (all ranks' rows), not the local shard below, so summed
+                # per-rank gradients reproduce the single-GPU gradient exactly (see module docstring).
                 counts={d:sum(r["domain"]==d for r in rows) for d in weights}
                 scales={d:weights[d]/counts[d] for d in weights}
-                for offset in range(0,len(rows),micro):
-                    items=rows[offset:offset+micro];seqs=[];starts=[];truncated=[]
+                local_rows=rows[rank::world_size]  # disjoint, deterministic shard of this step's batch
+                for offset in range(0,len(local_rows),micro):
+                    items=local_rows[offset:offset+micro];seqs=[];starts=[];truncated=[]
                     for row in items:
                         prefix,response,cut=encode(tok,row,c["student_prompt_format"],eos,max_len)
                         if not response:raise ValueError(f"prompt alone exceeds max_seq_len: {row['id']}")
@@ -80,30 +134,41 @@ def main():
                     for r,l,s,start,cut in zip(items,per_sample,seqs,starts,truncated):
                         d=stats[r["domain"]];d["samples"]+=1;d["loss_sum"]+=float(l.detach())
                         d["tokens"]+=len(s)-start;d["truncated"]+=int(cut)
+                if world_size>1:
+                    for p in params:dist.all_reduce(p.grad,op=dist.ReduceOp.SUM)
+                    stats=sync_stats(stats,device)
                 grad=torch.nn.utils.clip_grad_norm_(params,1.)
                 if not torch.isfinite(grad) or grad<=0:raise ValueError("Invalid student gradient")
                 opt.step();sched.step()
-                domains={d:{"loss":s["loss_sum"]/s["samples"],"samples":s["samples"],"tokens":s["tokens"],
-                            "truncated":s["truncated"]} for d,s in stats.items()}
-                report={"step":step,"lr":lr,"loss":sum(weights[d]*v["loss"] for d,v in domains.items()),
-                    "grad_norm":float(grad),"domains":domains,
-                    "tokens":sum(v["tokens"] for v in domains.values()),
-                    "truncated":sum(v["truncated"] for v in domains.values()),
-                    "seconds":time.perf_counter()-started}
-                mf.write(json.dumps(report)+"\n");print(json.dumps(report),flush=True)
-                dump(out/"status.json",{"state":"training",**report})
-                if step%c["save_every"]==0 or step==c["steps"]:
-                    ckpt=out/f"checkpoint-{step:04d}"
-                    save_student(model,c,ckpt,step)
-                    torch.save({"step":step,"optimizer":opt.state_dict(),"scheduler":sched.state_dict(),
-                        "rng":torch.get_rng_state(),"cuda_rng":torch.cuda.get_rng_state_all()},ckpt/"training_state.pt")
-                    write_manifest(c,out,{"state":"training","step":step})
-        delta=sum((p.detach().cpu()-v).float().square().sum().item() for p,v in zip(params,initial))**.5
-        assert delta>0
-        dump(out/"status.json",{"state":"complete","steps":c["steps"],
-            "adapter_delta_l2":delta,"final_adapter":str(ckpt)})
-        write_manifest(c,out,{"state":"complete","step":c["steps"]})
+                if main_rank:
+                    domains={d:{"loss":s["loss_sum"]/s["samples"],"samples":s["samples"],"tokens":s["tokens"],
+                                "truncated":s["truncated"]} for d,s in stats.items()}
+                    report={"step":step,"lr":lr,"loss":sum(weights[d]*v["loss"] for d,v in domains.items()),
+                        "grad_norm":float(grad),"domains":domains,
+                        "tokens":sum(v["tokens"] for v in domains.values()),
+                        "truncated":sum(v["truncated"] for v in domains.values()),
+                        "seconds":time.perf_counter()-started,"world_size":world_size}
+                    mf.write(json.dumps(report)+"\n");print(json.dumps(report),flush=True)
+                    dump(out/"status.json",{"state":"training",**report})
+                    if step%c["save_every"]==0 or step==c["steps"]:
+                        ckpt=out/f"checkpoint-{step:04d}"
+                        save_student(model,c,ckpt,step)
+                        torch.save({"step":step,"optimizer":opt.state_dict(),"scheduler":sched.state_dict(),
+                            "rng":torch.get_rng_state(),"cuda_rng":torch.cuda.get_rng_state_all()},ckpt/"training_state.pt")
+                        write_manifest(c,out,{"state":"training","step":step})
+                if world_size>1:dist.barrier()
+        finally:
+            if mf:mf.close()
+        if main_rank:
+            delta=sum((p.detach().cpu()-v).float().square().sum().item() for p,v in zip(params,initial))**.5
+            assert delta>0
+            dump(out/"status.json",{"state":"complete","steps":c["steps"],
+                "adapter_delta_l2":delta,"final_adapter":str(ckpt)})
+            write_manifest(c,out,{"state":"complete","step":c["steps"]})
     except BaseException:
-        dump(out/"status.json",{"state":"failed","traceback":traceback.format_exc()});raise
+        if main_rank:dump(out/"status.json",{"state":"failed","traceback":traceback.format_exc()})
+        raise
+    finally:
+        if world_size>1:dist.destroy_process_group()
 
 if __name__=="__main__":main()
