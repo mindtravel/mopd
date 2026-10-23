@@ -32,6 +32,7 @@ THINK = re.compile(r"<think>.*?</think>\s*", re.DOTALL)
 # a recipe prefer the least hedgy of several candidate solutions to one problem, instead of a
 # random one, without discarding data: mopd.data.recipes' `prefer_fewest`.
 HEDGE = re.compile(r"\bWait\b|\bHmm\b|\bLet me think\b", re.I)
+NONLATIN = re.compile(r"[Ѐ-ӿ一-鿿]")  # Cyrillic/CJK, used by read_rstar_seed's clean_language flag
 
 
 def last_code(text):
@@ -56,6 +57,38 @@ def parquet_rows(pattern, columns=None):
             continue
         for batch in pf.iter_batches(batch_size=2048, columns=columns):
             yield from batch.to_pylist()
+
+
+def _read_and_transform(args):
+    """Runs in a worker process (see parallel_parquet_rows): read one parquet file, apply
+    `transform` to every row, return the non-None results as a list."""
+    import pyarrow.parquet as pq
+    file, columns, transform = args
+    try:
+        pf = pq.ParquetFile(file)
+    except Exception as e:
+        print(f"parallel_parquet_rows: skipping unreadable (likely still downloading) {file}: {e!r}")
+        return []
+    return [row for batch in pf.iter_batches(batch_size=2048, columns=columns)
+            for raw in batch.to_pylist() for row in [transform(raw)] if row is not None]
+
+
+def parallel_parquet_rows(pattern, transform, columns=None, workers=None):
+    """Like parquet_rows, but applies `transform` (a module-level, picklable function: one raw
+    pyarrow row -> one canonical row dict, or None to drop it) inside a worker process per file,
+    instead of materializing and transforming every row on a single core. Reading rstar-seed's raw
+    source this way (one Python loop, no multiprocessing) took over 11 minutes on one of this
+    server's 128 cores -- long text fields mean real per-row cost: hashing, a hedge-marker regex,
+    normalization. A subset's source is only read in full when its builder_version changes (see
+    build()), but that still happens often enough during active data work to be worth parallelizing
+    instead of accepted as a fixed cost every time."""
+    import os
+    from concurrent.futures import ProcessPoolExecutor
+    files = sorted(glob.glob(str(ROOT / pattern)))
+    workers = min(len(files), workers or os.cpu_count() or 1) or 1
+    with ProcessPoolExecutor(workers) as pool:
+        for rows in pool.map(_read_and_transform, [(f, columns, transform) for f in files]):
+            yield from rows
 
 
 # ---------------------------------------------------------------- source readers
@@ -110,17 +143,27 @@ def read_rstar_seed():
     a text digest -- two different question_ids for byte-identical questions (observed: duplicate
     classic problems re-added under a new id) must still land in the same problem_id group, or
     per_problem=1 fails to dedupe them and recipes.build() can hand out the same rendered prompt
-    twice, which mopd.data.pool.build_plan then (correctly) rejects as a training-pool collision."""
-    nonlatin = re.compile(r"[Ѐ-ӿ一-鿿]")
-    for i, r in enumerate(parquet_rows("data/raw/rstar-coder/seed_sft/*.parquet")):
-        kind = "function" if r["starter_code"].strip() else "stdin"
-        yield {"id": f"rstar/{i}-{text_hash(r['question'] + chr(0) + r['response'])[:12]}",
-               "problem_id": text_hash(r["question"])[:16], "source": "rstar-coder-seed",
-               "problem": r["question"], "response": r["response"], "code": r["code"] or last_code(r["response"]),
-               "kind": kind,
-               "meta": {"verified": bool(r["verified"]), "is_passed": bool(r["is_passed"]),
-                        "clean_language": not bool(nonlatin.search(r["response"])),
-                        "hedge_markers": hedge_count(r["response"])}}
+    twice, which mopd.data.pool.build_plan then (correctly) rejects as a training-pool collision.
+    Reads its ~20 parquet files in parallel (parallel_parquet_rows): the per-row work below (two
+    hashes, a language regex, a hedge-marker regex over a long response) is pure and stateless, so
+    there is nothing sequential about doing it 591k times -- see parallel_parquet_rows's docstring
+    for why that mattered here."""
+    return parallel_parquet_rows("data/raw/rstar-coder/seed_sft/*.parquet", _rstar_row)
+
+
+def _rstar_row(r):
+    """Per-row transform for read_rstar_seed; module-level so parallel_parquet_rows can pickle it
+    to worker processes. Row id no longer needs a running counter for uniqueness (dropped when this
+    moved off a single sequential loop): the two source fields hashed together are already enough
+    entropy that a collision across 591k rows is not a practical concern."""
+    kind = "function" if r["starter_code"].strip() else "stdin"
+    return {"id": f"rstar/{text_hash(r['question'] + chr(0) + r['response'])[:16]}",
+            "problem_id": text_hash(r["question"])[:16], "source": "rstar-coder-seed",
+            "problem": r["question"], "response": r["response"], "code": r["code"] or last_code(r["response"]),
+            "kind": kind,
+            "meta": {"verified": bool(r["verified"]), "is_passed": bool(r["is_passed"]),
+                     "clean_language": not bool(NONLATIN.search(r["response"])),
+                     "hedge_markers": hedge_count(r["response"])}}
 
 
 def read_opencoder_clean():
@@ -136,17 +179,21 @@ SUBSETS = {
     "kodcode-4o": {"reader": read_kodcode, "raw": "data/raw/kodcode-v1-sft-4o"},
     "opencodereasoning": {"reader": read_opencodereasoning, "raw": "data/raw/opencodereasoning"},
     "opencoder-clean": {"reader": read_opencoder_clean, "raw": "data/sft/opencoder_stage2_clean"},
-    "rstar-seed": {"reader": read_rstar_seed, "raw": "data/raw/rstar-coder"},
+    "rstar-seed": {"reader": read_rstar_seed, "transform": _rstar_row, "raw": "data/raw/rstar-coder"},
 }
 
 
 # ---------------------------------------------------------------- build
 def builder_version(name):
-    """Digest of this subset's reader, the shared build steps, the decontamination code and the raw
-    download manifest: changing any of them yields a new version; other subsets are unaffected."""
+    """Digest of this subset's reader (and, for readers that push their per-row logic into a
+    separate `transform` for parallel_parquet_rows, that transform too -- otherwise a change to it
+    would go undetected since the thin reader wrapper's own source never changes), the shared build
+    steps, the decontamination code and the raw download manifest: changing any of them yields a new
+    version; other subsets are unaffected."""
     h = hashlib.sha256()
-    for part in (SUBSETS[name]["reader"], build, last_code):
-        h.update(inspect.getsource(part).encode())
+    for part in (SUBSETS[name]["reader"], SUBSETS[name].get("transform"), build, last_code):
+        if part is not None:
+            h.update(inspect.getsource(part).encode())
     h.update(Path(decontam.__file__).read_bytes() + json.dumps(EVAL_FILES).encode())
     raw = ROOT / SUBSETS[name]["raw"] / "download-manifest.json"
     h.update(raw.read_bytes() if raw.exists() else SUBSETS[name]["raw"].encode())

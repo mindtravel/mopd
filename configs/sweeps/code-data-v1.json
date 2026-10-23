@@ -68,6 +68,10 @@
   {
    "name": "rstar-seed",
    "recipe": "configs/recipes/code/rstar-seed.json"
+  },
+  {
+   "name": "rstar-seed-concise",
+   "recipe": "configs/recipes/code/rstar-seed-concise.json"
   }
  ]
 }
