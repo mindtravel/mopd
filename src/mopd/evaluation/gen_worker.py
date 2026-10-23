@@ -22,6 +22,14 @@ TAG = "GEN_JSON:"
 ASK = 16
 
 
+def lora_rank(adapter):
+    """vLLM preallocates LoRA buffers for max_lora_rank and only accepts these sizes."""
+    if not adapter:
+        return 16
+    r = json.load(open(f"{adapter}/adapter_config.json"))["r"]
+    return next(size for size in (8, 16, 32, 64, 128, 256, 320, 512) if size >= r)
+
+
 def main():
     c = json.loads(sys.argv[1])
     wire = sys.stdout
@@ -45,7 +53,7 @@ def main():
             engine = LLM(model=c["model"], dtype="bfloat16", max_model_len=c["max_model_len"],
                 gpu_memory_utilization=.85, max_num_seqs=c["max_seqs"], max_num_batched_tokens=c["max_num_batched_tokens"],
                 enable_chunked_prefill=True, enable_prefix_caching=True, generation_config="vllm",
-                enable_lora=bool(c["adapter"]), max_lora_rank=16, seed=20261013)
+                enable_lora=bool(c["adapter"]), max_lora_rank=lora_rank(c["adapter"]), seed=20261013)
             scheduler = engine.llm_engine.engine_core.engine_core.scheduler
             eos = engine.get_tokenizer().eos_token_id
             sampled = c["temperature"] > 0

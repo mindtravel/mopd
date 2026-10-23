@@ -72,6 +72,11 @@
   {
    "name": "rstar-seed-concise",
    "recipe": "configs/recipes/code/rstar-seed-concise.json"
+  },
+  {
+   "name": "rstar-seed-concise-r64",
+   "recipe": "configs/recipes/code/rstar-seed-concise.json",
+   "lora": {"rank": 64, "alpha": 128, "targets": ["q_proj", "k_proj", "v_proj", "o_proj", "gate_proj", "up_proj", "down_proj"]}
   }
  ]
 }

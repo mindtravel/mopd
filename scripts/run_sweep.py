@@ -7,7 +7,8 @@
    "eval": {"protocol_id", "data", "data_sha256", "max_new_tokens", "checkpoints": [128, 256]},
    "test": {"protocol_id", "data", "data_sha256"},       # only with --final
    "gpus": [0, 2, ...],
-   "variants": [{"name": "base", "base": true}, {"name": "...", "recipe": "configs/recipes/code/<x>.json"}]}
+   "variants": [{"name": "base", "base": true}, {"name": "...", "recipe": "configs/recipes/code/<x>.json",
+                 "lora": {"rank": 64, "alpha": 128, "targets": [...]}}]}   # lora optional, default r16 q/k/v/o
 
 Per variant: build the recipe pool (mopd.data.recipes) -> scripts/train_sft.py -> evaluate the
 listed checkpoints on the dev data; both stages take a fair share of the
@@ -108,6 +109,7 @@ class Sweep:
                 "seed": c["seed"], "steps": c["steps"], "lr": c["lr"], "lr_schedule": c["lr_schedule"],
                 "micro_batch_size": micro, "save_every": c["save_every"], "max_seq_len": manifest["recipe"]["max_total_tokens"],
                 "output": str(self.runs / v["name"]), "data_pins": pins, "training_method": "sft", "student_device": "cuda:0",
+                **({"lora": v["lora"]} if "lora" in v else {}),  # e.g. {"rank": 64, "alpha": 128, "targets": [...]}
                 "sweep": {"name": self.name, "variant": v["name"], "recipe": v["recipe"], "recipe_version": manifest["version"]},
                 "domains": {"code": {"train_file": str(pool / "train.jsonl"), "holdout_files": [str(pool / "dev.jsonl"), ev["data"]],
                                      "count": c["samples_per_step"], "weight": 1.0}}}
