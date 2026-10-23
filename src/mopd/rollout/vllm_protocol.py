@@ -1,9 +1,10 @@
-"""Validate rollout worker replies: policy version, adapter identity, and each sampled answer."""
+"""Validate rollout worker replies: policy version, policy identity (mopd.rollout.policy `id`),
+and each sampled answer."""
 
 
 def _check_policy(reply, version, digest):
-    if reply.get("version") != version or reply.get("adapter_sha256") != digest:
-        raise ValueError("Stale policy or adapter file mismatch")
+    if reply.get("version") != version or reply.get("policy_id") != digest:
+        raise ValueError("Stale policy or policy weights mismatch")
 
 
 def validate_item(item, source, version, max_new_tokens, eos):

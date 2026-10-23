@@ -24,7 +24,7 @@ def replay(c,student,stok,teachers,params,eos,trajs,step):
     weights={d:s["weight"] for d,s in c["domains"].items()};counts={d:s["count"] for d,s in c["domains"].items()}
     scales={d:domain_scale(d,weights,counts) for d in counts}
     sc=OPDStepScorer(config=c,student=student,student_tokenizer=stok,teachers=teachers,params=params,scales=scales,
-                     eos_ids=eos,sync=lambda:None,rollout_log=io.StringIO(),step=step)
+                     eos_ids=eos,sync=lambda:None,step=step)
     planned={d:sum(t["row"]["domain"]==d for t in trajs) for d in c["domains"]}
     for d,chunk in DomainBatcher(c["micro_batch_size"],planned).consume(trajs):sc.process(d,chunk)
     return torch.cat([p.grad.detach().float().flatten() for p in params]),sc.domain_stats()

@@ -44,6 +44,7 @@ from mopd.data.token_budget import plan_by_tokens
 from mopd.protocol import student_prompt
 from mopd.students.registry import build_student,save_student,is_sharded
 from mopd.training import fsdp
+from mopd.training.distributed import dist_info
 from mopd.training.batching import pack,logps
 from mopd.training.schedule import build_scheduler,describe
 from mopd.evaluation.versioning import write_manifest
@@ -56,20 +57,6 @@ def encode(tok,row,prompt_format,eos,max_len):
     if max_len and len(prefix)+len(response)>max_len:
         return prefix,response[:max_len-len(prefix)],True
     return prefix,response,False
-
-def dist_info():
-    """(rank, world_size, device) from the torchrun environment, or (0, 1, None) outside it.
-    device is None when not distributed, so the caller falls back to config["student_device"]."""
-    world_size=int(os.environ.get("WORLD_SIZE",1))
-    if world_size==1:return 0,1,None
-    local_rank=int(os.environ["LOCAL_RANK"])
-    torch.cuda.set_device(local_rank)
-    # On para5090 (8x RTX 5090, no P2P) NCCL's shared-memory transport with the Simple/LL128
-    # protocols hits "illegal memory access" once a gradient tensor passes ~1 MB (LoRA on the MLP
-    # layers); LL is unaffected and costs ~0.08 s per step for 132M gradient values.
-    os.environ.setdefault("NCCL_PROTO", "LL")
-    dist.init_process_group(backend="nccl")
-    return int(os.environ["RANK"]),world_size,f"cuda:{local_rank}"
 
 def sync_stats(stats,device):
     """Sum each domain's local sample/loss/token/truncated counters across ranks: every rank only

@@ -18,3 +18,20 @@ def load_models(c):
         t=AutoModelForCausalLM.from_pretrained(spec["teacher"],torch_dtype=torch.bfloat16,attn_implementation="sdpa",local_files_only=True).to(spec["device"]).eval()
         t.requires_grad_(False);teachers[domain]=(tt,t)
     return stok,student,teachers
+
+
+def load_teachers(c, student_tokenizer):
+    """The frozen domain teachers alone (the student comes from mopd.students.registry, whatever its
+    backend): {domain: (tokenizer, model)} on each domain's configured device."""
+    teachers = {}
+    for domain, spec in c["domains"].items():
+        tt = AutoTokenizer.from_pretrained(spec["teacher"], local_files_only=True)
+        if tt.get_vocab() != student_tokenizer.get_vocab():
+            raise ValueError("Vocabulary mismatch: " + domain)
+        if tt.pad_token_id is None:
+            tt.pad_token = tt.eos_token
+        t = AutoModelForCausalLM.from_pretrained(spec["teacher"], dtype=torch.bfloat16, attn_implementation="sdpa",
+                                                 local_files_only=True).to(spec["device"]).eval()
+        t.requires_grad_(False)
+        teachers[domain] = (tt, t)
+    return teachers

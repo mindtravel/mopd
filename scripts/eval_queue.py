@@ -35,7 +35,6 @@ def main():
     p.add_argument("--watch",action="append",default=[],help="run directory whose checkpoints are evaluated")
     p.add_argument("--poll",type=int,default=60)
     a=p.parse_args()
-    if a.device==1:raise ValueError("GPU 1 is reserved")
     state_path=ROOT/"logs"/f"eval-queue-{a.protocol_id}-gpu{a.device}.json"
     failed=set()
     while True:

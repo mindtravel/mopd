@@ -1,0 +1,130 @@
+{
+  "experiment": {
+    "name": "full256-mopd",
+    "arm": null,
+    "spec_path": "/ssd/lzx/mopd/configs/experiments/full256-mopd.json",
+    "spec_sha256": "6184cf2da0399d5026de3080d4cf6447d9b814691bdd78a395031b3a59f6eefd"
+  },
+  "evaluation": {
+    "protocol_id": "unified-v2-plainqa-greedy8192",
+    "data": "/ssd/lzx/mopd/data/full_eval/unified-v2/all.jsonl",
+    "checkpoints": [
+      128,
+      256
+    ],
+    "max_new_tokens": 8192
+  },
+  "gpus": [
+    0,
+    1,
+    2,
+    3,
+    4,
+    5,
+    6,
+    7
+  ],
+  "student": "/ssd/lzx/mopd/models/Qwen3-4B-Base",
+  "reuse_experts": {
+    "expert-m": {
+      "dir": "/ssd/lzx/mopd/runs/20261024-full256-expert-m/checkpoint-0256",
+      "from_experiment": "full256"
+    },
+    "expert-i": {
+      "dir": "/ssd/lzx/mopd/runs/20261024-full256-expert-i/checkpoint-0256",
+      "from_experiment": "full256"
+    },
+    "expert-c": {
+      "dir": "/ssd/lzx/mopd/runs/20261024-full256-expert-c/checkpoint-0256",
+      "from_experiment": "full256"
+    }
+  },
+  "controls": {
+    "student": "/ssd/lzx/mopd/models/Qwen3-4B-Base",
+    "seed": 20261014,
+    "steps": 256,
+    "samples_per_step": 32,
+    "lr": 1e-05,
+    "lr_schedule": {
+      "type": "constant"
+    },
+    "micro_batch_size": 4,
+    "sft_max_seq_len": 10240
+  },
+  "jobs": [
+    {
+      "id": "train:mopd-mic",
+      "kind": "train_mopd",
+      "gpus": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7
+      ],
+      "deps": [],
+      "config": "configs/experiments/full256-mopd/mopd-mic.json",
+      "nproc": 4
+    },
+    {
+      "id": "eval:mopd-mic:128",
+      "kind": "eval_checkpoint",
+      "gpus": 1,
+      "deps": [
+        "train:mopd-mic"
+      ],
+      "model_version": "/ssd/lzx/mopd/runs/20261024-full256-mopd-mic/model-version.json",
+      "checkpoint": "checkpoint-0128"
+    },
+    {
+      "id": "eval:mopd-mic:256",
+      "kind": "eval_checkpoint",
+      "gpus": 1,
+      "deps": [
+        "train:mopd-mic"
+      ],
+      "model_version": "/ssd/lzx/mopd/runs/20261024-full256-mopd-mic/model-version.json",
+      "checkpoint": "checkpoint-0256"
+    },
+    {
+      "id": "train:mopd-mi",
+      "kind": "train_mopd",
+      "gpus": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7
+      ],
+      "deps": [],
+      "config": "configs/experiments/full256-mopd/mopd-mi.json",
+      "nproc": 4
+    },
+    {
+      "id": "eval:mopd-mi:128",
+      "kind": "eval_checkpoint",
+      "gpus": 1,
+      "deps": [
+        "train:mopd-mi"
+      ],
+      "model_version": "/ssd/lzx/mopd/runs/20261024-full256-mopd-mi/model-version.json",
+      "checkpoint": "checkpoint-0128"
+    },
+    {
+      "id": "eval:mopd-mi:256",
+      "kind": "eval_checkpoint",
+      "gpus": 1,
+      "deps": [
+        "train:mopd-mi"
+      ],
+      "model_version": "/ssd/lzx/mopd/runs/20261024-full256-mopd-mi/model-version.json",
+      "checkpoint": "checkpoint-0256"
+    }
+  ]
+}

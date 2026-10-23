@@ -19,6 +19,15 @@ from mopd.runtime.provenance import _source,_data,sha256
 from mopd.evaluation.eval_commands import eval_commands,PY,SCHEDULING as EVAL_SCHEDULING  # re-exported: run_eval_suite.py imports these
 def free_gib():
     s=os.statvfs(ROOT);return s.f_bfree*s.f_frsize/2**30
+def expert_run_config(expert):
+    """The SFT run config an expert came from: a LoRA expert records it when exported
+    (expert-source.json); a full-parameter expert is its run's own final checkpoint directory."""
+    if (expert/"expert-source.json").is_file():return json.loads((expert/"expert-source.json").read_text())["run_config"]
+    return json.loads((expert.parent/"config.json").read_text())
+def expert_finished(expert):
+    if (expert/"expert-source.json").is_file():return (expert/".finalized").exists()
+    status=expert.parent/"status.json"
+    return (expert/"config.json").is_file() and status.is_file() and json.loads(status.read_text()).get("state")=="complete"
 class Runner:
     def __init__(self,plan_path,min_free_gib):
         self.plan=json.loads(Path(plan_path).read_text());self.min_free=min_free_gib
@@ -39,7 +48,7 @@ class Runner:
         used=subprocess.run(["nvidia-smi","--query-gpu=index,memory.used","--format=csv,noheader,nounits"],capture_output=True,text=True).stdout
         busy={int(i):int(m) for i,m in (l.split(",") for l in used.strip().splitlines())}
         for name,ref in self.plan.get("reuse_experts",{}).items():
-            src=json.loads((Path(ref["dir"])/"expert-source.json").read_text())["run_config"]
+            src=expert_run_config(Path(ref["dir"]))
             if (src.get("experiment") or {}).get("name")!=ref["from_experiment"]:
                 raise SystemExit(f"reused expert {name}: {ref['dir']} was not trained by experiment {ref['from_experiment']}")
             mapping={"student":"student","seed":"seed","steps":"steps","lr":"lr","lr_schedule":"lr_schedule",
@@ -47,7 +56,7 @@ class Runner:
             diff={k:(self.plan["controls"][k],src.get(v)) for k,v in mapping.items() if self.plan["controls"][k]!=src.get(v)}
             if sum(d["count"] for d in src["domains"].values())!=self.plan["controls"]["samples_per_step"]:diff["samples_per_step"]="differs"
             if diff:raise SystemExit(f"reused expert {name} was trained with different controls: {diff}")
-            if not (Path(ref["dir"])/".finalized").exists():raise SystemExit(f"reused expert {name} is not finalized")
+            if not expert_finished(Path(ref["dir"])):raise SystemExit(f"reused expert {name} is not finished")
         taken=[g for g in self.plan["gpus"] if busy.get(g,0)>1000]
         if taken:raise SystemExit(f"GPUs not idle: {taken}")
         self.log("preflight_ok",source=source["source_version"],pins=len(spec["data_pins"]))
@@ -67,7 +76,10 @@ class Runner:
         if k=="train_sft":  # torchrun for any GPU count: one GPU behaves like a plain run, several shard (hf_full)
             return [([PY,"-m","torch.distributed.run","--standalone",f"--nproc_per_node={len(gpus)}","scripts/train_sft.py","--config",j["config"]],
                      {"CUDA_VISIBLE_DEVICES":",".join(map(str,gpus))})]
-        if k=="train_mopd":return [([PY,"-u","scripts/train_multidomain_opd.py","--config",j["config"]],{})]
+        if k=="train_mopd":  # a sharded student (nproc ranks on GPUs 0..nproc-1) goes through torchrun
+            if "nproc" in j:return [([PY,"-m","torch.distributed.run","--standalone",f"--nproc_per_node={j['nproc']}",
+                                      "scripts/train_multidomain_opd.py","--config",j["config"]],{})]
+            return [([PY,"-u","scripts/train_multidomain_opd.py","--config",j["config"]],{})]
         if k=="eval_checkpoint":
             return eval_commands(data=ev["data"],protocol_id=ev["protocol_id"],max_new_tokens=ev["max_new_tokens"],
                 device=gpus[0],model_version=j["model_version"],checkpoint=j["checkpoint"])

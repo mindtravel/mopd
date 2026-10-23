@@ -14,7 +14,6 @@ starts below --min-free-gib. A running job is not interrupted.
 import argparse,json,os,queue,subprocess,sys,threading,time
 from pathlib import Path
 ROOT=Path(__file__).resolve().parents[1]
-RESERVED_GPUS={1}
 LOCK=threading.Lock()
 def free_gib(path):
     s=os.statvfs(path);return s.f_bfree*s.f_frsize/2**30
@@ -68,7 +67,6 @@ def main():
     p.add_argument("--max-new-tokens",type=int,default=4096);p.add_argument("--min-free-gib",type=float,default=40)
     p.add_argument("--status",default="logs/sft-matrix-status.json");a=p.parse_args()
     gpus=[int(x) for x in a.gpus.split(",")]
-    if RESERVED_GPUS&set(gpus):raise ValueError(f"GPUs {sorted(RESERVED_GPUS)} are reserved")
     jobs=queue.Queue()
     for job in json.loads((ROOT/a.jobs).read_text()):jobs.put(job)
     status_path=ROOT/a.status

@@ -69,12 +69,12 @@ class StreamValidatorTest(unittest.TestCase):
         self.v = StreamValidator(self.inputs, version=3, digest="x", max_new_tokens=8, eos=2)
 
     def msg(self, index, answer):
-        return {"version": 3, "adapter_sha256": "x", "partial": {"index": index, "answer": answer}}
+        return {"version": 3, "policy_id": "x", "partial": {"index": index, "answer": answer}}
 
     def test_accepts_complete_stream(self):
         self.assertEqual(self.v.partial(self.msg(1, [4, 2]))["answer"], [4, 2])
         self.v.partial(self.msg(0, [5]))
-        self.v.done({"version": 3, "adapter_sha256": "x", "done": True, "count": 2})
+        self.v.done({"version": 3, "policy_id": "x", "done": True, "count": 2})
 
     def test_rejects_duplicate_stale_and_incomplete(self):
         self.v.partial(self.msg(0, [5]))
@@ -83,7 +83,7 @@ class StreamValidatorTest(unittest.TestCase):
         with self.assertRaises(ValueError):
             self.v.partial({**self.msg(1, [5]), "version": 2})
         with self.assertRaises(ValueError):
-            self.v.done({"version": 3, "adapter_sha256": "x", "done": True, "count": 1})
+            self.v.done({"version": 3, "policy_id": "x", "done": True, "count": 1})
 
 
 class OpenStreamTest(unittest.TestCase):

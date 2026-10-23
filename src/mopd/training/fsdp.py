@@ -42,15 +42,37 @@ def local(tensor):
     return tensor.to_local() if hasattr(tensor, "to_local") else tensor
 
 
-def save(scorer, path, base_model, main_rank):
-    """Collective: every rank must call. Rank 0 writes a plain HF model directory (bf16 safetensors,
-    config and tokenizer files copied from the base model) that vLLM and transformers load directly."""
+def gather(scorer, main_rank):
+    """Collective: every rank must call. The whole model's weights as bf16 CPU tensors under HF
+    names on rank 0 (None elsewhere)."""
     state = get_model_state_dict(scorer, options=StateDictOptions(full_state_dict=True, cpu_offload=True))
+    if not main_rank:
+        return None
+    return {k.removeprefix("base."): v.to(torch.bfloat16) for k, v in state.items()}
+
+
+def save(scorer, path, base_model, main_rank):
+    """Collective. Rank 0 writes a plain HF model directory (bf16 safetensors, config and tokenizer
+    files copied from the base model) that vLLM and transformers load directly."""
+    state = gather(scorer, main_rank)
     if not main_rank:
         return
     path = Path(path)
-    state = {k.removeprefix("base."): v.to(torch.bfloat16) for k, v in state.items()}
     scorer.base.save_pretrained(path, state_dict=state, safe_serialization=True)
     for name in TOKENIZER_FILES:
         if (Path(base_model) / name).is_file():
             shutil.copy2(Path(base_model) / name, path / name)
+
+
+def write_weights(scorer, path, main_rank):
+    """Collective. Rank 0 writes the weights alone as one safetensors file, for a rollout engine to
+    load in place (mopd.rollout.vllm_worker). A tied lm_head is left out: it is the embedding."""
+    state = gather(scorer, main_rank)
+    if not main_rank:
+        return
+    from safetensors.torch import save_file
+    if scorer.base.config.tie_word_embeddings:
+        state.pop("lm_head.weight", None)
+    tmp = Path(str(path) + ".partial")
+    save_file({k: v.contiguous() for k, v in state.items()}, str(tmp))
+    tmp.replace(path)

@@ -7,8 +7,6 @@ class of failure that a format check alone cannot.
 """
 import unicodedata
 
-RESERVED_GPUS = ("cuda:1",)
-
 # Scripts whose presence in a response, but not in the prompt, indicates decoding collapse.
 _SUSPECT_SCRIPTS = ("HANGUL", "HEBREW", "ARABIC", "THAI", "CYRILLIC", "DEVANAGARI", "EGYPTIAN")
 _EXTENDED_LATIN = set("łżźśćńęąşğıẩếệộờữ")
@@ -32,14 +30,6 @@ def script_set(text):
 
 def foreign_script(text, prompt=""):
     return bool(script_set(text) - script_set(prompt))
-
-
-def check_devices(config, reserved=RESERVED_GPUS):
-    devices = {config["student_device"], *config.get("rollout_devices", []),
-               *(spec["device"] for spec in config["domains"].values())}
-    clash = sorted(set(reserved) & devices)
-    if clash:
-        raise ValueError("Reserved GPU in config: " + ", ".join(clash))
 
 
 def check_rollout_gate(rollouts, max_degenerate=0.1, min_rows=8):

@@ -1,7 +1,7 @@
 """Isolated vLLM workers; all generation finishes before the next student update.
 
 generate() returns a whole step; stream() yields the same trajectories as they finish."""
-import atexit,hashlib,json,os,queue,signal,subprocess,threading,time
+import atexit,json,os,queue,signal,subprocess,threading,time
 from pathlib import Path
 from concurrent.futures import ThreadPoolExecutor
 from transformers import AutoTokenizer
@@ -10,8 +10,11 @@ from mopd.runtime import compile_cache
 from mopd.rollout.base import RolloutStream
 from mopd.rollout.vllm_protocol import StreamValidator,validate_reply
 from mopd.rollout.dispatch import length_bucket_dispatch,length_sorted_batches
+from mopd.students.registry import is_sharded
 class VllmRollouts:
-    def __init__(self,c,student):
+    """generate()/stream() take a published policy descriptor (mopd.rollout.policy.publish), not the
+    student module: publishing is the trainer's job, and a collective for sharded students."""
+    def __init__(self,c,student=None):
         self.c=c;self.workers=[]
         if not c.get("rollout_devices"):raise ValueError("No rollout GPUs configured")
         self.root=Path(c["output"])/"vllm_runtime";self.root.mkdir(parents=True,exist_ok=True)
@@ -20,11 +23,11 @@ class VllmRollouts:
         atexit.register(self.close)
         try:
             for device in c["rollout_devices"]:
-                if device not in ("cuda:2","cuda:3","cuda:5","cuda:6","cuda:7"):raise ValueError("Unapproved rollout GPU")
                 log=(self.root/(device.replace(":","-")+".log")).open("a")
                 args=[python,"-u","-m","mopd.rollout.vllm_worker","--model",c["student"],
                     "--device",device,"--max-seqs",str(c["generation_batch_size"]),
-                    "--memory",str(c.get("vllm_memory_utilization",.85))]
+                    "--memory",str(c.get("vllm_memory_utilization",.85)),
+                    "--student-kind","full" if is_sharded(c) else "lora"]
                 env={**os.environ,**compile_cache.isolated(self.root/"compile_cache"/device.replace(":","-"))}
                 proc=subprocess.Popen(args,env=env,stdin=subprocess.PIPE,stdout=subprocess.PIPE,
                     stderr=log,text=True,bufsize=1,start_new_session=True)
@@ -53,18 +56,12 @@ class VllmRollouts:
                 proc.wait()
             log.close()
         self.workers=[]
-    def _publish(self,student,rows,version):
-        """Write this policy version's adapter once and encode the prompts."""
-        adapter=self.root/f"adapter-{version:06d}"
-        if adapter.exists():raise ValueError("Adapter versions must be immutable and unique")
-        student.save_pretrained(adapter,safe_serialization=True)
-        self.tokenizer.save_pretrained(adapter)
-        digest=hashlib.sha256((adapter/"adapter_model.safetensors").read_bytes()).hexdigest()
-        inputs=[{"index":i,"prefix":self.tokenizer.encode(student_prompt(self.tokenizer,r,self.c["student_prompt_format"])),"row":r} for i,r in enumerate(rows)]
-        return adapter,digest,inputs
-    def _send(self,worker_id,adapter,digest,batch,version,*,sample,min_new_tokens,stream):
+    def _inputs(self,policy,rows,version):
+        if policy["version"]!=version:raise ValueError("published policy is not this step's version")
+        return [{"index":i,"prefix":self.tokenizer.encode(student_prompt(self.tokenizer,r,self.c["student_prompt_format"])),"row":r} for i,r in enumerate(rows)]
+    def _send(self,worker_id,policy,batch,version,*,sample,min_new_tokens,stream):
         device,proc,_=self.workers[worker_id]
-        request={"adapter":str(adapter),"adapter_sha256":digest,"inputs":batch,"version":version,
+        request={"policy":policy,"inputs":batch,"version":version,
             "max_new_tokens":self.c["max_new_tokens"],"sample":sample,"min_new_tokens":min_new_tokens,
             "seed":self.c["seed"]+version*len(self.workers)+worker_id,"debug_logprobs":self.c.get("debug_logprobs"),
             "stream":stream}
@@ -72,14 +69,12 @@ class VllmRollouts:
         return device,proc
     def _batch_size(self):
         return max(1,int(self.c.get("generation_batch_size",8)))
-    def generate(self,student,rows,version,*,sample=True,min_new_tokens=0):
-        started=time.perf_counter()
-        adapter,digest,inputs=self._publish(student,rows,version)
-        sync_seconds=time.perf_counter()-started
+    def generate(self,policy,rows,version,*,sample=True,min_new_tokens=0):
+        inputs=self._inputs(policy,rows,version);digest=policy["id"]
         # Small length-sorted batches plus work stealing prevent one long tail
         # request from idling the other worker for the rest of the step.
         def run(worker_id,batch):
-            device,proc=self._send(worker_id,adapter,digest,batch,version,sample=sample,min_new_tokens=min_new_tokens,stream=False)
+            device,proc=self._send(worker_id,policy,batch,version,sample=sample,min_new_tokens=min_new_tokens,stream=False)
             reply=self.read(proc)
             output=validate_reply(reply,batch,version,digest,self.c["max_new_tokens"],self.tokenizer.eos_token_id)
             for r in output:r["rollout_device"]=device
@@ -89,14 +84,12 @@ class VllmRollouts:
             length=lambda x:len(x["prefix"]),run=run)
         output=sorted([r for batch,_ in replies for r in batch],key=lambda r:r["index"])
         return output,time.perf_counter()-started,{"backend":"vllm-dynamic",
-            "sync_seconds":sync_seconds,"dispatch":dispatch.__dict__,
+            "dispatch":dispatch.__dict__,
             "workers":[s for _,s in replies]}
-    def stream(self,student,rows,version,*,sample=True,min_new_tokens=0):
+    def stream(self,policy,rows,version,*,sample=True,min_new_tokens=0):
         """Same batches and work stealing as generate(); each trajectory is yielded as soon as its
         worker reports it finished. One reader thread per worker feeds a queue."""
-        started=time.perf_counter()
-        adapter,digest,inputs=self._publish(student,rows,version)
-        sync_seconds=time.perf_counter()-started
+        inputs=self._inputs(policy,rows,version);digest=policy["id"]
         batches=queue.SimpleQueue()
         planned=length_sorted_batches(inputs,batch_size=self._batch_size(),length=lambda x:len(x["prefix"]))
         for b in planned:batches.put([row for _,row in b])
@@ -106,7 +99,7 @@ class VllmRollouts:
                 while True:
                     try:batch=batches.get_nowait()
                     except queue.Empty:break
-                    device,proc=self._send(worker_id,adapter,digest,batch,version,sample=sample,min_new_tokens=min_new_tokens,stream=True)
+                    device,proc=self._send(worker_id,policy,batch,version,sample=sample,min_new_tokens=min_new_tokens,stream=True)
                     check=StreamValidator(batch,version,digest,self.c["max_new_tokens"],self.tokenizer.eos_token_id)
                     while True:
                         reply=self.read(proc)
@@ -125,6 +118,6 @@ class VllmRollouts:
                 else:yield item
             for t in threads:t.join()
         sizes=[len(b) for b in planned]
-        return RolloutStream(source(),lambda:{"backend":"vllm-stream","sync_seconds":sync_seconds,
+        return RolloutStream(source(),lambda:{"backend":"vllm-stream",
             "dispatch":{"batches":len(planned),"workers":len(threads),"max_batch":max(sizes),"min_batch":min(sizes)},
             "workers":worker_stats})

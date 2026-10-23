@@ -10,8 +10,7 @@ from pathlib import Path
 from mopd.data.mixture import resolve_domain
 from mopd.protocol import STUDENT_PROMPT_MODES, TEACHER_PROMPT_FORMATS
 
-RESERVED_GPUS = ("cuda:1",)
-STUDENT_BACKENDS = ("hf_lora", "fairy2i_qat")
+STUDENT_BACKENDS = ("hf_lora", "hf_full", "fairy2i_qat")
 ROLLOUT_BACKENDS = ("vllm", "replicas", "processes", "hf")
 # rollout backends that need their own GPUs, mapped to their config key.
 ROLLOUT_DEVICE_KEYS = {"vllm": "rollout_devices", "replicas": "rollout_devices", "processes": "rollout_devices"}
@@ -30,12 +29,27 @@ def _require(config, key, kind, where=""):
     return value
 
 
+def _student_devices(config):
+    """A sharded (hf_full) student runs one torchrun rank per GPU on cuda:0..student_gpus-1."""
+    if config["student_backend"] == "hf_full":
+        n = _require(config, "student_gpus", int)
+        if n < 4:
+            raise ConfigError("hf_full needs student_gpus >= 4 (fp32 weights + AdamW sharded)")
+        return {f"cuda:{i}" for i in range(n)}
+    return {config["student_device"]}
+
+
 def _check_devices(config):
-    devices = {config["student_device"], *config.get("rollout_devices", []),
-               *(spec["device"] for spec in config["domains"].values())}
-    for reserved in RESERVED_GPUS:
-        if reserved in devices:
-            raise ConfigError(f"{reserved} is reserved and must not appear in the config")
+    # No GPU is reserved by convention (the server is shared; see AGENTS.md): only collisions
+    # inside this run are rejected. vLLM claims a fixed share of its GPU's memory up front, so a
+    # rollout GPU cannot also hold the student or a teacher.
+    rollout = set(config.get("rollout_devices", []))
+    taken = _student_devices(config) | {spec["device"] for spec in config["domains"].values()}
+    if rollout & taken:
+        raise ConfigError(f"rollout devices {sorted(rollout & taken)} also hold the student or a teacher")
+    teachers_on_student = _student_devices(config) & {spec["device"] for spec in config["domains"].values()}
+    if config["student_backend"] == "hf_full" and teachers_on_student:
+        raise ConfigError(f"teachers {sorted(teachers_on_student)} share a GPU with a student shard")
 
 
 def _check_prompt_protocol(config, adapter_config):
@@ -110,6 +124,8 @@ def load(path, project_root="/ssd/lzx/mopd"):
     if backend not in STUDENT_BACKENDS:
         raise ConfigError(f"student_backend must be one of {STUDENT_BACKENDS}, got {backend!r}")
     rollout = config.setdefault("rollout_backend", "replicas")
+    if backend == "hf_full" and rollout != "vllm":
+        raise ConfigError("hf_full students need rollout_backend 'vllm' (in-place full-weight updates)")
     if rollout not in ROLLOUT_BACKENDS:
         raise ConfigError(f"rollout_backend must be one of {ROLLOUT_BACKENDS}, got {rollout!r}")
     if rollout in ROLLOUT_DEVICE_KEYS:

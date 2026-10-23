@@ -70,21 +70,24 @@ def generate(spec_path):
                 jobs.append({"id":f"export:{name}","kind":"export_expert","gpus":0,"deps":[f"train:{name}"],
                              "adapter":f"{run_dir(name)}/{final}","out":expert_dir(name)})
         elif arm["method"]=="mopd":
-            if full:raise ValueError(f"{name}: MOPD has no full-parameter student yet (rollout syncs LoRA adapters only)")
             doms=ordered(spec,arm["teachers"]);dev=arm["devices"]
+            # full: the student is one torchrun rank per GPU, devices["student"] = [0..n-1]
+            students=dev["student"] if full else [dev["student"]]
+            if full and students!=list(range(len(students))):raise ValueError(f"{name}: a sharded student runs on GPUs 0..n-1")
             if len(dev["teachers"])!=len(doms):raise ValueError(f"{name}: one teacher device per domain")
             dspec=domains_spec(spec,doms)
             for d,gpu in zip(doms,dev["teachers"]):
                 dspec[d]={"teacher":expert_dir(arm["teachers"][d]),"device":f"cuda:{gpu}",
                           "teacher_prompt_format":c["teacher_prompt_format"],**dspec[d]}
-            cfg={**common,"training_method":"mopd","student_device":f"cuda:{dev['student']}","domains":dspec,
+            cfg={**common,"training_method":"mopd","student_device":f"cuda:{students[0]}","domains":dspec,
+                 **({"student_gpus":len(students)} if full else {}),
                  "max_new_tokens":c["mopd_max_new_tokens"],"generation_batch_size":c["mopd_generation_batch_size"],
                  "rollout_backend":"vllm","rollout_devices":[f"cuda:{g}" for g in dev["rollout"]],
                  "vllm_memory_utilization":c["mopd_vllm_memory_utilization"]}
             files[f"{name}.json"]=dumps(cfg)
-            gpus=sorted({dev["student"],*dev["teachers"],*dev["rollout"]})
+            gpus=sorted({*students,*dev["teachers"],*dev["rollout"]})
             jobs.append({"id":f"train:{name}","kind":"train_mopd","gpus":gpus,"deps":[d for t in arm["teachers"].values() for d in expert_dep(t)],
-                         "config":f"configs/experiments/{spec['name']}/{name}.json"})
+                         "config":f"configs/experiments/{spec['name']}/{name}.json",**({"nproc":len(students)} if full else {})})
             eval_jobs(name,[f"train:{name}"])
         elif arm["method"]=="merge_linear":
             doms=ordered(spec,arm["experts"])
