@@ -8,10 +8,11 @@ the base's config, generation config and tokenizer files are copied byte-for-byt
 every tensor shape is asserted equal to the base's; any mismatch (e.g. a vocab resize)
 fails here instead of silently in evaluation.
 """
-import argparse,json,shutil
+import argparse,json,shutil,sys
 from pathlib import Path
 from safetensors import safe_open
-FILES=("config.json","generation_config.json","tokenizer.json","tokenizer_config.json","vocab.json","merges.txt")
+sys.path.insert(0,str(Path(__file__).resolve().parents[1]/"src"))
+from mopd.runtime.model_files import BASE_FILES as FILES  # one list for every model directory we write
 def shapes(d):
     d=Path(d);index=d/"model.safetensors.index.json"
     files=sorted(set(json.loads(index.read_text())["weight_map"].values())) if index.exists() else ["model.safetensors"]
