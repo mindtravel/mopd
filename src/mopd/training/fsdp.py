@@ -10,18 +10,14 @@ must live in the same unit. Gradients are reduce-scattered as a SUM (divide fact
 per-sample scales are computed over the whole global step, so summing per-rank gradients is what
 reproduces the single-GPU gradient, the same contract as its LoRA all-reduce path.
 """
-import shutil
 from pathlib import Path
 
 import torch
 from torch.distributed.checkpoint.state_dict import StateDictOptions, get_model_state_dict
 from torch.distributed.fsdp import MixedPrecisionPolicy, fully_shard
 
+from mopd.runtime.model_files import copy_base_files
 from mopd.training.batching import TokenLogProbs
-
-TOKENIZER_FILES = ("tokenizer.json", "tokenizer_config.json", "vocab.json", "merges.txt",
-                   "special_tokens_map.json", "added_tokens.json", "generation_config.json")
-
 
 def shard(model, reshard_after_forward=True):
     """Wrap a causal LM (fp32 parameters on this rank's GPU) for sharded training; returns the
@@ -52,16 +48,14 @@ def gather(scorer, main_rank):
 
 
 def save(scorer, path, base_model, main_rank):
-    """Collective. Rank 0 writes a plain HF model directory (bf16 safetensors, config and tokenizer
+    """Collective. Rank 0 writes a plain HF model directory (bf16 safetensors; config and tokenizer
     files copied from the base model) that vLLM and transformers load directly."""
     state = gather(scorer, main_rank)
     if not main_rank:
         return
     path = Path(path)
     scorer.base.save_pretrained(path, state_dict=state, safe_serialization=True)
-    for name in TOKENIZER_FILES:
-        if (Path(base_model) / name).is_file():
-            shutil.copy2(Path(base_model) / name, path / name)
+    copy_base_files(base_model, path)  # config/tokenizer as the inference env reads them (model_files.py)
 
 
 def write_weights(scorer, path, main_rank):

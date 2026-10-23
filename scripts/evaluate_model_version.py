@@ -31,6 +31,9 @@ def build_command(args):
         raise ValueError("hf_qat backend requires a Fairy2i QAT student")
     if requested == "vllm" and checkpoint["artifact_type"] not in {"base_weights", "lora_adapter", "full_model"}:
         raise ValueError(f"vLLM cannot load checkpoint artifact {checkpoint['artifact_type']!r}")
+    if checkpoint["artifact_type"] == "full_model":
+        from mopd.runtime.model_files import check_config_matches_base
+        check_config_matches_base(checkpoint["path"], student["base_model"])
     if requested == "hf_qat" and checkpoint["artifact_type"] not in {"base_weights", "fairy2i_qat_scale_update"}:
         raise ValueError(f"HF QAT cannot load checkpoint artifact {checkpoint['artifact_type']!r}")
 
