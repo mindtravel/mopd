@@ -22,7 +22,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 from mopd.data import recipes
 from mopd.runtime.provenance import sha256
-from mopd.evaluation.eval_commands import eval_commands
+from mopd.evaluation.eval_commands import eval_commands, PY
 
 BASE_WEIGHTS = ["model-00001-of-00003.safetensors", "model-00002-of-00003.safetensors", "model-00003-of-00003.safetensors"]
 
