@@ -14,6 +14,7 @@ from pathlib import Path
 from mopd.evaluation.generation_manifest import build_generation_manifest
 from mopd.data.templates import STUDENT_PROMPT_MODES
 from mopd.runtime import compile_cache,progress
+from mopd.training.distributed import engine_env
 def main():
  p=argparse.ArgumentParser()
  for name in ("model","data","out"):p.add_argument("--"+name,required=True)
@@ -112,9 +113,8 @@ def main():
     print(json.dumps(fields),flush=True)
   def serve(device):
    # One resident engine per GPU (mopd.evaluation.gen_worker); it asks for rows when it has room.
-   env={**os.environ,**compile_cache.isolated(root/"cache/compile"/f"gen-gpu{device}"),
-    "CUDA_VISIBLE_DEVICES":str(device),"VLLM_ENABLE_V1_MULTIPROCESSING":"0",
-    "PYTHONPATH":str(root/"src")+(":"+os.environ["PYTHONPATH"] if os.environ.get("PYTHONPATH") else "")}
+   env=engine_env(**compile_cache.isolated(root/"cache/compile"/f"gen-gpu{device}"),CUDA_VISIBLE_DEVICES=str(device),
+    PYTHONPATH=str(root/"src")+(":"+os.environ["PYTHONPATH"] if os.environ.get("PYTHONPATH") else ""))
    log=(out/f"worker-gpu{device}.log").open("a")
    proc=subprocess.Popen([sys.executable,"-u","-m","mopd.evaluation.gen_worker",worker_config],env=env,
     stdin=subprocess.PIPE,stdout=subprocess.PIPE,stderr=log,text=True,bufsize=1,start_new_session=True)

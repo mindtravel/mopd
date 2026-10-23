@@ -11,6 +11,7 @@ from mopd.rollout.base import RolloutStream
 from mopd.rollout.vllm_protocol import StreamValidator,validate_reply
 from mopd.rollout.dispatch import length_bucket_dispatch,length_sorted_batches
 from mopd.students.registry import is_sharded
+from mopd.training.distributed import engine_env
 class VllmRollouts:
     """generate()/stream() take a published policy descriptor (mopd.rollout.policy.publish), not the
     student module: publishing is the trainer's job, and a collective for sharded students."""
@@ -28,7 +29,7 @@ class VllmRollouts:
                     "--device",device,"--max-seqs",str(c["generation_batch_size"]),
                     "--memory",str(c.get("vllm_memory_utilization",.85)),
                     "--student-kind","full" if is_sharded(c) else "lora"]
-                env={**os.environ,**compile_cache.isolated(self.root/"compile_cache"/device.replace(":","-"))}
+                env=engine_env(**compile_cache.isolated(self.root/"compile_cache"/device.replace(":","-")))
                 proc=subprocess.Popen(args,env=env,stdin=subprocess.PIPE,stdout=subprocess.PIPE,
                     stderr=log,text=True,bufsize=1,start_new_session=True)
                 self.workers.append((device,proc,log))
