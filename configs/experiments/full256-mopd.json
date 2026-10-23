@@ -1,6 +1,6 @@
 {
   "name": "full256-mopd",
-  "description": "full256 的 MOPD 臂：全参学生（FSDP2，4 卡），老师直接用 full256 训练好的三个全参专家，rollout 2 卡 vLLM 每步原地加载完整权重。其余控制变量与 full256 一致。",
+  "description": "full256 的 MOPD 臂：全参学生（FSDP2，4 卡），老师直接用 full256 训练好的三个全参专家，rollout 2 卡 vLLM 每步原地加载完整权重。其余控制变量与 full256 一致。 学生用 ZeRO-3 + micro batch 1：冒烟测试里 ZeRO-2 风格 + micro 4 的学生峰值显存已到 29 GB。",
   "output_prefix": "/ssd/lzx/mopd/runs/20261024-full256-",
   "expert_dir_prefix": "/ssd/lzx/mopd/models/experts/full256-",
   "merge_dir_prefix": "/ssd/lzx/mopd/models/merged/full256-",
@@ -15,11 +15,11 @@
     "lr_schedule": {
       "type": "constant"
     },
-    "micro_batch_size": 4,
+    "micro_batch_size": 1,
     "save_every": 64,
     "sft_max_seq_len": 10240,
     "fsdp": {
-      "reshard_after_forward": false
+      "reshard_after_forward": true
     },
     "mopd_max_new_tokens": 8192,
     "mopd_generation_batch_size": 8,

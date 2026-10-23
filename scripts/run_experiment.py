@@ -51,8 +51,11 @@ class Runner:
             src=expert_run_config(Path(ref["dir"]))
             if (src.get("experiment") or {}).get("name")!=ref["from_experiment"]:
                 raise SystemExit(f"reused expert {name}: {ref['dir']} was not trained by experiment {ref['from_experiment']}")
+            # micro_batch_size is not compared: it only splits a step's backward passes (gradients are
+            # micro-batch-invariant, verify_microbatch_invariance.py), and MOPD may need a smaller one
+            # than its experts' SFT to fit long rollouts next to a full-parameter student.
             mapping={"student":"student","seed":"seed","steps":"steps","lr":"lr","lr_schedule":"lr_schedule",
-                     "micro_batch_size":"micro_batch_size","sft_max_seq_len":"max_seq_len"}
+                     "sft_max_seq_len":"max_seq_len"}
             diff={k:(self.plan["controls"][k],src.get(v)) for k,v in mapping.items() if self.plan["controls"][k]!=src.get(v)}
             if sum(d["count"] for d in src["domains"].values())!=self.plan["controls"]["samples_per_step"]:diff["samples_per_step"]="differs"
             if diff:raise SystemExit(f"reused expert {name} was trained with different controls: {diff}")

@@ -13,7 +13,6 @@ reproduces the single-GPU gradient, the same contract as its LoRA all-reduce pat
 from pathlib import Path
 
 import torch
-from torch.distributed.checkpoint.state_dict import StateDictOptions, get_model_state_dict
 from torch.distributed.fsdp import MixedPrecisionPolicy, fully_shard
 
 from mopd.runtime.model_files import copy_base_files
@@ -40,11 +39,18 @@ def local(tensor):
 
 def gather(scorer, main_rank):
     """Collective: every rank must call. The whole model's weights as bf16 CPU tensors under HF
-    names on rank 0 (None elsewhere)."""
-    state = get_model_state_dict(scorer, options=StateDictOptions(full_state_dict=True, cpu_offload=True))
-    if not main_rank:
-        return None
-    return {k.removeprefix("base."): v.to(torch.bfloat16) for k, v in state.items()}
+    names on rank 0 (None elsewhere). One parameter at a time, cast to bf16 on the GPU *before* the
+    all-gather: half the bytes of gathering the fp32 master copy and converting on the CPU (that
+    took ~21 s per MOPD step, about as long as the rollouts), and never more than one full tensor
+    (the 0.8 GB embedding at most) on any GPU. A tied lm_head is the embedding and appears once."""
+    state = {}
+    for name, p in scorer.named_parameters():
+        full = p.detach().to(torch.bfloat16)
+        full = full.full_tensor() if hasattr(full, "full_tensor") else full
+        if main_rank:
+            state[name.removeprefix("base.")] = full.cpu()
+        del full
+    return state if main_rank else None
 
 
 def save(scorer, path, base_model, main_rank):
@@ -65,8 +71,6 @@ def write_weights(scorer, path, main_rank):
     if not main_rank:
         return
     from safetensors.torch import save_file
-    if scorer.base.config.tie_word_embeddings:
-        state.pop("lm_head.weight", None)
     tmp = Path(str(path) + ".partial")
     save_file({k: v.contiguous() for k, v in state.items()}, str(tmp))
     tmp.replace(path)

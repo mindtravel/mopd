@@ -8,7 +8,7 @@
   "lr_schedule": {
     "type": "constant"
   },
-  "micro_batch_size": 4,
+  "micro_batch_size": 1,
   "save_every": 64,
   "output": "/ssd/lzx/mopd/runs/20261024-full256-mopd-mi",
   "data_pins": {
@@ -27,10 +27,10 @@
     "name": "full256-mopd",
     "arm": "mopd-mi",
     "spec_path": "/ssd/lzx/mopd/configs/experiments/full256-mopd.json",
-    "spec_sha256": "6184cf2da0399d5026de3080d4cf6447d9b814691bdd78a395031b3a59f6eefd"
+    "spec_sha256": "8a4c6533741c7ae8a59976016681fac881b2f2d6308ca28f6782a0a4557b139b"
   },
   "fsdp": {
-    "reshard_after_forward": false
+    "reshard_after_forward": true
   },
   "training_method": "mopd",
   "student_device": "cuda:0",
