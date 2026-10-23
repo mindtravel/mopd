@@ -9,14 +9,14 @@
    "gpus": [0, 2, ...],
    "variants": [{"name": "base", "base": true}, {"name": "...", "recipe": "configs/recipes/code/<x>.json"}]}
 
-Per variant, on one free GPU: build the recipe pool (mopd.data.recipes) -> scripts/train_sft.py ->
-evaluate the listed checkpoints on the dev data. Every stage is skipped when its output exists, so
-adding a variant to the sweep and re-running only trains the new one. Runs:
-runs/sweeps/<sweep>/<variant>/; leaderboard: results/sweeps/<sweep>/leaderboard.{json,md}.
+Per variant: build the recipe pool (mopd.data.recipes) -> scripts/train_sft.py (one or more GPUs,
+see GPUPool below) -> evaluate the listed checkpoints on the dev data, one GPU each. Every stage is
+skipped when its output exists, so adding a variant to the sweep and re-running only trains the new
+one. Runs: runs/sweeps/<sweep>/<variant>/; leaderboard: results/sweeps/<sweep>/leaderboard.{json,md}.
 
   python scripts/run_sweep.py configs/sweeps/code-data-v1.json [--only a b] [--final a b] [--collect]
 """
-import argparse, json, os, queue, subprocess, sys, threading, time
+import argparse, json, os, shutil, subprocess, sys, threading, time
 from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
@@ -25,6 +25,41 @@ from mopd.runtime.provenance import sha256
 from mopd.evaluation.eval_commands import eval_commands, PY
 
 BASE_WEIGHTS = ["model-00001-of-00003.safetensors", "model-00002-of-00003.safetensors", "model-00003-of-00003.safetensors"]
+
+
+class GPUPool:
+    """Shared GPUs, handed out in a fair-ish share among however many callers are currently trying
+    to get some. want() blocks until at least one GPU is free, then claims max(1, free // waiters)
+    of them -- recomputed from how many OTHER callers are registered *at that moment*, so a variant
+    that finishes and gives its GPUs back immediately frees them for whoever is still waiting, and
+    a variant that is the only one left claims every idle GPU instead of leaving them unused. This
+    is the honest version of "dynamic scheduling": a job's GPU count is decided fresh each time it
+    asks (train start, each eval checkpoint), not fixed for the sweep's lifetime. True elastic
+    scaling -- growing a torchrun job that is already running, without restarting it -- is a
+    separate, much larger feature (needs an elastic rendezvous and checkpoint-resume on membership
+    change) and is out of scope here."""
+
+    def __init__(self, gpus):
+        self._free = list(gpus)
+        self._waiting = 0
+        self._cv = threading.Condition()
+
+    def want(self, min_gpus=1):
+        with self._cv:
+            self._waiting += 1
+            try:
+                while len(self._free) < min_gpus:
+                    self._cv.wait()
+                share = min(max(min_gpus, len(self._free) // self._waiting), len(self._free))
+                taken, self._free = self._free[:share], self._free[share:]
+                return taken
+            finally:
+                self._waiting -= 1
+
+    def give_back(self, gpus):
+        with self._cv:
+            self._free.extend(gpus)
+            self._cv.notify_all()
 
 
 class Sweep:
@@ -43,13 +78,17 @@ class Sweep:
         print(line, flush=True)
 
     # ------------------------------------------------------------ stages
-    def config(self, v, manifest, gpu):
+    def config(self, v, manifest):
         c, ev = self.spec["controls"], self.spec["eval"]
         pool = ROOT / "data/recipes" / manifest["name"]
         student = Path(c["student"])
         pins = {str(pool / "train.jsonl"): manifest["train_sha256"], str(pool / "dev.jsonl"): manifest["dev_sha256"],
                 ev["data"]: ev["data_sha256"], **{str(student / w): sha256(student / w) for w in BASE_WEIGHTS}}
         micro = manifest["recipe"].get("micro_batch_size", 2)
+        # student_device is cuda:0 regardless of GPU count: CUDA_VISIBLE_DEVICES always remaps the
+        # assigned GPU(s) to start at index 0 (single-GPU convention used throughout this codebase).
+        # Under torchrun with world_size > 1, train_sft.py derives the real per-rank device from
+        # LOCAL_RANK instead and ignores this field; it only takes effect for a single-GPU run.
         return {"student": c["student"], "student_backend": "hf_lora", "student_prompt_format": "plain_qa_v1",
                 "seed": c["seed"], "steps": c["steps"], "lr": c["lr"], "lr_schedule": c["lr_schedule"],
                 "micro_batch_size": micro, "save_every": c["save_every"], "max_seq_len": manifest["recipe"]["max_total_tokens"],
@@ -81,63 +120,76 @@ class Sweep:
         return all(subprocess.run(cmd, cwd=ROOT, env={**os.environ, **extra}, stdout=log, stderr=subprocess.STDOUT).returncode == 0
                   for cmd, extra in cmds)
 
-    def run_variant(self, v, gpu, final):
+    def train(self, v, manifest, pool, log):
+        """Build the SFT config and launch train_sft.py across however many GPUs the pool grants
+        right now, via torchrun (nproc_per_node=1 behaves identically to a plain invocation, so
+        this is the one code path for every GPU count -- see train_sft.py's module docstring for
+        why multi-GPU is a manual gradient all-reduce rather than DistributedDataParallel)."""
+        run_dir = self.runs / v["name"]
+        if run_dir.exists():
+            # train_sft.py refuses to resume (mkdir exist_ok=False): a prior killed/crashed
+            # attempt leaves a directory train_sft.py won't touch, so clear it before retrying.
+            shutil.rmtree(run_dir)
+            self.log(variant=v["name"], stage="cleanup", removed=str(run_dir))
+        cfg_path = self.results / "configs" / f"{v['name']}.json"
+        cfg_path.parent.mkdir(exist_ok=True)
+        cfg_path.write_text(json.dumps(self.config(v, manifest), indent=1))
+        gpus = pool.want()
+        try:
+            self.log(variant=v["name"], stage="train_start", gpus=gpus)
+            start = time.time()
+            cmd = [PY, "-m", "torch.distributed.run", "--standalone", f"--nproc_per_node={len(gpus)}",
+                   "scripts/train_sft.py", "--config", str(cfg_path)]
+            env = {**os.environ, "CUDA_VISIBLE_DEVICES": ",".join(map(str, gpus))}
+            rc = subprocess.run(cmd, cwd=ROOT, stdout=log, stderr=subprocess.STDOUT, env=env).returncode
+        finally:
+            pool.give_back(gpus)
+        self.log(variant=v["name"], stage="train", ok=rc == 0, gpus=len(gpus), minutes=round((time.time() - start) / 60, 1))
+        return rc == 0
+
+    def run_variant(self, v, pool, final):
         logdir = self.results / "logs"; logdir.mkdir(exist_ok=True)
         with (logdir / f"{v['name']}.log").open("a") as log:
             if not v.get("base"):
                 manifest = recipes.build(ROOT / v["recipe"])
                 self.log(variant=v["name"], stage="recipe", rows=manifest["train_rows"], version=manifest["version"])
-                if not self.trained(v):
-                    # train_sft.py refuses to resume (mkdir exist_ok=False): a prior killed/crashed
-                    # attempt leaves a directory train_sft.py won't touch, so clear it before retrying.
-                    run_dir = self.runs / v["name"]
-                    if run_dir.exists():
-                        import shutil
-                        shutil.rmtree(run_dir)
-                        self.log(variant=v["name"], stage="cleanup", removed=str(run_dir))
-                    cfg_path = self.results / "configs" / f"{v['name']}.json"
-                    cfg_path.parent.mkdir(exist_ok=True)
-                    cfg_path.write_text(json.dumps(self.config(v, manifest, gpu), indent=1))
-                    start = time.time()
-                    rc = subprocess.run([PY, "scripts/train_sft.py", "--config", str(cfg_path)], cwd=ROOT, stdout=log,
-                                        stderr=subprocess.STDOUT, env={**os.environ, "CUDA_VISIBLE_DEVICES": str(gpu)}).returncode
-                    self.log(variant=v["name"], stage="train", ok=rc == 0, minutes=round((time.time() - start) / 60, 1))
-                    if rc:
-                        return False
+                if not self.trained(v) and not self.train(v, manifest, pool, log):
+                    return False
             ckpts = [0] if v.get("base") else self.spec["eval"]["checkpoints"]
             for ck in ckpts:
-                ok = self.evaluate(v, ck, gpu, log)
+                gpu, = pool.want(min_gpus=1)  # one GPU is enough to generate+grade one checkpoint
+                try:
+                    ok = self.evaluate(v, ck, gpu, log)
+                finally:
+                    pool.give_back([gpu])
                 self.log(variant=v["name"], stage="eval", checkpoint=ck, ok=ok)
                 if not ok:
                     return False
             if final:
-                ok = self.evaluate(v, ckpts[-1], gpu, log, kind="test")
+                gpu, = pool.want(min_gpus=1)
+                try:
+                    ok = self.evaluate(v, ckpts[-1], gpu, log, kind="test")
+                finally:
+                    pool.give_back([gpu])
                 self.log(variant=v["name"], stage="test", checkpoint=ckpts[-1], ok=ok)
         return True
 
     def run(self, only, final):
         if sha256(self.spec["eval"]["data"]) != self.spec["eval"]["data_sha256"]:
             raise SystemExit("dev benchmark digest differs from the sweep pin")
-        todo = queue.Queue()
-        for v in self.spec["variants"]:
-            if not only or v["name"] in only:
-                todo.put(v)
+        todo = [v for v in self.spec["variants"] if not only or v["name"] in only]
+        pool = GPUPool(self.spec["gpus"])
         failed = []
 
-        def worker(gpu):
-            while True:
-                try:
-                    v = todo.get_nowait()
-                except queue.Empty:
-                    return
-                try:
-                    ok = self.run_variant(v, gpu, final and v["name"] in final)
-                except Exception as e:  # a broken recipe must not stop the other variants
-                    self.log(variant=v["name"], stage="error", error=repr(e)); ok = False
-                if not ok:
-                    failed.append(v["name"])
+        def worker(v):
+            try:
+                ok = self.run_variant(v, pool, final and v["name"] in final)
+            except Exception as e:  # a broken recipe must not stop the other variants
+                self.log(variant=v["name"], stage="error", error=repr(e)); ok = False
+            if not ok:
+                failed.append(v["name"])
 
-        threads = [threading.Thread(target=worker, args=(g,)) for g in self.spec["gpus"]]
+        threads = [threading.Thread(target=worker, args=(v,)) for v in todo]
         for t in threads: t.start()
         for t in threads: t.join()
         self.collect()
