@@ -95,7 +95,7 @@ def main():
   work.append((i,ids))
  worker_config=json.dumps({"model":a.model,"adapter":a.adapter,"max_model_len":a.max_model_len,"max_seqs":a.max_seqs,
   "max_num_batched_tokens":a.max_num_batched_tokens,"max_new_tokens":a.max_new_tokens,"temperature":a.temperature,"top_p":a.top_p})
- lock=threading.Lock();failures=[];started=time.monotonic();written=0;workers=[];per_gpu=collections.Counter()
+ lock=threading.Lock();failures=[];started=time.monotonic();written=0;workers=[];per_gpu=collections.Counter();held=collections.Counter()
  with records.open("a",buffering=1) as f:
   def record(row,m,device):
    nonlocal written
@@ -125,12 +125,18 @@ def main():
      m=json.loads(line[9:])
      if "error" in m:raise RuntimeError(f"GPU {device} worker: {m['error']}")
      if "want" in m:
-      with lock:  # at most a fair share of what is left, so the tail spreads over every GPU
-       grant=min(m["want"],max(1,-(-len(work)//len(a.device))))
-       rows_=[work.popleft() for _ in range(min(grant,len(work)))]
-      proc.stdin.write(json.dumps({"rows":rows_} if rows_ else {"eof":True})+"\n");proc.stdin.flush()
+      with lock:
+       # A GPU may hold at most its fair share of every unfinished row (queued + held anywhere):
+       # the first engine to start cannot take everything, and as the benchmark drains the share
+       # shrinks, so the tail spreads over every GPU. vLLM's own waiting queue is no limit here --
+       # it admits up to max_seqs requests whatever their eventual length.
+       cap=-(-(len(work)+sum(held.values()))//len(a.device))
+       rows_=[work.popleft() for _ in range(min(m["want"],max(0,cap-held[device]),len(work)))]
+       held[device]+=len(rows_)
+       reply={"rows":rows_} if rows_ or work else {"eof":True}
+      proc.stdin.write(json.dumps(reply)+"\n");proc.stdin.flush()
      elif "key" in m:
-      with lock:record(pending[m["key"]],m,device)
+      with lock:record(pending[m["key"]],m,device);held[device]-=1
     if proc.wait():raise RuntimeError(f"GPU {device} worker exited with {proc.returncode}; see {log.name}")
    except BaseException as e:
     failures.append(e)

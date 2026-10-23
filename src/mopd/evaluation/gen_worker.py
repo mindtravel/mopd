@@ -1,10 +1,11 @@
 """One GPU's resident vLLM engine for benchmark generation, pulling rows from the coordinator
 (scripts/generate_benchmark_vllm.py) whenever it has spare capacity.
 
-Spare capacity = the scheduler's waiting queue is empty, i.e. everything it holds is actually
-running; then it asks for a few more rows, which join the running continuous batch at the next
-step. Rows it cannot run yet stay in the coordinator's queue, where any GPU can take them, instead
-of piling up inside one engine -- so the last rows of a benchmark spread over every GPU.
+It asks for a few more rows whenever its scheduler's waiting queue is empty; they join the running
+continuous batch at the next step. The coordinator caps every GPU at a fair share of the unfinished
+rows and answers an empty list beyond it, after which this worker waits for one of its rows to
+finish before asking again. Rows nobody holds stay in the coordinator's queue, where any GPU can
+take them -- so the last rows of a benchmark spread over every GPU.
 
 The engine core runs in this process (VLLM_ENABLE_V1_MULTIPROCESSING=0, set by the coordinator):
 the scheduler's queue counts are readable directly, and killing this process leaves no orphaned
@@ -12,7 +13,8 @@ EngineCore holding the GPU.
 
 Wire (JSON lines, worker output prefixed with TAG):
   worker -> coordinator: {"ready"} {"want": k} {"key", "text", "token_ids", "finish_reason"} {"error"}
-  coordinator -> worker: {"rows": [[key, prompt_token_ids], ...]} or {"eof": true}; one reply per want.
+  coordinator -> worker: {"rows": [[key, prompt_token_ids], ...]} (may be empty) or {"eof": true};
+  one reply per want.
 """
 import contextlib, json, queue, sys, threading, traceback
 
@@ -52,10 +54,11 @@ def main():
             adapter = LoRARequest("evaluated-student", 1, c["adapter"]) if c["adapter"] else None
             emit({"ready": True, "eos": eos})
             asked = False
+            full = False  # last reply was empty: this GPU holds its fair share; ask again once a row finishes
 
             def feed(unfinished):
-                nonlocal asked
-                if not asked and scheduler.get_request_counts()[1] == 0:
+                nonlocal asked, full
+                if not asked and not full and scheduler.get_request_counts()[1] == 0:
                     emit({"want": ASK}); asked = True
                 try:
                     msg = inbox.get(block=unfinished == 0)
@@ -66,9 +69,12 @@ def main():
                 asked = False
                 if msg.get("eof"):
                     return None
+                full = not msg["rows"]
                 return [(k, {"prompt_token_ids": ids}) for k, ids in msg["rows"]]
 
             def on_finish(key, output):
+                nonlocal full
+                full = False
                 o = output.outputs[0]
                 emit({"key": key, "text": o.text, "token_ids": list(o.token_ids), "finish_reason": o.finish_reason})
 
