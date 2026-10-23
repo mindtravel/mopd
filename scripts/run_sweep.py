@@ -22,6 +22,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 from mopd.data import recipes
 from mopd.runtime.provenance import sha256
+from mopd.runtime.gpus import idle_gpus
 from mopd.evaluation.eval_commands import eval_commands, PY
 
 BASE_WEIGHTS = ["model-00001-of-00003.safetensors", "model-00002-of-00003.safetensors", "model-00003-of-00003.safetensors"]
@@ -197,7 +198,16 @@ class Sweep:
         if sha256(self.spec["eval"]["data"]) != self.spec["eval"]["data_sha256"]:
             raise SystemExit("dev benchmark digest differs from the sweep pin")
         todo = [v for v in self.spec["variants"] if not only or v["name"] in only]
-        pool = GPUPool(self.spec["gpus"], jobs=len(todo))
+        # Live check, not a fixed allow-list: this server is shared, and another team's job can
+        # occupy any GPU (including one we've always treated as "ours") with no warning in our own
+        # config. Only GPUs idle right at launch go in the pool; a GPU that was free then but gets
+        # claimed by someone else mid-sweep is a race this preflight-style check cannot catch, same
+        # as run_experiment.py's.
+        idle = idle_gpus(self.spec["gpus"])
+        busy = [g for g in self.spec["gpus"] if g not in idle]
+        if busy:
+            self.log(stage="gpus_excluded", busy=busy, reason="in use by another process")
+        pool = GPUPool(idle, jobs=len(todo))
         failed = []
 
         def worker(v):

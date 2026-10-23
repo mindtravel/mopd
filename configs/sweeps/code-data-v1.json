@@ -27,15 +27,7 @@
   "data": "/ssd/lzx/mopd/data/full_eval/unified-v2/livecodebench342.jsonl",
   "data_sha256": "87af1d8b50f14832faa3ac962866432ba839bd6ba7373162c35450333ebb7f59"
  },
- "gpus": [
-  0,
-  2,
-  3,
-  4,
-  5,
-  6,
-  7
- ],
+ "gpus": [0, 1, 2, 3, 4, 5, 6, 7],
  "variants": [
   {
    "name": "base",
