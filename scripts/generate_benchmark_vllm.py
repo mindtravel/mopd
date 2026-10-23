@@ -83,7 +83,7 @@ def main():
    batch=pending[offset:offset+a.batch_size];prompts=[]
    for r in batch:
     ids=apply_chat_template_ids(tok,[{"role":"user","content":teacher_content(r)}],add_generation_prompt=True,enable_thinking=False) if a.teacher else tok.encode(student_prompt(tok,r,a.student_prompt_format))
-    if len(ids)+a.max_new_tokens>16384:raise ValueError("Prompt exceeds configured context: "+str(r["id"]))
+    if len(ids)+a.max_new_tokens>a.max_model_len:raise ValueError("Prompt exceeds configured context: "+str(r["id"]))
     prompts.append({"prompt_token_ids":ids})
    outputs=engine.generate(prompts,params,lora_request=adapter,use_tqdm=False)
    if len(outputs)!=len(batch):raise ValueError("Missing outputs")
