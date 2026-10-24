@@ -12,3 +12,7 @@ BASE_MODEL = ROOT / "models/Qwen3-4B-Base"
 PROFILE_CACHE = ROOT / "cache/profile"
 SHM = Path("/dev/shm/mopd")  # per-run shared buffers (published student weights)
 GPU_LEASES = Path("/dev/shm/mopd-gpu-leases")  # cross-process GPU claims (runtime.scheduler)
+# GPUs reserved for the benchmark service (scripts/bench_service.py): one resident vLLM per benchmark.
+# Training, sweeps, queues and evals never get them (runtime.scheduler.usable_gpus filters them out).
+SERVICE_GPUS = {"ifbench": 6, "automationbench": 7}
+RESERVED_GPUS = frozenset(SERVICE_GPUS.values())

@@ -14,11 +14,12 @@ shared server exposes no new port.
                     -> {"id": ...}
   GET  /jobs        all jobs (newest first)      GET /jobs/<id>   one job, with scores when done
 
-A model directory with adapter_config.json is served as a LoRA on its base model. GPUs are taken
-through the queues' leases (mopd.runtime.scheduler.GpuLease), so jobs never land on a GPU that a
-sweep or training holds; a job waits until some GPU is both unleased and empty.
+A model directory with adapter_config.json is served as a LoRA on its base model. Each benchmark
+owns one GPU (paths.SERVICE_GPUS: IFBench 6, AutomationBench 7; training and evals never get them)
+and works through its own queue: a job's benchmarks run at the same time, each with its own vLLM.
+The service holds both GPUs' leases while it runs.
 
-  python scripts/bench_service.py [--port 18090] [--parallel 2]
+  python scripts/bench_service.py [--port 18090]
 """
 
 import argparse, json, os, shutil, signal, subprocess, sys, threading, time, traceback, urllib.request, uuid
@@ -43,15 +44,17 @@ class Jobs:
     def __init__(self):
         self.dir = STATE / "jobs"
         self.dir.mkdir(parents=True, exist_ok=True)
-        self.lock, self.queue = threading.Lock(), []
+        self.lock, self.queues = threading.Lock(), {b: [] for b in BENCHMARKS}
         self.jobs = {}
         for f in sorted(self.dir.glob("*.json")):
             j = json.loads(f.read_text())
             self.jobs[j["id"]] = j
-            if j["state"] in ("queued", "starting", "running"):
-                j.update(state="queued", note="re-queued after service restart")
-                self.queue.append(j["id"])
-                self.save(j)
+            for b, part in j.get("parts", {}).items():
+                if part["state"] in ("queued", "running"):
+                    part.update(state="queued", note="re-queued after service restart")
+                    self.queues[b].append(j["id"])
+            self.refresh(j)
+            self.save(j)
 
     def save(self, j):
         tmp = self.dir / f"{j['id']}.json.tmp"
@@ -80,34 +83,35 @@ class Jobs:
                 **req.get("automationbench", {}),
             },
             "max_model_len": req.get("max_model_len", 32768),
-            "state": "queued",
+            "parts": {b: {"state": "queued", "gpu": paths.SERVICE_GPUS[b]} for b in benches},
             "submitted": time.strftime("%Y-%m-%dT%H:%M:%S"),
         }
         with self.lock:
             self.jobs[j["id"]] = j
-            self.queue.append(j["id"])
+            for b in benches:
+                self.queues[b].append(j["id"])
+            self.refresh(j)
             self.save(j)
         return j
 
-    def take(self):
+    def take(self, bench):
         with self.lock:
-            return self.jobs[self.queue.pop(0)] if self.queue else None
+            return self.jobs[self.queues[bench].pop(0)] if self.queues[bench] else None
 
-    def update(self, j, **kw):
+    @staticmethod
+    def refresh(j):
+        """Job-level state and scores from its parts."""
+        states = {p["state"] for p in j["parts"].values()}
+        j["state"] = ("failed" if "failed" in states else "complete") if states <= {"complete", "failed"} else (
+            "running" if "running" in states or "complete" in states else "queued")
+        j["scores"] = {b: p["scores"] for b, p in j["parts"].items() if p.get("scores")}
+        j["errors"] = {b: p["error"] for b, p in j["parts"].items() if p.get("error")} or None
+
+    def update(self, j, bench, **kw):
         with self.lock:
-            j.update(kw)
+            j["parts"][bench].update(kw)
+            self.refresh(j)
             self.save(j)
-
-
-def free_gpu(lease):
-    """Lease one GPU that no scheduler holds and nothing runs on; None if there is none now."""
-    used = gpu_memory_used()
-    for g in sorted(used, key=used.get):
-        if used[g] < 1000 and lease.try_take([g]):
-            if gpu_memory_used([g])[g] < 1000:  # recheck under the lease
-                return g
-            lease.release([g])
-    return None
 
 
 def vllm_command(j, port):
@@ -201,46 +205,26 @@ def summarize_automation(r):
 RUNNERS = {"ifbench": run_ifbench, "automationbench": run_automationbench}
 
 
-def execute(jobs, j, lease):
+def execute(jobs, j, bench):
+    """One benchmark of one job on that benchmark's GPU: serve the model, run, record, stop vLLM."""
+    gpu = paths.SERVICE_GPUS[bench]
+    port = 18100 + gpu
     job_dir = STATE / "runs" / j["id"]
     job_dir.mkdir(parents=True, exist_ok=True)
-    log = job_dir / "service.log"
-    jobs.update(j, state="starting", job_dir=str(job_dir), note="waiting for a free GPU")
-    gpu = None
-    while gpu is None:
-        gpu = free_gpu(lease)
-        if gpu is None:
-            time.sleep(30)
-    port = 18100 + gpu
+    log = job_dir / f"{bench}.log"
     proc = None
     try:
-        jobs.update(j, gpu=gpu, port=port, note="starting vLLM", started=time.strftime("%Y-%m-%dT%H:%M:%S"))
-        vlog = job_dir / "vllm.log"
-        env = {**os.environ, "CUDA_VISIBLE_DEVICES": str(gpu), "VLLM_USE_V1": "1"}
+        jobs.update(j, bench, state="running", note="starting vLLM", started=time.strftime("%Y-%m-%dT%H:%M:%S"))
+        vlog = job_dir / f"vllm-{bench}.log"
+        env = {**os.environ, "CUDA_VISIBLE_DEVICES": str(gpu)}
         with vlog.open("w") as f:
             proc = subprocess.Popen(vllm_command(j, port), env=env, stdout=f, stderr=subprocess.STDOUT, start_new_session=True)
         wait_ready(proc, port, vlog)
-        api = f"http://127.0.0.1:{port}/v1"
-        jobs.update(j, state="running", note="benchmarks running")
-        scores, errors = {}, {}
-        threads = []
-
-        def one(b):
-            try:
-                scores[b] = RUNNERS[b](j, job_dir, api, log)
-            except Exception as e:
-                errors[b] = str(e)
-
-        for b in j["benchmarks"]:  # concurrently: vLLM batches both clients' requests
-            t = threading.Thread(target=one, args=(b,))
-            t.start()
-            threads.append(t)
-        for t in threads:
-            t.join()
-        jobs.update(j, state="failed" if errors else "complete", scores=scores, errors=errors or None,
-                    finished=time.strftime("%Y-%m-%dT%H:%M:%S"), note=None)
+        jobs.update(j, bench, note="benchmark running")
+        scores = RUNNERS[bench](j, job_dir, f"http://127.0.0.1:{port}/v1", log)
+        jobs.update(j, bench, state="complete", scores=scores, note=None, finished=time.strftime("%Y-%m-%dT%H:%M:%S"))
     except Exception:
-        jobs.update(j, state="failed", errors={"service": traceback.format_exc()[-3000:]},
+        jobs.update(j, bench, state="failed", error=traceback.format_exc()[-3000:], note=None,
                     finished=time.strftime("%Y-%m-%dT%H:%M:%S"))
     finally:
         if proc and proc.poll() is None:
@@ -249,17 +233,25 @@ def execute(jobs, j, lease):
                 proc.wait(60)
             except subprocess.TimeoutExpired:
                 os.killpg(proc.pid, signal.SIGKILL)
-        lease.release([gpu])
 
 
-def worker(jobs):
-    lease = GpuLease()
+def worker(jobs, bench, lease):
+    """Hold this benchmark's GPU lease for the service's lifetime (waiting out whoever has it now),
+    then run its queue."""
+    gpu = paths.SERVICE_GPUS[bench]
+    while not lease.try_take([gpu]):
+        jobs.waiting[bench] = f"GPU {gpu} still leased by an earlier job"
+        time.sleep(30)
+    while gpu_memory_used([gpu])[gpu] > 1000:
+        jobs.waiting[bench] = f"GPU {gpu} still has memory in use"
+        time.sleep(30)
+    jobs.waiting.pop(bench, None)
     while True:
-        j = jobs.take()
+        j = jobs.take(bench)
         if j is None:
             time.sleep(5)
             continue
-        execute(jobs, j, lease)
+        execute(jobs, j, bench)
 
 
 def handler(jobs):
@@ -279,7 +271,8 @@ def handler(jobs):
             if len(parts) == 2 and parts[0] == "jobs" and parts[1] in jobs.jobs:
                 return self.reply(200, jobs.jobs[parts[1]])
             if parts == ["health"]:
-                return self.reply(200, {"ok": True, "queued": len(jobs.queue)})
+                return self.reply(200, {"ok": True, "gpus": paths.SERVICE_GPUS, "waiting": jobs.waiting,
+                                        "queued": {b: len(q) for b, q in jobs.queues.items()}})
             self.reply(404, {"error": "not found"})
 
         def do_POST(self):
@@ -300,14 +293,15 @@ def handler(jobs):
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--port", type=int, default=18090)
-    ap.add_argument("--parallel", type=int, default=2, help="jobs at once (one GPU each)")
     a = ap.parse_args()
     if not shutil.which("docker"):
         raise SystemExit("docker not found")
     INBOX.mkdir(parents=True, exist_ok=True)
     jobs = Jobs()
-    for _ in range(a.parallel):
-        threading.Thread(target=worker, args=(jobs,), daemon=True).start()
+    jobs.waiting = {}
+    lease = GpuLease()
+    for b in BENCHMARKS:
+        threading.Thread(target=worker, args=(jobs, b, lease), daemon=True).start()
     print(f"bench service on 127.0.0.1:{a.port}, state {STATE}", flush=True)
     ThreadingHTTPServer(("127.0.0.1", a.port), handler(jobs)).serve_forever()
 

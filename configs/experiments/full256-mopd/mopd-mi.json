@@ -27,7 +27,7 @@
     "name": "full256-mopd",
     "arm": "mopd-mi",
     "spec_path": "/ssd/lzx/mopd/configs/experiments/full256-mopd.json",
-    "spec_sha256": "dbb8a382378d7e7c9a36fa0a7c5a582bf46f7fe577ca0c4b223f77e89a0743f2"
+    "spec_sha256": "3f25737e41d1d17dcbda86d9746121368228bd0abee40254ddd91379e346bd80"
   },
   "fsdp": {
     "reshard_after_forward": false
@@ -50,7 +50,7 @@
     },
     "instruction": {
       "teacher": "/ssd/lzx/mopd/runs/20261024-full256-expert-i/checkpoint-0256",
-      "device": "cuda:5",
+      "device": "cuda:4",
       "teacher_prompt_format": "student_prefix_v1",
       "train_file": "/ssd/lzx/mopd/data/sft/smol_constraints/train.jsonl",
       "holdout_files": [
@@ -66,8 +66,7 @@
   "generation_batch_size": 8,
   "rollout_backend": "vllm",
   "rollout_devices": [
-    "cuda:6",
-    "cuda:7"
+    "cuda:5"
   ],
   "vllm_memory_utilization": 0.8
 }
