@@ -170,7 +170,7 @@ class Sweep:
             log = logdir / f"{v['name']}.log"
             ckpts = [0] if v.get("base") else self.spec["eval"]["checkpoints"]
             deps = []
-            if not v.get("base"):
+            if not v.get("base") and not self.trained(v):
                 manifest = recipes.build(ROOT / v["recipe"])  # cached: built once up front in run()
                 sharded = is_sharded(self.config(v, manifest))
                 scheduler.add(
@@ -183,7 +183,7 @@ class Sweep:
                         "run": lambda gpus, v=v, m=manifest, log=log: self.train(v, m, gpus, log),
                     }
                 )
-                deps = [f"train:{v['name']}"]
+                deps = [f"train:{v['name']}"]  # already-trained variants: evaluation only, no pool rebuild
             for ck in ckpts:
                 scheduler.add(
                     {
@@ -214,7 +214,7 @@ class Sweep:
         # Build every recipe up front, one at a time: concurrent first imports of transformers from
         # several threads raced inside its lazy module ("cannot import name 'AutoTokenizer'").
         for v in todo:
-            if not v.get("base"):
+            if not v.get("base") and not self.trained(v):
                 m = recipes.build(ROOT / v["recipe"])
                 print(
                     json.dumps(

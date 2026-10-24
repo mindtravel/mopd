@@ -1,4 +1,4 @@
-# experiment full256 / merge-mic; spec sha256 9b8fe50e81fb8c85e92d3ce2dbf24303329a4ecf69f020d1a809e773841207e7
+# experiment full256 / merge-mic; spec sha256 6810b753f93f8d994b89e4deb49130ca762628a4d95394516933af66085d1698
 merge_method: linear
 models:
   - model: /ssd/lzx/mopd/runs/20261024-full256-expert-m/checkpoint-0256

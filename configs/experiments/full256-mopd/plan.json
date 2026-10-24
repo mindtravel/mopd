@@ -3,11 +3,11 @@
     "name": "full256-mopd",
     "arm": null,
     "spec_path": "/ssd/lzx/mopd/configs/experiments/full256-mopd.json",
-    "spec_sha256": "8a4c6533741c7ae8a59976016681fac881b2f2d6308ca28f6782a0a4557b139b"
+    "spec_sha256": "40aac87e4ac91d09dfcd3f76618cb55d0c4bbb583fd679db4f1a7f32457fcaff"
   },
   "evaluation": {
-    "protocol_id": "unified-v2-plainqa-greedy8192",
-    "data": "/ssd/lzx/mopd/data/full_eval/unified-v2/all.jsonl",
+    "protocol_id": "unified-v3-plainqa-greedy8192",
+    "data": "/ssd/lzx/mopd/data/full_eval/unified-v3/all.jsonl",
     "checkpoints": [
       128,
       256

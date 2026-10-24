@@ -15,7 +15,7 @@
  "eval": {
   "protocol_id": "lcbdev-v3-greedy8192",
   "data": "/ssd/lzx/mopd/data/full_eval/lcb-dev-v3/lcbdev.jsonl",
-  "data_sha256": "TBD",
+  "data_sha256": "f959510548b6559c8e46abae71ed7250cea7ca2ffbac230e42bd458f6ced47df",
   "max_new_tokens": 8192,
   "checkpoints": [
    128,
@@ -25,7 +25,7 @@
  "test": {
   "protocol_id": "lcbtest-v3-greedy8192",
   "data": "/ssd/lzx/mopd/data/full_eval/unified-v3/livecodebench342.jsonl",
-  "data_sha256": "TBD"
+  "data_sha256": "80e5feeb2bee5db9399c4de5ee933305308e1944bbfee1d4c82dfa318cd844f0"
  },
  "gpus": [
   0,

@@ -3,11 +3,11 @@
     "name": "full256",
     "arm": null,
     "spec_path": "/ssd/lzx/mopd/configs/experiments/full256.json",
-    "spec_sha256": "9b8fe50e81fb8c85e92d3ce2dbf24303329a4ecf69f020d1a809e773841207e7"
+    "spec_sha256": "6810b753f93f8d994b89e4deb49130ca762628a4d95394516933af66085d1698"
   },
   "evaluation": {
-    "protocol_id": "unified-v2-plainqa-greedy8192",
-    "data": "/ssd/lzx/mopd/data/full_eval/unified-v2/all.jsonl",
+    "protocol_id": "unified-v3-plainqa-greedy8192",
+    "data": "/ssd/lzx/mopd/data/full_eval/unified-v3/all.jsonl",
     "checkpoints": [
       128,
       256
@@ -225,7 +225,7 @@
         "merge:merge-mi"
       ],
       "model": "/ssd/lzx/mopd/models/merged/full256-merge-mi",
-      "out": "results/experiments/full256/merge-mi/unified-v2-plainqa-greedy8192"
+      "out": "results/experiments/full256/merge-mi/unified-v3-plainqa-greedy8192"
     },
     {
       "id": "merge:merge-mic",
@@ -247,7 +247,7 @@
         "merge:merge-mic"
       ],
       "model": "/ssd/lzx/mopd/models/merged/full256-merge-mic",
-      "out": "results/experiments/full256/merge-mic/unified-v2-plainqa-greedy8192"
+      "out": "results/experiments/full256/merge-mic/unified-v3-plainqa-greedy8192"
     }
   ]
 }

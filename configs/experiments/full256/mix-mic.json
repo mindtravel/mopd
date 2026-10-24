@@ -21,13 +21,13 @@
     "/ssd/lzx/mopd/models/Qwen3-4B-Base/model-00003-of-00003.safetensors": "c7b1aa8fb672de2e00423c99876926022e50b18d4f0d140670788510a27f9965",
     "/ssd/lzx/mopd/data/recipes/oci/train.jsonl": "6fb804464c8dee541a64c34b5bd1f6cdc67c2c3a1c67fb8f344e731c0b7381de",
     "/ssd/lzx/mopd/data/recipes/oci/dev.jsonl": "6207eca7fa0ddfd4f0fb679f8808104e71cede360473367bcfc877d0a24dc40a",
-    "/ssd/lzx/mopd/data/full_eval/unified-v2/all.jsonl": "0ad5c9688d02813060c6fd16d2d5a7c87f8d2e7f23e86332c75b2abc7d491c03"
+    "/ssd/lzx/mopd/data/full_eval/unified-v3/all.jsonl": "044e964eddfb05b20962a29fc6478d62c386e6bb62658a429ea4bf3a2a54b9d8"
   },
   "experiment": {
     "name": "full256",
     "arm": "mix-mic",
     "spec_path": "/ssd/lzx/mopd/configs/experiments/full256.json",
-    "spec_sha256": "9b8fe50e81fb8c85e92d3ce2dbf24303329a4ecf69f020d1a809e773841207e7"
+    "spec_sha256": "6810b753f93f8d994b89e4deb49130ca762628a4d95394516933af66085d1698"
   },
   "fsdp": {
     "reshard_after_forward": true
@@ -40,7 +40,7 @@
       "train_file": "/ssd/lzx/mopd/data/sft/numina_v3/train.jsonl",
       "holdout_files": [
         "/ssd/lzx/mopd/data/math/eval.jsonl",
-        "/ssd/lzx/mopd/data/full_eval/unified-v2/all.jsonl"
+        "/ssd/lzx/mopd/data/full_eval/unified-v3/all.jsonl"
       ],
       "count": 11,
       "weight": 0.3333333333333333
@@ -49,7 +49,7 @@
       "train_file": "/ssd/lzx/mopd/data/sft/smol_constraints/train.jsonl",
       "holdout_files": [
         "/ssd/lzx/mopd/data/sft/smol_constraints/dev.jsonl",
-        "/ssd/lzx/mopd/data/full_eval/unified-v2/all.jsonl"
+        "/ssd/lzx/mopd/data/full_eval/unified-v3/all.jsonl"
       ],
       "count": 11,
       "weight": 0.3333333333333333
@@ -58,7 +58,7 @@
       "train_file": "/ssd/lzx/mopd/data/recipes/oci/train.jsonl",
       "holdout_files": [
         "/ssd/lzx/mopd/data/recipes/oci/dev.jsonl",
-        "/ssd/lzx/mopd/data/full_eval/unified-v2/all.jsonl"
+        "/ssd/lzx/mopd/data/full_eval/unified-v3/all.jsonl"
       ],
       "count": 10,
       "weight": 0.3333333333333333
