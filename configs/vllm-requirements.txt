@@ -1,2 +1,2 @@
-vllm==0.10.2
-transformers==4.55.4
+vllm==0.32.0
+transformers>=5.9.0
