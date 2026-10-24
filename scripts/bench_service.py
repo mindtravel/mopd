@@ -7,9 +7,9 @@ shared server exposes no new port.
 
   POST /jobs        {"model": "/abs/path on this machine", "name": optional,
                      "benchmarks": ["ifbench", "automationbench"],
-                     "ifbench": {"max_tokens": 4096, "workers": 8, "limit": null},
+                     "ifbench": {"max_tokens": 4096, "workers": 64, "limit": null},
                      "automationbench": {"domains": "simple", "num_examples": null, "max_steps": 50,
-                                         "max_concurrent": 8},
+                                         "max_concurrent": 32},
                      "max_model_len": 32768}
                     -> {"id": ...}
   GET  /jobs        all jobs (newest first)      GET /jobs/<id>   one job, with scores when done
@@ -29,6 +29,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 from mopd import paths
+from mopd.runtime import compile_cache
 from mopd.runtime.gpus import gpu_memory_used
 from mopd.runtime.scheduler import GpuLease
 
@@ -74,12 +75,12 @@ class Jobs:
             "name": name,
             "model": str(model),
             "benchmarks": benches,
-            "ifbench": {"max_tokens": 4096, "workers": 8, "limit": None, **req.get("ifbench", {})},
+            "ifbench": {"max_tokens": 4096, "workers": 64, "limit": None, **req.get("ifbench", {})},
             "automationbench": {
                 "domains": "simple",
                 "num_examples": None,
                 "max_steps": 50,
-                "max_concurrent": 8,
+                "max_concurrent": 32,
                 **req.get("automationbench", {}),
             },
             "max_model_len": req.get("max_model_len", 32768),
@@ -128,7 +129,8 @@ def vllm_command(j, port):
         "--port", str(port),
         "--dtype", "bfloat16",
         "--max-model-len", str(j["max_model_len"]),
-        "--gpu-memory-utilization", "0.85",
+        "--gpu-memory-utilization", "0.9",
+        "--max-num-seqs", "256",
         "--enable-auto-tool-choice",
         "--tool-call-parser", "hermes",
         "--seed", "0",
@@ -216,7 +218,10 @@ def execute(jobs, j, bench):
     try:
         jobs.update(j, bench, state="running", note="starting vLLM", started=time.strftime("%Y-%m-%dT%H:%M:%S"))
         vlog = job_dir / f"vllm-{bench}.log"
-        env = {**os.environ, "CUDA_VISIBLE_DEVICES": str(gpu)}
+        # the GPU's own compiler caches (mopd.runtime.compile_cache): torch.compile / CUDA graphs are
+        # reused by every later job on this GPU instead of being rebuilt per checkpoint
+        env = {**os.environ, "CUDA_VISIBLE_DEVICES": str(gpu),
+               **compile_cache.isolated(paths.ROOT / "cache/compile" / f"bench-gpu{gpu}")}
         with vlog.open("w") as f:
             proc = subprocess.Popen(vllm_command(j, port), env=env, stdout=f, stderr=subprocess.STDOUT, start_new_session=True)
         wait_ready(proc, port, vlog)
