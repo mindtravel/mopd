@@ -120,10 +120,14 @@ def main():
                 counts={d:sum(r["domain"]==d for r in rows) for d in weights}
                 scales={d:weights[d]/counts[d] for d in weights}
                 local_rows=rows[rank::world_size]  # disjoint, deterministic shard of this step's batch
-                for offset in range(0,len(local_rows),micro):
-                    items=local_rows[offset:offset+micro];seqs=[];starts=[];truncated=[]
-                    for row in items:
-                        prefix,response,cut=encode(tok,row,c["student_prompt_format"],eos,max_len)
+                # Encode the shard once and micro-batch it by length: each micro batch pads to its longest
+                # sequence, and in arrival order half the step's tokens were padding (profile: 0.50). The
+                # gradient does not depend on the grouping (fixed per-sample scales, summed), only the work.
+                encoded=sorted((encode(tok,row,c["student_prompt_format"],eos,max_len)+(row,) for row in local_rows),
+                               key=lambda e:len(e[0])+len(e[1]),reverse=True)
+                for offset in range(0,len(encoded),micro):
+                    chunk=encoded[offset:offset+micro];items=[e[3] for e in chunk];seqs=[];starts=[];truncated=[]
+                    for prefix,response,cut,row in chunk:
                         if not response:raise ValueError(f"prompt alone exceeds max_seq_len: {row['id']}")
                         seqs.append(prefix+response);starts.append(len(prefix));truncated.append(cut)
                     ids,attention,response_mask=pack(seqs,starts,pad,device)
