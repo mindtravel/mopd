@@ -13,4 +13,4 @@ rsync -a /ssd/ifbench/scripts/ "$CTX/ifbench/scripts/"
 rsync -a /ssd/ifbench/cache/nltk_data/ "$CTX/ifbench/nltk_data/"
 rsync -a --exclude .git --exclude .venv --exclude .pytest_cache /ssd/automationbench/repo/ "$CTX/automationbench/repo/"
 docker build --network host -t "mopd-bench:$TAG" "$CTX"
-docker run --rm "mopd-bench:$TAG" selftest
+docker run --rm --network host "mopd-bench:$TAG" selftest  # bridge networking is broken on this host

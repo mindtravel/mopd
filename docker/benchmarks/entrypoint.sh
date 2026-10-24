@@ -18,7 +18,7 @@ case "$what" in
       --input_response_data=data/sample_output.jsonl --output_dir="$out" >/dev/null 2>&1
     /opt/ifbench/venv/bin/python - "$out" <<'PY'
 import json, sys, pathlib
-rows = [json.loads(l) for l in (pathlib.Path(sys.argv[1]) / "eval_results_strict.jsonl").open()]
+rows = [json.loads(l) for l in (pathlib.Path(sys.argv[1]) / "sample_output-eval_results_strict.jsonl").open()]
 acc = sum(r["follow_all_instructions"] for r in rows) / len(rows)
 print(f"ifbench sample strict prompt accuracy {acc:.4f} over {len(rows)}")
 assert len(rows) == 300 and abs(acc - 0.28) < 1e-9
