@@ -36,6 +36,24 @@ GATE_RETRY_SECONDS = 600
 LEASE_DIR = paths.GPU_LEASES
 
 
+def usable_gpus(candidates, lease_dir=None, threshold_mib=1000):
+    """candidates minus GPUs that another team is using: memory in use while no scheduler of ours holds
+    the GPU's lease. A GPU busy under one of our leases stays usable -- jobs wait for the lease."""
+    from mopd.runtime.gpus import gpu_memory_used
+
+    used = gpu_memory_used(candidates)
+    probe = GpuLease(lease_dir)
+    usable = []
+    for g in candidates:
+        if used.get(g, 0) < threshold_mib:
+            usable.append(g)
+        elif not probe.try_take([g]):  # leased by one of our schedulers: it will be released
+            usable.append(g)
+        else:
+            probe.release([g])  # nobody of ours holds it: foreign
+    return usable
+
+
 class GpuLease:
     """Cross-process claim on GPUs: one flock'd file per GPU under LEASE_DIR, held while a job runs.
     Schedulers in different processes (two sweeps, a sweep and an experiment) otherwise only see

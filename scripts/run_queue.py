@@ -29,7 +29,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 from mopd import paths
 from mopd.evaluation import jobs
-from mopd.runtime.scheduler import Scheduler
+from mopd.runtime.scheduler import Scheduler, usable_gpus
 
 
 def running(match):
@@ -97,7 +97,7 @@ def main():
     logdir = paths.ROOT / "logs/queues" / q["name"]
     state_dir.mkdir(parents=True, exist_ok=True)
     logdir.mkdir(parents=True, exist_ok=True)
-    sched = Scheduler(list(range(8)), state_dir, name=f"queue {q['name']}")
+    sched = Scheduler(usable_gpus(list(range(8))), state_dir, name=f"queue {q['name']}")
     prev = None
     for step in q["steps"]:
         sid = step["id"]

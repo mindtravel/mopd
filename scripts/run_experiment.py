@@ -20,7 +20,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 from mopd.runtime.provenance import _source, _data, sha256
 from mopd.evaluation.eval_commands import PY
-from mopd.runtime.scheduler import Scheduler
+from mopd.runtime.scheduler import Scheduler, usable_gpus
 from mopd.evaluation import jobs
 
 
@@ -124,10 +124,10 @@ class Runner:
                 raise SystemExit(f"reused expert {name} was trained with different controls: {diff}")
             if not expert_finished(Path(ref["dir"])):
                 raise SystemExit(f"reused expert {name} is not finished")
+        # Busy GPUs are not a reason to refuse: jobs wait for theirs under the machine-wide GPU leases
+        # (runtime.scheduler), so an experiment can share the machine with other queues.
         taken = [g for g in self.plan["gpus"] if busy.get(g, 0) > 1000]
-        if taken:
-            raise SystemExit(f"GPUs not idle: {taken}")
-        self.log("preflight_ok", source=source["source_version"], pins=len(spec["data_pins"]))
+        self.log("preflight_ok", source=source["source_version"], pins=len(spec["data_pins"]), gpus_busy_now=taken)
 
     def done(self, j):
         k = j["kind"]
@@ -240,7 +240,10 @@ class Runner:
 
     def loop(self):
         order = {"train_mopd": 0, "train_sft": 1, "merge": 2, "export_expert": 3, "eval_model": 4, "eval_checkpoint": 5}
-        sched = Scheduler(self.plan["gpus"], self.logdir, min_free_gib=self.min_free, name="experiment")
+        gpus = usable_gpus(self.plan["gpus"])  # GPUs another team is using are left out
+        if set(gpus) != set(self.plan["gpus"]):
+            self.log("gpus_excluded", foreign=sorted(set(self.plan["gpus"]) - set(gpus)))
+        sched = Scheduler(gpus, self.logdir, min_free_gib=self.min_free, name="experiment")
         ev = self.plan["evaluation"]
         for j in self.jobs.values():
             if j["kind"] in ("eval_checkpoint", "eval_model"):  # GPU generation + CPU grading (evaluation.jobs)

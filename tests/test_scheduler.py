@@ -72,6 +72,20 @@ class GPUPoolTest(unittest.TestCase):
         self.assertEqual(len(done[0]), 4)
 
 
+class UsableGpusTest(unittest.TestCase):
+    def test_busy_gpu_is_usable_only_while_one_of_our_leases_holds_it(self):
+        import tempfile
+        from unittest import mock
+        from mopd.runtime import scheduler as S
+
+        d = tempfile.mkdtemp()
+        with mock.patch("mopd.runtime.gpus.gpu_memory_used", return_value={0: 0, 1: 20000, 2: 20000}):
+            ours = S.GpuLease(d)
+            self.assertTrue(ours.try_take([1]))  # GPU 1 busy under our lease, GPU 2 busy and unleased
+            self.assertEqual(S.usable_gpus([0, 1, 2], lease_dir=d), [0, 1])
+            ours.release([1])
+
+
 class SchedulerTest(unittest.TestCase):
     def test_dag_runs_deps_first_blocks_on_failure_and_skips_done(self):
         import tempfile
