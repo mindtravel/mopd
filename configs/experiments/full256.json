@@ -46,21 +46,21 @@
       "train_file": "/ssd/lzx/mopd/data/sft/numina_v3/train.jsonl",
       "holdout_files": [
         "/ssd/lzx/mopd/data/math/eval.jsonl",
-        "/ssd/lzx/mopd/data/full_eval/unified-v2/all.jsonl"
+        "/ssd/lzx/mopd/data/full_eval/unified-v3/all.jsonl"
       ]
     },
     "instruction": {
       "train_file": "/ssd/lzx/mopd/data/sft/smol_constraints/train.jsonl",
       "holdout_files": [
         "/ssd/lzx/mopd/data/sft/smol_constraints/dev.jsonl",
-        "/ssd/lzx/mopd/data/full_eval/unified-v2/all.jsonl"
+        "/ssd/lzx/mopd/data/full_eval/unified-v3/all.jsonl"
       ]
     },
     "code": {
       "train_file": "/ssd/lzx/mopd/data/recipes/oci/train.jsonl",
       "holdout_files": [
         "/ssd/lzx/mopd/data/recipes/oci/dev.jsonl",
-        "/ssd/lzx/mopd/data/full_eval/unified-v2/all.jsonl"
+        "/ssd/lzx/mopd/data/full_eval/unified-v3/all.jsonl"
       ]
     }
   },
@@ -74,11 +74,11 @@
     "/ssd/lzx/mopd/models/Qwen3-4B-Base/model-00003-of-00003.safetensors": "c7b1aa8fb672de2e00423c99876926022e50b18d4f0d140670788510a27f9965",
     "/ssd/lzx/mopd/data/recipes/oci/train.jsonl": "6fb804464c8dee541a64c34b5bd1f6cdc67c2c3a1c67fb8f344e731c0b7381de",
     "/ssd/lzx/mopd/data/recipes/oci/dev.jsonl": "6207eca7fa0ddfd4f0fb679f8808104e71cede360473367bcfc877d0a24dc40a",
-    "/ssd/lzx/mopd/data/full_eval/unified-v2/all.jsonl": "0ad5c9688d02813060c6fd16d2d5a7c87f8d2e7f23e86332c75b2abc7d491c03"
+    "/ssd/lzx/mopd/data/full_eval/unified-v3/all.jsonl": "TBD"
   },
   "evaluation": {
-    "protocol_id": "unified-v2-plainqa-greedy8192",
-    "data": "/ssd/lzx/mopd/data/full_eval/unified-v2/all.jsonl",
+    "protocol_id": "unified-v3-plainqa-greedy8192",
+    "data": "/ssd/lzx/mopd/data/full_eval/unified-v3/all.jsonl",
     "checkpoints": [
       128,
       256

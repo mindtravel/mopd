@@ -21,7 +21,7 @@ from mopd.data import decontam
 from mopd.data.pool import text_hash  # same whitespace normalization as exact dedup below and validate_holdout
 
 ROOT = Path("/ssd/lzx/mopd")
-EVAL_FILES = ["data/full_eval/unified-v2/all.jsonl", "data/full_eval/lcb-dev-v1/lcbdev.jsonl"]
+EVAL_FILES = ["data/full_eval/unified-v3/all.jsonl", "data/full_eval/lcb-dev-v3/lcbdev.jsonl"]
 FENCE = re.compile(r"```(?:python|py|Python)?\s*\n(.*?)```", re.DOTALL)
 THINK = re.compile(r"<think>.*?</think>\s*", re.DOTALL)
 # Reasoning-chain self-correction markers ("Wait, ... Hmm, so ... Let me think ..."). A normal,
@@ -455,7 +455,7 @@ def eval_index():
     for f in EVAL_FILES:
         for line in (ROOT / f).open():
             r = json.loads(line)
-            problems[f"{r['benchmark']}:{r['id']}"] = r.get("problem") or r["prompt"].split("Question: ", 1)[-1]
+            problems[f"{r['benchmark']}:{r['id']}"] = r.get("problem") or r["prompt"]
     return decontam.BenchmarkIndex(problems)
 
 

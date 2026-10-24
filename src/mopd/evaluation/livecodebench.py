@@ -31,66 +31,33 @@ from mopd.evaluation import code_exec
 TEST_TIMEOUT_SECONDS = 6  # official per-test timeout
 MEMORY_LIMIT_BYTES = 4 << 30
 
-# Imports the official harness prepends to every candidate.
-# Prompt wording follows the official LCB generation prompt, adapted to one instruction.
-INSTRUCTION = (
-    "You will be given a question (problem specification) and will generate a correct Python program "
-    "that matches the specification and passes all tests.\n\nQuestion: {question}\n\n"
+# The one LiveCodeBench prompt, verbatim from the official harness
+# (LiveCodeBench/LiveCodeBench lcb_runner/prompts/code_generation.py, get_generic_question_template_answer;
+# the DeepSeek-R1 / QwQ templates use the same body inside their chat wrappers). Frozen: every benchmark
+# file and every training recipe renders through prompt(); tests/test_lcb_prompt.py pins the exact text.
+# Starter code is shown in the Format section, and the prompt ends with "### Answer:", not with code to
+# continue, so the model writes one complete program. Reasoning students get their opening (<think>)
+# from the student prompt format (mopd.protocol plain_qa_think_v1), never from this text.
+FORMATTING_MESSAGE_WITH_STARTER_CODE = (
+    "You will use the following starter code to write the solution to the problem and enclose your code within delimiters."
 )
-STDIN_FORMAT = (
-    "Read the inputs from stdin, solve the problem and write the answer to stdout (do not directly test on "
-    "the sample inputs). Reply with the complete program in a single ```python code block."
-)
-FUNCTIONAL_FORMAT = (
-    "Use the following starter code and reply with the complete solution in a single ```python code "
-    "block.\n```python\n{starter}\n```"
+FORMATTING_WITHOUT_STARTER_CODE = (
+    "Read the inputs from stdin solve the problem and write the answer to stdout (do not directly test on the "
+    "sample inputs). Enclose your code within delimiters as follows. Ensure that when the python program runs, "
+    "it reads the inputs, runs the algorithm and writes output to STDOUT."
 )
 
 
-def prompt(question, kind, starter=""):
-    return INSTRUCTION.format(question=question) + (
-        FUNCTIONAL_FORMAT.format(starter=starter) if kind == "functional" else STDIN_FORMAT
-    )
-
-
-# "Think first" protocol (lcb-dev-v2-think / student prompt format plain_qa_think_v1): the prompt
-# neither opens a code block nor shows starter code to continue; the student prompt ends by opening
-# the reasoning (<think>), and the reply is reasoning, </think>, then one complete code block. The
-# harness still calls Solution().<method>, so a functional problem states the required class and
-# method signature in prose.
-THINK_TAIL = (
-    "Think through the problem first. Then give the complete {what} in a single ```python code block "
-    "after your reasoning."
-)
-THINK_STDIN = (
-    "Read the inputs from stdin, solve the problem and write the answer to stdout (do not test on the sample inputs). "
-)
-THINK_CLASS = "Your solution must define `{cls}` with the method `{signature}`. "
-THINK_FUNCTION = "Your solution must define the function `{signature}`. "
-
-
-def signature_of(starter):
-    """`def name(self, ...) -> T` lines of a starter, joined; the whole starter if none."""
-    defs = [l.strip().rstrip(":") for l in starter.splitlines() if l.strip().startswith("def ")]
-    return "; ".join(defs) if defs else starter.strip()
-
-
-def requirement_of(starter):
-    """The prose requirement for a functional problem: its class (LeetCode `class Solution`) and
-    method signature, or just the function signature for a bare-function starter (training data)."""
-    cls = next((l.strip().rstrip(":") for l in starter.splitlines() if l.strip().startswith("class ")), None)
-    if cls:
-        return THINK_CLASS.format(cls=cls, signature=signature_of(starter))
-    return THINK_FUNCTION.format(signature=signature_of(starter))
-
-
-def prompt_think(question, kind, starter=""):
-    lead = requirement_of(starter) if kind == "functional" else THINK_STDIN
-    return (
-        INSTRUCTION.format(question=question)
-        + lead
-        + THINK_TAIL.format(what="solution" if kind == "functional" else "program")
-    )
+def prompt(question, starter=""):
+    text = f"### Question:\n{question}\n\n"
+    if starter:
+        text += f"### Format: {FORMATTING_MESSAGE_WITH_STARTER_CODE}\n"
+        text += f"```python\n{starter}\n```\n\n"
+    else:
+        text += f"### Format: {FORMATTING_WITHOUT_STARTER_CODE}\n"
+        text += "```python\n# YOUR CODE HERE\n```\n\n"
+    text += "### Answer: (use the provided format with backticks)\n\n"
+    return text
 
 
 HEADER = """import sys, os, io, re, math, string, random, bisect, heapq, itertools, functools, collections, operator, copy, decimal, fractions, statistics
@@ -141,8 +108,7 @@ def decode_private_tests(blob):
     return json.loads(raw)
 
 
-def benchmark_rows(files, tests_dir, root, tag, style="code"):
-    """style "code": v1 prompts (prompt()); "think": prompt_think()."""
+def benchmark_rows(files, tests_dir, root, tag):
     """Benchmark rows from LCB release files; tests are written to tests_dir/<question_id>.json.gz."""
     for f in files:
         for line in Path(f).open():
@@ -174,7 +140,8 @@ def benchmark_rows(files, tests_dir, root, tag, style="code"):
                 "domain": "code",
                 "split": "eval",
                 "source": "livecodebench/code_generation_lite",
-                "prompt": (prompt_think if style == "think" else prompt)(r["question_content"], kind, starter),
+                "prompt": prompt(r["question_content"], starter),
+                "problem": r["question_content"],
                 "metadata": meta,
                 "benchmark": tag,
             }

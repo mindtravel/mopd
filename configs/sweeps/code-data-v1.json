@@ -13,9 +13,9 @@
   "save_every": 64
  },
  "eval": {
-  "protocol_id": "lcbdev-plainqa-greedy8192",
-  "data": "/ssd/lzx/mopd/data/full_eval/lcb-dev-v1/lcbdev.jsonl",
-  "data_sha256": "5c3f70eca1917cfa6211ab8b456f9afdec056abb32b8ac753122b44d8a772e7b",
+  "protocol_id": "lcbdev-v3-greedy8192",
+  "data": "/ssd/lzx/mopd/data/full_eval/lcb-dev-v3/lcbdev.jsonl",
+  "data_sha256": "TBD",
   "max_new_tokens": 8192,
   "checkpoints": [
    128,
@@ -23,11 +23,20 @@
   ]
  },
  "test": {
-  "protocol_id": "unified-v2-plainqa-greedy8192",
-  "data": "/ssd/lzx/mopd/data/full_eval/unified-v2/livecodebench342.jsonl",
-  "data_sha256": "87af1d8b50f14832faa3ac962866432ba839bd6ba7373162c35450333ebb7f59"
+  "protocol_id": "lcbtest-v3-greedy8192",
+  "data": "/ssd/lzx/mopd/data/full_eval/unified-v3/livecodebench342.jsonl",
+  "data_sha256": "TBD"
  },
- "gpus": [0, 1, 2, 3, 4, 5, 6, 7],
+ "gpus": [
+  0,
+  1,
+  2,
+  3,
+  4,
+  5,
+  6,
+  7
+ ],
  "variants": [
   {
    "name": "base",
@@ -76,7 +85,19 @@
   {
    "name": "rstar-seed-concise-r64",
    "recipe": "configs/recipes/code/rstar-seed-concise.json",
-   "lora": {"rank": 64, "alpha": 128, "targets": ["q_proj", "k_proj", "v_proj", "o_proj", "gate_proj", "up_proj", "down_proj"]}
+   "lora": {
+    "rank": 64,
+    "alpha": 128,
+    "targets": [
+     "q_proj",
+     "k_proj",
+     "v_proj",
+     "o_proj",
+     "gate_proj",
+     "up_proj",
+     "down_proj"
+    ]
+   }
   }
  ]
 }

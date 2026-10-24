@@ -1,6 +1,7 @@
-"""unified-v2: MATH500 + IFEval 541 + LiveCodeBench v5/v6 (342), HumanEval/MBPP kept as diagnostics.
+"""unified-v3: MATH500 + IFEval 541 + LiveCodeBench v5/v6 (342), HumanEval/MBPP kept as diagnostics.
 
-Why v2: MATH128 is too small (one problem = 0.8 points); HumanEval/MBPP are near saturation and
+v3 = v2 with the LiveCodeBench rows rendered by the official prompt (livecodebench.prompt); math,
+IFEval, HumanEval and MBPP rows unchanged. Why v2: MATH128 is too small (one problem = 0.8 points); HumanEval/MBPP are near saturation and
 likely contaminated (Base HumanEval 84.8). LiveCodeBench test5 + test6 hold contests from
 2024-09-22 to 2025-04-06, after most of the base model's data.
 
@@ -21,7 +22,7 @@ from mopd.data import decontam
 from mopd.evaluation import livecodebench as lcb
 
 ROOT = Path(__file__).resolve().parents[1]
-VERSION = "unified-v2"
+VERSION = "unified-v3"
 OUT = ROOT / "data/full_eval" / VERSION
 TRAIN_POOLS = [
     "data/sft/numina_v3/train.jsonl",
@@ -111,7 +112,7 @@ def main():
     manifest["sources"] = {str(p): sha(p) for p in sources}
     manifest["contamination_vs_train_prompts"] = overlap(
         [r for r in rows if r["benchmark"] in ("math500", "livecodebench342")],
-        lambda r: r.get("problem") or r["prompt"].split("Question: ", 1)[1],
+        lambda r: r["problem"],
     )
     (OUT / "manifest.json").write_text(json.dumps(manifest, indent=2))
     print(json.dumps({k: v for k, v in manifest.items() if k != "sources"}, indent=2))

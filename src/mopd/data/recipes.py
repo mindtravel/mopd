@@ -8,7 +8,7 @@
    "prefer_fewest": "meta.hedge_markers",# optional; of a problem's shuffled candidates, keep the
                                           # `per_problem` with the lowest value of this field first
                                           # (e.g. subsets.hedge_count), not a random pick
-   "prompt": "lcb" | "lcb_think" | "plain",      # lcb: LiveCodeBench v1 wording; lcb_think: lcb-dev-v2-think
+   "prompt": "lcb" | "plain",            # lcb: the official LiveCodeBench prompt (livecodebench.prompt)
    "response": "full" | "final" | "code" | "think" | "nothink",  # full reply / reply without <think> /
                                           # code only / reasoning + </think> + answer / </think> + answer
                                           # (think, nothink: for plain_qa_think_v1 students)
@@ -37,7 +37,6 @@ from mopd.data import subsets
 from mopd.evaluation import livecodebench as lcb
 
 ROOT = subsets.ROOT
-FUNCTION_FORMAT = "Reply with the complete Python function in a single ```python code block."
 
 
 def field(row, key):
@@ -60,16 +59,8 @@ def matches(row, where):
 def format_prompt(row, style):
     if style == "plain":
         return row["problem"]
-    if style == "lcb":
-        if row["kind"] == "stdin":
-            return lcb.prompt(row["problem"], "stdin")
-        if row["meta"].get("starter"):  # exactly how a functional LiveCodeBench problem is asked
-            return lcb.prompt(row["problem"], "functional", row["meta"]["starter"])
-        return lcb.INSTRUCTION.format(question=row["problem"]) + FUNCTION_FORMAT
-    if style == "lcb_think":  # lcb-dev-v2-think wording; pair with student_prompt_format plain_qa_think_v1
-        if row["kind"] == "function" and row["meta"].get("starter"):
-            return lcb.prompt_think(row["problem"], "functional", row["meta"]["starter"])
-        return lcb.prompt_think(row["problem"], "stdin")
+    if style == "lcb":  # the frozen official LiveCodeBench prompt; starter code for function problems
+        return lcb.prompt(row["problem"], row["meta"].get("starter", "") if row["kind"] != "stdin" else "")
     raise ValueError(f"unknown prompt style {style!r}")
 
 

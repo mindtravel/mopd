@@ -3,7 +3,7 @@ or more GPUs: rows go to whichever GPU has room (scripts/generate_benchmark_vllm
 evals outside a sweep, e.g. re-scoring a checkpoint with sampling or a bigger generation budget.
 
   python scripts/run_eval.py --base models/Qwen3-4B-Base --adapter runs/.../checkpoint-0128 \
-    --data data/full_eval/lcb-dev-v1/lcbdev.jsonl --out results/.../probe --gpus 0 1 2 3 4 5 6 7 \
+    --data data/full_eval/lcb-dev-v3/lcbdev.jsonl --out results/.../probe --gpus 0 1 2 3 4 5 6 7 \
     --max-new-tokens 16384 --temperature 0.6 --top-p 0.95 \
     --model-version-id rstar-seed-concise:step-0128 --protocol-id lcbdev-plainqa-t0.6p0.95-16384
 """
