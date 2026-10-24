@@ -139,8 +139,9 @@ class Engine:
     checkpoint and returns the model name to request: same signature -> weights loaded in place
     (WeightSwap, ~seconds) or a LoRA adapter added at runtime; otherwise a restart."""
 
-    def __init__(self, gpu):
-        self.gpu, self.port = gpu, 18100 + gpu
+    def __init__(self, gpu, extra=()):
+        """extra: additional `vllm serve` arguments (profiling variants: KV dtype, batch budget)."""
+        self.gpu, self.port, self.extra = gpu, 18100 + gpu, list(extra)
         self.proc = self.signature = None
         self.lora = set()
 
@@ -178,7 +179,7 @@ class Engine:
         cmd += ["--host", "127.0.0.1", "--port", str(self.port), "--dtype", "bfloat16",
                 "--max-model-len", str(j["max_model_len"]), "--gpu-memory-utilization", "0.9",
                 "--max-num-seqs", "256", "--enable-auto-tool-choice", "--tool-call-parser", "hermes", "--seed", "0",
-                "--worker-extension-cls", "mopd.serving.weight_swap.WeightSwap"]
+                "--worker-extension-cls", "mopd.serving.weight_swap.WeightSwap", *self.extra]
         env = {**os.environ, "CUDA_VISIBLE_DEVICES": str(self.gpu),
                "VLLM_SERVER_DEV_MODE": "1",  # /collective_rpc, /reset_prefix_cache (server is on 127.0.0.1 only)
                "VLLM_ALLOW_RUNTIME_LORA_UPDATING": "1",
