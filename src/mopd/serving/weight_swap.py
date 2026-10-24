@@ -19,5 +19,10 @@ class WeightSwap:
         files = sorted(glob.glob(os.path.join(path, "*.safetensors")))
         if not files:
             raise FileNotFoundError(f"no safetensors in {path}")
-        loaded = self.model_runner.model.load_weights(safetensors_weights_iterator(files, False))
-        return len(loaded) if loaded is not None else None
+        model = self.model_runner.model
+        loaded = model.load_weights(safetensors_weights_iterator(files, False))
+        # a parameter the checkpoint did not cover would keep the previous model's values silently
+        missing = sorted({n for n, _ in model.named_parameters()} - set(loaded or ()))
+        if missing:
+            raise RuntimeError(f"{path} left {len(missing)} parameters unloaded, e.g. {missing[:5]}")
+        return len(loaded)
