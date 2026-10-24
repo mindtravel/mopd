@@ -2,7 +2,7 @@
 (LoRA, full-parameter sharded with FSDP, QAT): see run(). Scaffolding shared with SFT lives in
 mopd.training.run.TrainRun."""
 
-import argparse, hashlib, json, signal, sys, time
+import argparse, hashlib, json, signal, sys, time, traceback
 from pathlib import Path
 import torch
 import torch.distributed as dist
@@ -128,7 +128,7 @@ def run(c, resume=None):
                 replicas = factories[backend](c, student)
             publisher = Publisher(c, out / "vllm_runtime", stok, main) if backend == "vllm" else None
 
-            def rollouts(policy, rows, step):
+            def rollout_stream(policy, rows, step):
                 """One step's trajectories as a stream (vLLM/replica workers, or the student itself)."""
                 if replicas:
                     return open_stream(replicas, policy, rows, step - 1, streaming=bool(c.get("rollout_streaming")))
@@ -190,16 +190,21 @@ def run(c, resume=None):
                 # -> every rank: its share of the student backward (one rank: all of it)
                 payload = [None]
                 if main:
-                    stream = rollouts(policy, rows, step)
-                    by_domain = {d: [] for d in c["domains"]}
-                    lps = {d: [] for d in c["domains"]}
-                    planned = {d: sum(r["domain"] == d for r in rows) for d in c["domains"]}
-                    for domain, chunk in DomainBatcher(c["micro_batch_size"], planned).consume(stream):
-                        by_domain[domain] += chunk
-                        lps[domain] += [v.cpu() for v in scorer.teacher_logps(domain, chunk)]
-                    payload = [(by_domain, lps, stream.seconds, stream.stats or {}, scorer.teacher_seconds)]
+                    try:
+                        stream = rollout_stream(policy, rows, step)
+                        by_domain = {d: [] for d in c["domains"]}
+                        lps = {d: [] for d in c["domains"]}
+                        planned = {d: sum(r["domain"] == d for r in rows) for d in c["domains"]}
+                        for domain, chunk in DomainBatcher(c["micro_batch_size"], planned).consume(stream):
+                            by_domain[domain] += chunk
+                            lps[domain] += [v.cpu() for v in scorer.teacher_logps(domain, chunk)]
+                        payload = [(by_domain, lps, stream.seconds, stream.stats or {}, scorer.teacher_seconds)]
+                    except Exception:  # other ranks wait in the broadcast: send them the failure, not a hang
+                        payload = [{"error": traceback.format_exc()}]
                 if world_size > 1:
                     dist.broadcast_object_list(payload, src=0)
+                if isinstance(payload[0], dict):
+                    raise RuntimeError("rank 0 rollout/scoring failed:\n" + payload[0]["error"])
                 by_domain, lps, gen_seconds, rollout_stats, scorer.teacher_seconds = payload[0]
                 # profile_step: torch.profiler kernel breakdown (comm / matmul / attention / idle) of that
                 # step's student phase on rank 0 (runtime.profile.maybe_torch_profile)
