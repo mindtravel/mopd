@@ -85,6 +85,8 @@ class Engine:
                 "--worker-extension-cls", "mopd.serving.weight_swap.WeightSwap",
                 *(["--reasoning-parser", "qwen3"] if p["thinking"] else [])]
         env = {**os.environ, "CUDA_VISIBLE_DEVICES": str(self.gpu),
+               # the serving env's own tools first: vLLM JIT-builds kernels with its ninja
+               "PATH": f"{paths.SERVE_PY.parent}:{os.environ.get('PATH', '')}",
                "VLLM_SERVER_DEV_MODE": "1",  # /collective_rpc, /reset_prefix_cache (server is on 127.0.0.1 only)
                "VLLM_ALLOW_RUNTIME_LORA_UPDATING": "1",
                "PYTHONPATH": str(paths.ROOT / "src"),
