@@ -1,0 +1,7 @@
+{"name": "nccl-bench", "description": "FSDP-sized collective bandwidth under NCCL protocol/transport settings (4 GPUs)",
+ "steps": [
+  {"id": "ll", "kind": "command", "gpus": 4, "argv": ["env", "NCCL_PROTO=LL", "mopd_train/bin/python", "-m", "torch.distributed.run", "--standalone", "--nproc_per_node=4", "tests/gpu/bench_nccl.py"]},
+  {"id": "simple-cudamemcpy", "kind": "command", "gpus": 4, "argv": ["env", "NCCL_PROTO=Simple", "NCCL_SHM_USE_CUDA_MEMCPY=1", "mopd_train/bin/python", "-m", "torch.distributed.run", "--standalone", "--nproc_per_node=4", "tests/gpu/bench_nccl.py"]},
+  {"id": "ll128-cudamemcpy", "kind": "command", "gpus": 4, "argv": ["env", "NCCL_PROTO=LL128", "NCCL_SHM_USE_CUDA_MEMCPY=1", "mopd_train/bin/python", "-m", "torch.distributed.run", "--standalone", "--nproc_per_node=4", "tests/gpu/bench_nccl.py"]},
+  {"id": "default-cudamemcpy", "kind": "command", "gpus": 4, "argv": ["env", "-u", "NCCL_PROTO", "NCCL_SHM_USE_CUDA_MEMCPY=1", "mopd_train/bin/python", "-m", "torch.distributed.run", "--standalone", "--nproc_per_node=4", "tests/gpu/bench_nccl.py"]}
+ ]}
