@@ -20,10 +20,13 @@
   - AutomationBench：zapier/AutomationBench @ `4a8e106`。
 - 本机 Docker 没有 GPU runtime，vLLM 跑在宿主机（`mopd_infer` 环境的 `vllm serve`），容器用 `--network host` 访问。本机 Docker 的 bridge 网络是坏的，所以只能用 host 网络。
 - 服务只监听 `127.0.0.1:18090`。其它机器通过 ssh 上传 checkpoint、通过 ssh 调用 API，不在共享服务器上开放新端口。
-- 每个评测一个 worker，绑定自己的 GPU，各自按队列串行处理任务。同一任务的两个评测在两张卡上同时跑。每个任务的流程：
-  1. 在该卡上启动 vLLM，打开工具调用（hermes parser，Qwen3 chat template 支持）；LoRA 目录挂在 `adapter_config.json` 写的基座模型上。
-  2. 在容器里跑评测。
-  3. 记录分数，停掉 vLLM。
+- 每个评测一个 worker，绑定自己的 GPU，各自按队列串行处理任务。同一任务的两个评测在两张卡上同时跑。
+- 每张卡上常驻一个 vLLM OpenAI 服务（打开工具调用：hermes parser，Qwen3 chat template 支持；对外模型名固定为 `policy`）。换 checkpoint 时按下面的规则处理：
+  - **全参 checkpoint，结构、tokenizer 和 chat template 都和当前相同**：通过 worker 扩展（`src/mopd/serving/weight_swap.py`，dev 模式的 `/collective_rpc`）原地换权重，再清前缀缓存。如果 checkpoint 没覆盖全部参数，直接报错，不会悄悄沿用上一个模型的权重。
+  - **LoRA adapter，基座和当前相同**：运行时加载（`/v1/load_lora_adapter`）。
+  - **其它情况**：重启 vLLM。按卡复用编译缓存（`runtime/compile_cache`）。
+- 换权重只在 tokenizer 和 chat template 一致时才做，因为服务端始终用启动时加载的 tokenizer；不一致时如果硬换，prompt 会悄悄用错模板。
+- 任务失败后会停掉引擎，下一个任务从干净状态启动。
 - 任务记录在 `runs/bench-service/jobs/<id>.json`，服务重启后未完成的部分自动重新排队。
 
 ## 其它服务器怎么用
@@ -93,6 +96,10 @@ bash docker/benchmarks/build.sh
 - `vllm-<bench>.log`、`<bench>.log`。
 
 ## 已验证
+
+- 原地换权重正确：同一请求在换权重前后，输出文本逐字节相同，log-prob 最大差 0.0。验证方法是 `/collective_rpc` 前后各发 3 次单条请求。
+- 模型加载耗时：冷启动 75–80 s，原地换权重 3.8–4.6 s。
+- vLLM 服务在 temperature 0 下也不能逐字复现：换权重之前，同一请求连发 3 次就得到 2 种输出，原因是前缀缓存命中和 batch 组成改变了数值。同一 checkpoint 重复评测，分数会有小幅波动。
 
 - 镜像自检：IFBench 官方样例答案 300 题 strict prompt accuracy 0.2800，与原生部署一致。验证命令：`docker run --rm --network host mopd-bench:latest selftest`。
 - 用 Qwen3-4B-Instruct-2507 的端到端冒烟测试：待 GPU 6、7 释放后补上。
