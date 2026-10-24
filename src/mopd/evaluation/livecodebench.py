@@ -44,6 +44,28 @@ def prompt(question, kind, starter=""):
     return INSTRUCTION.format(question=question) + (FUNCTIONAL_FORMAT.format(starter=starter) if kind == "functional" else STDIN_FORMAT)
 
 
+# "Think first" protocol (lcb-dev-v2-think / student prompt format plain_qa_think_v1): the prompt
+# neither opens a code block nor shows starter code to continue; the student prompt ends by opening
+# the reasoning (<think>), and the reply is reasoning, </think>, then one complete code block. The
+# harness still calls Solution().<method>, so a functional problem states the required class and
+# method signature in prose.
+THINK_TAIL = ("Think through the problem first. Then give the complete {what} in a single ```python code block "
+              "after your reasoning.")
+THINK_STDIN = "Read the inputs from stdin, solve the problem and write the answer to stdout (do not test on the sample inputs). "
+THINK_FUNCTIONAL = "Your solution must define `class Solution` with the method `{signature}`. "
+
+
+def signature_of(starter):
+    """`def name(self, ...) -> T` lines of a LeetCode starter, joined; the whole starter if none."""
+    defs = [l.strip().rstrip(":") for l in starter.splitlines() if l.strip().startswith("def ")]
+    return "; ".join(defs) if defs else starter.strip()
+
+
+def prompt_think(question, kind, starter=""):
+    lead = THINK_FUNCTIONAL.format(signature=signature_of(starter)) if kind == "functional" else THINK_STDIN
+    return INSTRUCTION.format(question=question) + lead + THINK_TAIL.format(what="solution" if kind == "functional" else "program")
+
+
 HEADER = """import sys, os, io, re, math, string, random, bisect, heapq, itertools, functools, collections, operator, copy, decimal, fractions, statistics
 from typing import *
 from collections import *
@@ -91,7 +113,8 @@ def decode_private_tests(blob):
     return json.loads(raw)
 
 
-def benchmark_rows(files, tests_dir, root, tag):
+def benchmark_rows(files, tests_dir, root, tag, style="code"):
+    """style "code": v1 prompts (prompt()); "think": prompt_think()."""
     """Benchmark rows from LCB release files; tests are written to tests_dir/<question_id>.json.gz."""
     for f in files:
         for line in Path(f).open():
@@ -112,7 +135,8 @@ def benchmark_rows(files, tests_dir, root, tag):
                 meta["func_name"] = json.loads(r["metadata"])["func_name"]
                 starter = r["starter_code"]
             yield {"id": f"lcb/{r['question_id']}", "domain": "code", "split": "eval",
-                   "source": "livecodebench/code_generation_lite", "prompt": prompt(r["question_content"], kind, starter),
+                   "source": "livecodebench/code_generation_lite",
+                   "prompt": (prompt_think if style == "think" else prompt)(r["question_content"], kind, starter),
                    "metadata": meta, "benchmark": tag}
 
 

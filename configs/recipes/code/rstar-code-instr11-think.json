@@ -1,0 +1,34 @@
+{
+ "name": "rstar-code-instr11-think",
+ "description": "think 协议下的无思考对照：与 rstar-code-instr11 同数据，prompt 用 lcb_think、响应立即 </think> 后给代码；指令数据同样 </think> 后作答",
+ "parts": [
+  {
+   "subset": "rstar-seed",
+   "where": {
+    "meta.verified": [
+     true
+    ],
+    "meta.is_passed": [
+     true
+    ],
+    "meta.self_contained": [
+     true
+    ]
+   },
+   "weight": 1
+  },
+  {
+   "subset": "smol-constraints",
+   "prompt": "plain",
+   "weight": 1
+  }
+ ],
+ "prompt": "lcb_think",
+ "response": "think",
+ "per_problem": 1,
+ "rows": 8192,
+ "dev_rows": 64,
+ "seed": 20261022,
+ "max_total_tokens": 10240,
+ "micro_batch_size": 4
+}

@@ -1,0 +1,31 @@
+{
+ "name": "oci-think-instr11",
+ "description": "think 协议：OCI 的短 <think> 推理 + 最终代码（真实思考样本），与指令数据 1:1",
+ "parts": [
+  {
+   "subset": "opencodeinstruct",
+   "where": {
+    "meta.has_code": [
+     true
+    ],
+    "meta.self_contained": [
+     true
+    ]
+   },
+   "weight": 1
+  },
+  {
+   "subset": "smol-constraints",
+   "prompt": "plain",
+   "weight": 1
+  }
+ ],
+ "prompt": "lcb_think",
+ "response": "think",
+ "per_problem": 1,
+ "rows": 8192,
+ "dev_rows": 64,
+ "seed": 20261022,
+ "max_total_tokens": 10240,
+ "micro_batch_size": 4
+}

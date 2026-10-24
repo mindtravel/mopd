@@ -1,0 +1,54 @@
+{
+ "name": "code-think-v1",
+ "description": "先想后写协议（plain_qa_think_v1 + lcb-dev-v2-think）下的全参代码 SFT：prompt 不给代码块/起始代码，以 <think> 开头收尾；base 与各变体在同一协议下重评。",
+ "controls": {
+  "student": "/ssd/lzx/mopd/models/Qwen3-4B-Base",
+  "seed": 20261022,
+  "steps": 256,
+  "samples_per_step": 32,
+  "lr": 1e-05,
+  "lr_schedule": {
+   "type": "constant"
+  },
+  "save_every": 64,
+  "student_backend": "hf_full",
+  "fsdp": {
+   "reshard_after_forward": true
+  },
+  "student_prompt_format": "plain_qa_think_v1"
+ },
+ "eval": {
+  "protocol_id": "lcbdev-think-greedy8192",
+  "data": "/ssd/lzx/mopd/data/full_eval/lcb-dev-v2-think/lcbdev.jsonl",
+  "data_sha256": "TBD",
+  "max_new_tokens": 8192,
+  "checkpoints": [
+   128,
+   256
+  ]
+ },
+ "gpus": [
+  0,
+  1,
+  2,
+  3,
+  4,
+  5,
+  6,
+  7
+ ],
+ "variants": [
+  {
+   "name": "base",
+   "base": true
+  },
+  {
+   "name": "rstar-code-instr11-think",
+   "recipe": "configs/recipes/code/rstar-code-instr11-think.json"
+  },
+  {
+   "name": "oci-think-instr11",
+   "recipe": "configs/recipes/code/oci-think-instr11.json"
+  }
+ ]
+}

@@ -5,6 +5,7 @@
    "controls": {"student", "seed", "steps", "samples_per_step", "lr", "lr_schedule",
                 "save_every",                      # max_seq_len and micro_batch_size come from each recipe
                 "student_backend",                 # optional: "hf_lora" (default) or "hf_full"
+                "student_prompt_format",           # optional: plain_qa_v1 (default) or plain_qa_think_v1
                 "fsdp", "gradient_checkpointing"}, # optional, hf_full: mopd.training.fsdp.shard kwargs
    "eval": {"protocol_id", "data", "data_sha256", "max_new_tokens", "checkpoints": [128, 256]},
    "test": {"protocol_id", "data", "data_sha256"},       # only with --final
@@ -116,7 +117,7 @@ class Sweep:
         # optional training-system knobs, same for every variant of a sweep
         system = {k: c[k] for k in ("fsdp", "gradient_checkpointing") if k in c}
         return {"student": c["student"], "student_backend": c.get("student_backend", "hf_lora"), **system,
-                "student_prompt_format": "plain_qa_v1",
+                "student_prompt_format": c.get("student_prompt_format", "plain_qa_v1"),
                 "seed": c["seed"], "steps": c["steps"], "lr": c["lr"], "lr_schedule": c["lr_schedule"],
                 "micro_batch_size": micro, "save_every": c["save_every"], "max_seq_len": manifest["recipe"]["max_total_tokens"],
                 "output": str(self.runs / v["name"]), "data_pins": pins, "training_method": "sft", "student_device": "cuda:0",
@@ -147,7 +148,8 @@ class Sweep:
             self.log(variant=v["name"], stage=f"{kind}_start", checkpoint=ckpt, gpus=gpus)
             common = dict(data=ev["data"], protocol_id=ev["protocol_id"], max_new_tokens=ev["max_new_tokens"], device=gpus)
             if v.get("base"):
-                cmds = eval_commands(**common, out=out, model=self.spec["controls"]["student"], model_version_id="base:Qwen3-4B-Base")
+                cmds = eval_commands(**common, out=out, model=self.spec["controls"]["student"], model_version_id="base:Qwen3-4B-Base",
+                                     student_prompt_format=self.spec["controls"].get("student_prompt_format", "plain_qa_v1"))
             else:
                 cmds = eval_commands(**common, model_version=str(self.runs / v["name"] / "model-version.json"), checkpoint=f"checkpoint-{ckpt:04d}")
             return all(subprocess.run(cmd, cwd=ROOT, env={**os.environ, **extra}, stdout=log, stderr=subprocess.STDOUT).returncode == 0

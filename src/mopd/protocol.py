@@ -11,6 +11,7 @@ from collections.abc import Mapping
 # prompt_mode recorded in benchmark generation manifests.
 STUDENT_PROMPT_MODES = {
     "plain_qa_v1": "student_plain_qa_v1",
+    "plain_qa_think_v1": "student_plain_qa_think_v1",  # plain_qa_v1 + an opened <think> block
     "chat_template_v1": "student_checkpoint_chat_template_v1",
 }
 
@@ -80,6 +81,9 @@ def student_prompt(tokenizer, row, prompt_format):
     content = teacher_content(row)
     if prompt_format == "plain_qa_v1":
         return PLAIN_QA_HEADERS[row["domain"]] + content + "\nAnswer:"
+    if prompt_format == "plain_qa_think_v1":
+        # the reply continues inside <think>: reasoning, then </think>, then the answer
+        return PLAIN_QA_HEADERS[row["domain"]] + content + "\nAnswer:\n<think>\n"
     if prompt_format == "chat_template_v1":
         return apply_chat_template_text(
             tokenizer,

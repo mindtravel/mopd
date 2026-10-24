@@ -8,8 +8,9 @@
    "prefer_fewest": "meta.hedge_markers",# optional; of a problem's shuffled candidates, keep the
                                           # `per_problem` with the lowest value of this field first
                                           # (e.g. subsets.hedge_count), not a random pick
-   "prompt": "lcb" | "plain",            # lcb: same instruction wording as the LiveCodeBench eval prompt
-   "response": "full" | "final" | "code",# full reply / reply without <think> trace / fenced code only
+   "prompt": "lcb" | "lcb_think" | "plain",      # lcb: LiveCodeBench v1 wording; lcb_think: lcb-dev-v2-think
+   "response": "full" | "final" | "code" | "think",  # full reply / reply without <think> / code only /
+                                          # reasoning + </think> + code (for plain_qa_think_v1 students)
    "max_total_tokens": 20480,            # prompt + response + EOS above this is skipped (student
                                           # tokenizer); benchmark_seq_len.py found real data tops
                                           # out at ~19.7k, and the cost is in micro-batching two
@@ -62,6 +63,10 @@ def format_prompt(row, style):
         if row["meta"].get("starter"):  # exactly how a functional LiveCodeBench problem is asked
             return lcb.prompt(row["problem"], "functional", row["meta"]["starter"])
         return lcb.INSTRUCTION.format(question=row["problem"]) + FUNCTION_FORMAT
+    if style == "lcb_think":  # lcb-dev-v2-think wording; pair with student_prompt_format plain_qa_think_v1
+        if row["kind"] == "function" and row["meta"].get("starter"):
+            return lcb.prompt_think(row["problem"], "functional", row["meta"]["starter"])
+        return lcb.prompt_think(row["problem"], "stdin")
     raise ValueError(f"unknown prompt style {style!r}")
 
 
@@ -72,7 +77,29 @@ def format_response(row, style):
         return subsets.THINK.sub("", row["response"]) if "</think>" in row["response"] else row["response"]
     if style == "code":
         return f"```python\n{row['code'].strip()}\n```" if row["code"].strip() else ""
+    if style == "think":
+        # Continues the prompt's open <think>: reasoning, then </think>, then the answer -- the code
+        # block for code rows, the reply itself for rows without code (instruction data mixed in).
+        # Reasoning = the part before </think> if the reply has one, else the reply minus its final
+        # code block; empty reasoning closes the block at once (a "no-think" control).
+        text = row["response"].replace("<think>", "")
+        code = row["code"].strip()
+        if "</think>" in text:
+            reasoning, answer = text.split("</think>", 1)
+        elif code:
+            reasoning, answer = lcb_strip_final_code(text), ""
+        else:
+            reasoning, answer = "", text
+        answer = f"```python\n{code}\n```" if code else answer.strip()
+        reasoning = reasoning.strip()
+        return (reasoning + "\n</think>\n\n" if reasoning else "</think>\n\n") + answer
     raise ValueError(f"unknown response style {style!r}")
+
+
+def lcb_strip_final_code(text):
+    """Drop the last fenced code block (and anything after it) from a reply."""
+    blocks = list(subsets.FENCE.finditer(text))
+    return text[:blocks[-1].start()] if blocks else text
 
 
 def version(recipe):
