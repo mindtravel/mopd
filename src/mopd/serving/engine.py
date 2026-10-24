@@ -83,7 +83,8 @@ class Engine:
                 # text only: a multimodal checkpoint (Qwen3.5) keeps no memory for images or video
                 "--limit-mm-per-prompt", json.dumps({"image": 0, "video": 0}),
                 "--worker-extension-cls", "mopd.serving.weight_swap.WeightSwap",
-                *(["--reasoning-parser", "qwen3"] if p["thinking"] else [])]
+                *(["--reasoning-parser", "qwen3"] if p["thinking"] else []),
+                *(["--default-chat-template-kwargs", json.dumps(p["chat_template_kwargs"])] if p["chat_template_kwargs"] else [])]
         env = {**os.environ, "CUDA_VISIBLE_DEVICES": str(self.gpu),
                # the serving env's own tools first: vLLM JIT-builds kernels with its ninja
                "PATH": f"{paths.SERVE_PY.parent}:{os.environ.get('PATH', '')}",

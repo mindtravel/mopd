@@ -55,6 +55,9 @@ python3 bench_client.py submit /path/to/ckpt --auto-domains sales
 # 只跑一个评测
 python3 bench_client.py submit /path/to/ckpt --benchmarks ifbench
 
+# 思考模式（模板需支持 enable_thinking）
+python3 bench_client.py submit /path/to/ckpt --thinking
+
 # checkpoint 已经在 para5090 上，不上传
 python3 bench_client.py submit /ssd/lzx/mopd/runs/xxx/checkpoint-0128 --remote-path
 
@@ -75,10 +78,12 @@ python3 bench_client.py status <任务ID>  # 单个任务和分数
 
 - 所有 checkpoint 都用同一套设置，分数可以直接比较。每个任务的记录里会带上实际用的设置（`protocol` 字段）。
 - vLLM 上下文长度固定为 32768。
-- 以下几项按 checkpoint 自带的 chat template 决定（`protocol.settings`）：
-  - **工具调用格式**：模板里有 `<function=`（Qwen3.5 的 XML 格式）就用 `qwen3_coder` parser，否则用 `hermes`（Qwen3 的 JSON 格式）。
-  - **思考模型**：模板里有 `enable_thinking` 就算思考模型。vLLM 加 `--reasoning-parser qwen3`，把思考内容和最终回答分开，评测只看最终回答；IFBench 的输出上限提到 16384，否则很多回答会在思考阶段被截断。
-  - **思考模型的分数不能和非思考模型直接比较**：两者输出上限不同，报告时要标明。
+- **工具调用格式**按 checkpoint 自带的 chat template 决定：模板里有 `<function=`（Qwen3.5 的 XML 格式）就用 `qwen3_coder` parser，否则用 `hermes`（Qwen3 的 JSON 格式）。
+- **思考模式由任务指定，默认关闭**（客户端加 `--thinking` 打开）：
+  - **关闭（默认）**：服务端默认 `enable_thinking=false`，不加 reasoning parser，IFBench 输出上限 4096。
+  - **打开**：服务端设 `enable_thinking=true`，加 `--reasoning-parser qwen3`，把思考内容和最终回答分开，只给最终回答打分；IFBench 输出上限提到 16384。模板里没有 `enable_thinking` 开关时会直接拒绝。
+  - 不按模板自动判断，原因是：模板支持思考不代表模型会思考。例如 q35_4b_if-step2000 在 `<think>` 后面直接作答、从不输出 `</think>`，开着 reasoning parser 会把整段回答当成思考，最终回答为空，IFBench 12 题全部为空。
+  - 思考和非思考的分数不能直接比较，报告时要标明用的是哪种。
 - 服务用独立的推理环境 `mopd_serve`（vLLM 0.31），支持 Qwen3.5 等新架构；训练用的 `mopd_infer`（vLLM 0.10.2）不变。多模态 checkpoint 只按纯文本服务，不给图像和视频预留显存。
 - AutomationBench 要求模型会调用工具。没学过工具调用的 base 模型或 plain_qa 学生预计接近 0 分，这反映的是模型能力，不是服务故障。
 - AutomationBench 的 simple 任务和 6 个正式领域要分开报告；公开任务的成绩和官方排行榜（私有留出集）不等价。

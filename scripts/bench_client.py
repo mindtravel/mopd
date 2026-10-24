@@ -38,6 +38,7 @@ def main():
     s.add_argument("--ifbench-limit", type=int, help="first N prompts (default all 300)")
     s.add_argument("--auto-domains", default="simple", help="simple | all | comma list (sales,hr,...)")
     s.add_argument("--auto-limit", type=int, help="first N tasks (default all)")
+    s.add_argument("--thinking", action="store_true", help="evaluate in thinking mode (template must have enable_thinking)")
     s.add_argument("--wait", action="store_true")
     st = sub.add_parser("status")
     st.add_argument("job", nargs="?")
@@ -63,7 +64,7 @@ def main():
                         "--exclude", "optimizer*", "--exclude", "training_state.pt", "--exclude", "*.pt",
                         f"{src}/", f"{a.host}:{model}/"], check=True)
     body = {"model": model, "name": name, "benchmarks": a.benchmarks, "ifbench_limit": a.ifbench_limit,
-            "auto_domains": a.auto_domains, "auto_limit": a.auto_limit}
+            "auto_domains": a.auto_domains, "auto_limit": a.auto_limit, "thinking": a.thinking}
     j = api(a.host, "POST", "/jobs", body)
     if "error" in j:
         sys.exit(j["error"])

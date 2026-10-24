@@ -40,11 +40,14 @@ class ServingTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as t:
             m = model_dir(t)
             plain = protocol.settings(m)
-            self.assertEqual((plain["tool_parser"], plain["thinking"], plain["ifbench"]["max_tokens"]), ("hermes", False, 4096))
+            self.assertEqual((plain["tool_parser"], plain["chat_template_kwargs"], plain["ifbench"]["max_tokens"]), ("hermes", None, 4096))
+            with self.assertRaises(ValueError):  # no enable_thinking switch in the template
+                protocol.request({"model": str(m), "thinking": True})
             (m / "chat_template.jinja").write_text("{% if enable_thinking %}<think>{% endif %}<tool_call><function=f>")
-            q35 = protocol.settings(m)
-            self.assertEqual((q35["tool_parser"], q35["thinking"]), ("qwen3_coder", True))
-            self.assertEqual(q35["ifbench"]["max_tokens"], protocol.THINKING_MAX_TOKENS)
+            q35 = protocol.settings(m)  # thinking is opt-in, even when the template could think
+            self.assertEqual((q35["tool_parser"], q35["thinking"], q35["chat_template_kwargs"]), ("qwen3_coder", False, {"enable_thinking": False}))
+            on = protocol.settings(m, thinking=True)
+            self.assertEqual((on["chat_template_kwargs"], on["ifbench"]["max_tokens"]), ({"enable_thinking": True}, protocol.THINKING_MAX_TOKENS))
 
     def test_job_state_and_restart_requeue(self):
         with tempfile.TemporaryDirectory() as t:

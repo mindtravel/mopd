@@ -36,7 +36,7 @@ class Jobs:
         j = {
             "id": time.strftime("%Y%m%d-%H%M%S-") + uuid.uuid4().hex[:6],
             **fields,
-            "protocol": protocol.settings(fields["model"]),
+            "protocol": protocol.settings(fields["model"], fields["thinking"]),
             "parts": {b: {"state": "queued"} for b in fields["benchmarks"]},
             "submitted": time.strftime("%Y-%m-%dT%H:%M:%S"),
         }
