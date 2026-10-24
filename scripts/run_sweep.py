@@ -211,6 +211,13 @@ class Sweep:
         if sha256(self.spec["eval"]["data"]) != self.spec["eval"]["data_sha256"]:
             raise SystemExit("dev benchmark digest differs from the sweep pin")
         todo = [v for v in self.spec["variants"] if not only or v["name"] in only]
+        # Build every recipe here, one at a time, before the variant threads start: each build imports
+        # transformers on first use, and concurrent first imports from several threads race inside its
+        # lazy module (two variants failed with "cannot import name 'AutoTokenizer'"). The threads then
+        # find every pool cached.
+        for v in todo:
+            if not v.get("base"):
+                recipes.build(ROOT / v["recipe"])
         # Live check, not a fixed allow-list: this server is shared, and another team's job can
         # occupy any GPU (including one we've always treated as "ours") with no warning in our own
         # config. Only GPUs idle right at launch go in the pool; a GPU that was free then but gets
