@@ -12,8 +12,13 @@ place that touches vLLM's internal request/step API.
 def stream_feed(engine, params, adapter, feed, on_finish):
     """feed(unfinished) -> list of (key, prompt_dict) to add now, or None when no more will come.
     It is called before every engine step; it may block only when unfinished == 0 (nothing to
-    step). on_finish(key, output) runs once per finished request, in finish order."""
+    step). on_finish(key, output) runs once per finished request, in finish order.
+
+    Returns counters for mopd.profiling.model.infer_utilization: engine steps, generated and
+    prefilled tokens, and the attention context read while decoding (prompt p, answer g:
+    p*g + g*(g+1)/2 per request). Integer additions per step: no measurable cost."""
     keys, unfinished, closed = {}, 0, False
+    counters = {"steps": 0, "generated": 0, "prefilled": 0, "context_tokens": 0}
     while True:
         if not closed:
             new = feed(unfinished)
@@ -33,12 +38,17 @@ def stream_feed(engine, params, adapter, feed, on_finish):
                 unfinished += len(new)
         if unfinished == 0:
             if closed:
-                return
+                return counters
             continue
         if not engine.llm_engine.has_unfinished_requests():
             raise RuntimeError(f"engine lost {unfinished} request(s)")
+        counters["steps"] += 1
         for output in engine.llm_engine.step():
             if output.finished:
+                p, g = len(output.prompt_token_ids or ()), len(output.outputs[0].token_ids)
+                counters["generated"] += g
+                counters["prefilled"] += p
+                counters["context_tokens"] += p * g + g * (g + 1) // 2
                 on_finish(keys.pop(output.request_id), output)
                 unfinished -= 1
 
@@ -46,4 +56,4 @@ def stream_feed(engine, params, adapter, feed, on_finish):
 def stream_requests(engine, prompts, params, adapter, on_finish):
     """Submit every prompt at once; on_finish(request_index, output) in finish order."""
     batch = [list(enumerate(prompts))]
-    stream_feed(engine, params, adapter, lambda unfinished: batch.pop() if batch else None, on_finish)
+    return stream_feed(engine, params, adapter, lambda unfinished: batch.pop() if batch else None, on_finish)

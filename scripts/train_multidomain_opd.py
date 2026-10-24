@@ -17,7 +17,8 @@ from mopd.rollout.processes import ProcessRollouts
 from mopd.rollout.replicas import RolloutReplicas
 from mopd.runtime.artifacts import dump, fingerprint
 from mopd.runtime.provenance import record as record_provenance
-from mopd.runtime.profile import ModelShape, maybe_torch_profile, opd_utilization
+from mopd.profiling.model import ModelShape, opd_utilization
+from mopd.profiling.training import torch_profile
 from mopd.training.batching import generation_eos_ids
 from mopd.training.opd_step import OPDStepScorer, BlockContribution
 from mopd.training.run import TrainRun
@@ -231,8 +232,8 @@ def run(c, resume=None):
                     publish_seconds = time.perf_counter() - mark
                     pending = (Prefetched(rollout_stream(policy, batches[step], version + 1)) if main else None, version)
                 # profile_step: torch.profiler kernel breakdown (comm / matmul / attention / idle) of that
-                # step's student phase on rank 0 (runtime.profile.maybe_torch_profile)
-                with maybe_torch_profile(main and c.get("profile_step") == step, out, step) as trace:
+                # step's student phase on rank 0 (profiling.training.torch_profile)
+                with torch_profile(main and c.get("profile_step") == step, out, step) as trace:
                     scorer.sharded_step(
                         by_domain,
                         lps,
@@ -253,12 +254,10 @@ def run(c, resume=None):
                     util = opd_utilization(
                         shape,
                         scorer.seq_lengths,
-                        student_seconds=scorer.student_seconds,
-                        step_seconds=seconds,
-                        generation_seconds=gen_seconds,
-                        student_gpus=world_size,
-                        rollout_gpus=len(c.get("rollout_devices", [])),
-                        generated_tokens=sum(s["tokens"] for s in stats.values()),
+                        seconds={"step": seconds, "student": scorer.student_seconds, "generation": gen_seconds},
+                        gpus={"student": world_size, "rollout": len(c.get("rollout_devices", []))},
+                        # vLLM engines count their own steps and tokens; other backends only report tokens
+                        rollout=rollout_stats.get("counters") or {"generated": sum(s["tokens"] for s in stats.values())},
                         recompute=c.get("gradient_checkpointing", True),
                     )
                     report = {

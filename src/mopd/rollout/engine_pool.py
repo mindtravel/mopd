@@ -130,6 +130,9 @@ class EnginePool:
             "per_gpu": {str(d): per_gpu[d] for d in self.devices},
             "load_seconds": {str(d): round(idle[d].get("load_seconds", 0.0), 3) for d in idle},
             "policy_id": {str(d): idle[d].get("policy_id") for d in idle},
+            # engine steps / tokens / attention context summed over GPUs (profiling.model.infer_utilization)
+            "counters": {k: sum((idle[d].get("counters") or {}).get(k, 0) for d in idle)
+                         for k in ("steps", "generated", "prefilled", "context_tokens")},
         }
 
     def close(self):

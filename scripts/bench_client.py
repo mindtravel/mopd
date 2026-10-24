@@ -6,7 +6,8 @@ The checkpoint is rsynced into the service inbox unless it is already a path on 
 
   python bench_client.py submit /path/to/ckpt [--name my-run] [--host para5090] \\
       [--benchmarks ifbench automationbench] [--ifbench-limit 12] [--auto-domains simple] \\
-      [--auto-examples 8] [--wait]
+      [--auto-limit 8] [--wait]
+  The evaluation settings themselves are fixed by the service (mopd.serving.protocol).
   python bench_client.py status [JOB_ID] [--host para5090]
 """
 
@@ -34,13 +35,9 @@ def main():
     s.add_argument("--remote-path", action="store_true", help="model is already a path on the server")
     s.add_argument("--name")
     s.add_argument("--benchmarks", nargs="+", default=["ifbench", "automationbench"])
-    s.add_argument("--ifbench-limit", type=int)
-    s.add_argument("--ifbench-max-tokens", type=int, default=4096)
-    s.add_argument("--ifbench-workers", type=int, default=64, help="concurrent requests")
-    s.add_argument("--auto-domains", default="simple", help="simple | sales | ... | all")
-    s.add_argument("--auto-examples", type=int)
-    s.add_argument("--auto-max-steps", type=int, default=50)
-    s.add_argument("--auto-concurrent", type=int, default=32, help="concurrent tasks")
+    s.add_argument("--ifbench-limit", type=int, help="first N prompts (default all 300)")
+    s.add_argument("--auto-domains", default="simple", help="simple | all | comma list (sales,hr,...)")
+    s.add_argument("--auto-limit", type=int, help="first N tasks (default all)")
     s.add_argument("--wait", action="store_true")
     st = sub.add_parser("status")
     st.add_argument("job", nargs="?")
@@ -65,14 +62,8 @@ def main():
         subprocess.run(["rsync", "-a", "--partial", "--info=progress2",
                         "--exclude", "optimizer*", "--exclude", "training_state.pt", "--exclude", "*.pt",
                         f"{src}/", f"{a.host}:{model}/"], check=True)
-    body = {
-        "model": model,
-        "name": name,
-        "benchmarks": a.benchmarks,
-        "ifbench": {"limit": a.ifbench_limit, "max_tokens": a.ifbench_max_tokens, "workers": a.ifbench_workers},
-        "automationbench": {"domains": a.auto_domains, "num_examples": a.auto_examples, "max_steps": a.auto_max_steps,
-                            "max_concurrent": a.auto_concurrent},
-    }
+    body = {"model": model, "name": name, "benchmarks": a.benchmarks, "ifbench_limit": a.ifbench_limit,
+            "auto_domains": a.auto_domains, "auto_limit": a.auto_limit}
     j = api(a.host, "POST", "/jobs", body)
     if "error" in j:
         sys.exit(j["error"])
@@ -81,7 +72,7 @@ def main():
         time.sleep(30)
         j = api(a.host, "GET", f"/jobs/{j['id']}")
         if j["state"] in ("complete", "failed"):
-            print(json.dumps({k: j.get(k) for k in ("id", "state", "scores", "errors")}, indent=1, ensure_ascii=False))
+            print(json.dumps({k: j.get(k) for k in ("id", "state", "scores", "utilization", "errors")}, indent=1, ensure_ascii=False))
             sys.exit(0 if j["state"] == "complete" else 1)
         print(f"{time.strftime('%H:%M:%S')} {j['state']} {j.get('note') or ''}", flush=True)
 

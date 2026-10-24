@@ -37,7 +37,8 @@ from mopd.data.mixture import resolve_domain, plan_domains
 from mopd.data.token_budget import plan_by_tokens
 from mopd.protocol import student_prompt
 from mopd.runtime.artifacts import dump
-from mopd.runtime.profile import ModelShape, StepProfile, maybe_torch_profile
+from mopd.profiling.model import ModelShape
+from mopd.profiling.training import StepProfile, torch_profile
 from mopd.training import fsdp
 from mopd.training.batching import pack, logps
 from mopd.training.microbatch import by_budget
@@ -110,7 +111,7 @@ def main():
         for step, rows in enumerate(plan, 1):
             # profile_step: dump a torch.profiler kernel breakdown (comm / matmul / attention / idle) of
             # that one step on rank 0 -- the per-step StepProfile cannot see inside FSDP's hooks.
-            with maybe_torch_profile(run.main and c.get("profile_step") == step, run.out, step) as trace:
+            with torch_profile(run.main and c.get("profile_step") == step, run.out, step) as trace:
                 prof = StepProfile(shape, run.world_size, recompute=recompute, device=device)
                 started = time.perf_counter()
                 lr = run.begin_step()

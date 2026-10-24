@@ -16,7 +16,7 @@ Wire (JSON lines; worker output prefixed with TAG):
              {"rows": [[key, prompt_token_ids], ...]}  (may be empty)  answers a want
              {"eof": true}  no more rows this session        {"stop": true}  exit
   worker ->: {"ready", "eos"}  {"want": k}  {"key", "text", "token_ids", "finish_reason", "first_logprobs"}
-             {"idle": true, "session": n, "policy_id", "load_seconds"}  {"error": traceback}
+             {"idle": true, "session": n, "policy_id", "load_seconds", "counters"}  {"error": traceback}
 """
 
 import contextlib, hashlib, json, queue, sys, threading, time, traceback
@@ -164,13 +164,14 @@ def main():
                         }
                     )
 
-                stream_feed(engine, params, adapter, feed, on_finish)
+                counters = stream_feed(engine, params, adapter, feed, on_finish)
                 emit(
                     {
                         "idle": True,
                         "session": s.get("session"),
                         "policy_id": policy.id,
                         "load_seconds": policy.load_seconds,
+                        "counters": counters,
                     }
                 )
         except BaseException:
