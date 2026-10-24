@@ -22,8 +22,13 @@ def stream_feed(engine, params, adapter, feed, on_finish):
             elif new:
                 first = engine.request_counter.counter
                 prompts = [p for _, p in new]
-                engine._validate_and_add_requests(prompts=prompts, params=params, use_tqdm=False,
-                    lora_request=engine._get_modality_specific_lora_reqs(prompts, adapter), priority=None)
+                engine._validate_and_add_requests(
+                    prompts=prompts,
+                    params=params,
+                    use_tqdm=False,
+                    lora_request=engine._get_modality_specific_lora_reqs(prompts, adapter),
+                    priority=None,
+                )
                 keys.update({str(first + i): k for i, (k, _) in enumerate(new)})
                 unfinished += len(new)
         if unfinished == 0:

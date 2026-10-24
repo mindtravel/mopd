@@ -3,6 +3,7 @@
 Adding a student backend means adding one loader and one saver here; the training
 loop, rollout layer and evaluation never branch on backend identity.
 """
+
 from pathlib import Path
 
 import torch
@@ -44,8 +45,10 @@ def _load_fairy2i_qat(config):
     from mopd.backends.fairy2i_qat_adapter import load_fairy2i_qat_student
 
     return load_fairy2i_qat_student(
-        config["student"], config["student_device"],
-        trainable_scales=True, update_path=config.get("student_adapter"),
+        config["student"],
+        config["student_device"],
+        trainable_scales=True,
+        update_path=config.get("student_adapter"),
     )
 
 
@@ -71,9 +74,11 @@ def save_student(model, config, path, step, main_rank=True):
     path = Path(path)
     if config.get("student_backend") == "hf_full":
         from mopd.training import fsdp
+
         fsdp.save(model, path, config["student"], main_rank)
     elif config.get("student_backend") == "fairy2i_qat":
         from mopd.backends.fairy2i_qat_adapter import save_fairy2i_qat_update
+
         save_fairy2i_qat_update(model, path, base_model=config["student"], step=step)
     else:
         model.save_pretrained(path, safe_serialization=True)

@@ -1,5 +1,6 @@
 import sys
 from pathlib import Path
+
 _ROOT = Path(__file__).resolve().parents[1]
 sys.path[:0] = [str(_ROOT / "src"), str(_ROOT / "scripts")]
 import sys, unittest
@@ -19,7 +20,8 @@ class ThinkPromptTest(unittest.TestCase):
         self.assertNotIn("class Solution", p)
 
     def test_stdin(self):
-        self.assertIn("stdin", prompt_think("Q", "stdin")); self.assertIn("Think through the problem first", prompt_think("Q", "stdin"))
+        self.assertIn("stdin", prompt_think("Q", "stdin"))
+        self.assertIn("Think through the problem first", prompt_think("Q", "stdin"))
 
 
 if __name__ == "__main__":

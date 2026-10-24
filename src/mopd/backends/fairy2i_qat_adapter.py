@@ -1,4 +1,5 @@
 """MOPD-owned compatibility adapter for Fairy2i QAT autograd."""
+
 from __future__ import annotations
 
 import importlib
@@ -59,11 +60,7 @@ def install_scale_backward_fallback(kernel_module) -> None:
 
 
 def _scale_parameters(model):
-    return {
-        name: parameter
-        for name, parameter in model.named_parameters()
-        if name.endswith(".quant_scale")
-    }
+    return {name: parameter for name, parameter in model.named_parameters() if name.endswith(".quant_scale")}
 
 
 def save_fairy2i_qat_update(model, output_dir, *, base_model, step=None):
@@ -149,9 +146,7 @@ def load_fairy2i_qat_student(
     from transformers import AutoModelForCausalLM, AutoTokenizer
 
     source = Path(model_path)
-    tokenizer = AutoTokenizer.from_pretrained(
-        str(source), local_files_only=True, trust_remote_code=True
-    )
+    tokenizer = AutoTokenizer.from_pretrained(str(source), local_files_only=True, trust_remote_code=True)
     tokenizer.padding_side = "left"
     if tokenizer.pad_token_id is None:
         tokenizer.pad_token = tokenizer.eos_token

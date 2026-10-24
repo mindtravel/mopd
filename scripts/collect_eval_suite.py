@@ -8,8 +8,10 @@ problems (rep1 of each model). Extra slices: MATH500 without near-duplicates of 
 
   python scripts/collect_eval_suite.py configs/eval_suites/v2-scale256.json --pairs mopd-mic:mix-mic mopd-mic:merge-mic
 """
+
 import argparse, json, random
 from pathlib import Path
+
 ROOT = Path(__file__).resolve().parents[1]
 LENIENT_PRIMARY = {"humaneval164", "mbpp257"}
 
@@ -67,19 +69,37 @@ def main():
         row = {}
         for g, keys in groups.items():
             scores = [100 * sum(verdict(run[k]) for k in keys) / len(keys) for run in runs]
-            row[g] = {"n": len(keys), "score": round(sum(scores) / len(scores), 1),
-                      **({"repeats": [round(s, 1) for s in scores], "spread": round(max(scores) - min(scores), 1)} if len(runs) > 1 else {})}
+            row[g] = {
+                "n": len(keys),
+                "score": round(sum(scores) / len(scores), 1),
+                **(
+                    {"repeats": [round(s, 1) for s in scores], "spread": round(max(scores) - min(scores), 1)}
+                    if len(runs) > 1
+                    else {}
+                ),
+            }
         table[name] = row
     pairs = {}
     for p in a.pairs:
         x, y = p.split(":")
         pairs[p] = {g: [round(v, 1) for v in bootstrap(reps[x][0], reps[y][0], keys)] for g, keys in groups.items()}
-    result = {"suite": suite["name"], "protocol_id": suite["protocol_id"], "models": table, "paired_bootstrap_95": pairs}
+    result = {
+        "suite": suite["name"],
+        "protocol_id": suite["protocol_id"],
+        "models": table,
+        "paired_bootstrap_95": pairs,
+    }
     (root / "summary.json").write_text(json.dumps(result, indent=1, ensure_ascii=False))
     order = list(groups)
     print("model".ljust(11) + "".join(g[:16].rjust(17) for g in order))
     for name, row in table.items():
-        print(name.ljust(11) + "".join((f"{row[g]['score']:.1f}" + (f" ±{row[g]['spread']/2:.1f}" if "spread" in row[g] else "")).rjust(17) for g in order))
+        print(
+            name.ljust(11)
+            + "".join(
+                (f"{row[g]['score']:.1f}" + (f" ±{row[g]['spread']/2:.1f}" if "spread" in row[g] else "")).rjust(17)
+                for g in order
+            )
+        )
     for p, v in pairs.items():
         print(p.ljust(20) + "  ".join(f"{g}: {d:+.1f} [{lo:+.1f},{hi:+.1f}]" for g, (d, lo, hi) in v.items()))
 

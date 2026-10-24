@@ -4,8 +4,10 @@ greedy tokens as LLM.generate.
 
   CUDA_VISIBLE_DEVICES=<idle gpu> VLLM_ENABLE_V1_MULTIPROCESSING=0 mopd_infer/bin/python scripts/test_engine_stream.py
 """
+
 import sys
 from pathlib import Path
+
 _ROOT = Path(__file__).resolve().parents[2]
 sys.path[:0] = [str(_ROOT / "src"), str(_ROOT / "scripts")]
 import sys
@@ -26,9 +28,18 @@ assert sum(got[i] == want[i] for i in range(12)) >= 10, "submit-all path diverge
 
 batches = [[(i, prompts[i]) for i in range(j, min(j + 5, 12))] for j in range(0, 12, 5)]
 fed = {}
+
+
 def feed(unfinished):
     return batches.pop(0) if batches else None
+
+
 stream_feed(engine, params, None, feed, lambda k, o: fed.__setitem__(k, list(o.outputs[0].token_ids)))
 assert sorted(fed) == list(range(12)), fed.keys()
 assert sum(fed[i] == want[i] for i in range(12)) >= 10, "incremental feed path diverges from generate()"
-print("engine_stream ok:", sum(got[i] == want[i] for i in range(12)), sum(fed[i] == want[i] for i in range(12)), "of 12 identical to generate()")
+print(
+    "engine_stream ok:",
+    sum(got[i] == want[i] for i in range(12)),
+    sum(fed[i] == want[i] for i in range(12)),
+    "of 12 identical to generate()",
+)

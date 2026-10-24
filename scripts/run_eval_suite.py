@@ -13,8 +13,10 @@ the suite can be re-run after an interruption.
 
   python scripts/run_eval_suite.py configs/eval_suites/v2-scale256.json
 """
+
 import json, os, queue, subprocess, sys, threading, time
 from pathlib import Path
+
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 from mopd.runtime.provenance import sha256
@@ -29,7 +31,13 @@ def target(suite, m, out):
 
 
 def commands(suite, m, out, gpu):
-    common = dict(data=suite["data"], protocol_id=suite["protocol_id"], max_new_tokens=suite["max_new_tokens"], device=gpu, out=out)
+    common = dict(
+        data=suite["data"],
+        protocol_id=suite["protocol_id"],
+        max_new_tokens=suite["max_new_tokens"],
+        device=gpu,
+        out=out,
+    )
     if "model_version" in m:
         return eval_commands(**common, model_version=m["model_version"], checkpoint=m["checkpoint"])
     return eval_commands(**common, model=m["model"], model_version_id=m.get("model_version_id"))
@@ -63,14 +71,28 @@ def main():
             start = time.time()
             with open(str(out) + ".log", "a") as log:
                 for cmd, extra in commands(suite, m, real, gpu):
-                    if subprocess.run(cmd, cwd=ROOT, env={**os.environ, **extra}, stdout=log, stderr=subprocess.STDOUT).returncode:
-                        failed.append(str(out)); break
-            print(json.dumps({"done": str(out.relative_to(root)), "gpu": gpu, "seconds": round(time.time() - start),
-                              "ok": str(out) not in failed}), flush=True)
+                    if subprocess.run(
+                        cmd, cwd=ROOT, env={**os.environ, **extra}, stdout=log, stderr=subprocess.STDOUT
+                    ).returncode:
+                        failed.append(str(out))
+                        break
+            print(
+                json.dumps(
+                    {
+                        "done": str(out.relative_to(root)),
+                        "gpu": gpu,
+                        "seconds": round(time.time() - start),
+                        "ok": str(out) not in failed,
+                    }
+                ),
+                flush=True,
+            )
 
     threads = [threading.Thread(target=worker, args=(g,)) for g in suite["gpus"]]
-    for t in threads: t.start()
-    for t in threads: t.join()
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
     if failed:
         raise SystemExit(f"failed: {failed}")
 

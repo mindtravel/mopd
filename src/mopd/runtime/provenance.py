@@ -12,6 +12,7 @@ directory. It refuses to start unless:
 The result is written to <run>/provenance.json, next to config.json and the model-version
 manifest, so any number traces back to code, data and spec.
 """
+
 import hashlib
 import json
 import platform
@@ -43,7 +44,9 @@ def _source(root):
         raise ProvenanceError(f"deployed source is not a clean commit ({version}); commit locally and re-sync")
     check = subprocess.run(["sha256sum", "--quiet", "-c", str(manifest)], cwd=root, capture_output=True, text=True)
     if check.returncode != 0:
-        raise ProvenanceError("deployed files differ from .deploy/manifest.sha256:\n" + (check.stdout + check.stderr)[-2000:])
+        raise ProvenanceError(
+            "deployed files differ from .deploy/manifest.sha256:\n" + (check.stdout + check.stderr)[-2000:]
+        )
     commit = version.split("-", 1)[0]
     return {"source_version": version, "commit": commit, "deployed_files_verified": True}
 
@@ -53,7 +56,9 @@ def _data(config):
     for path, expected in pins.items():
         actual = sha256(path)
         if actual != expected:
-            raise ProvenanceError(f"data file changed since it was pinned: {path}\n  pinned {expected}\n  actual {actual}")
+            raise ProvenanceError(
+                f"data file changed since it was pinned: {path}\n  pinned {expected}\n  actual {actual}"
+            )
     return {"data_pins_verified": sorted(pins)}
 
 
@@ -78,7 +83,12 @@ def _versions():
 
 
 def record(config, run_dir, root=ROOT, filename="provenance.json"):
-    record = {"started_at": time.strftime("%Y-%m-%dT%H:%M:%S%z"), **_source(Path(root)), **_data(config),
-              **_experiment(config), "versions": _versions()}
+    record = {
+        "started_at": time.strftime("%Y-%m-%dT%H:%M:%S%z"),
+        **_source(Path(root)),
+        **_data(config),
+        **_experiment(config),
+        "versions": _versions(),
+    }
     Path(run_dir, filename).write_text(json.dumps(record, indent=2, ensure_ascii=False))
     return record

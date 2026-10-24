@@ -15,6 +15,7 @@ candidate; it is not a security boundary against a deliberately adversarial payl
 grading a fine-tuned 4B model's HumanEval/MBPP completions on a trusted research box,
 not for running arbitrary or adversarial code.
 """
+
 import re
 import resource
 import subprocess
@@ -80,8 +81,12 @@ def _run_script(script):
         path.write_text(script)
         try:
             result = subprocess.run(
-                [sys.executable, "-I", str(path)], cwd=tmp, timeout=TIMEOUT_SECONDS,
-                capture_output=True, text=True, preexec_fn=_limit_resources,
+                [sys.executable, "-I", str(path)],
+                cwd=tmp,
+                timeout=TIMEOUT_SECONDS,
+                capture_output=True,
+                text=True,
+                preexec_fn=_limit_resources,
             )
         except subprocess.TimeoutExpired:
             return {"passed": False, "error": "timeout"}
@@ -118,6 +123,7 @@ def grade_code(row, text, lenient=True):
     if row["metadata"]["benchmark"] == "livecodebench":
         from mopd.evaluation import livecodebench
         from mopd.evaluation.grading import ROOT
+
         return livecodebench.grade(row, text, ROOT)
     result = _grade_extracted(row, extract_code(text))
     if lenient:
@@ -143,5 +149,4 @@ def _grade_extracted(row, code):
     outcome = _run_script(script)
     # grade_error is reserved for the harness itself failing to produce a verdict; a failed
     # test is a normal incorrect answer (same as a wrong \boxed{} value for math), not that.
-    return {"correct": outcome["passed"], "grade_error": None,
-            "prediction": code, "execution_error": outcome["error"]}
+    return {"correct": outcome["passed"], "grade_error": None, "prediction": code, "execution_error": outcome["error"]}

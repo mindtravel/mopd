@@ -8,6 +8,7 @@ every MOPD run before this module used (bare AdamW, no scheduler).
     "lr_schedule": {"type": "constant"}
     "lr_schedule": {"type": "cosine", "warmup_steps": 4, "min_lr_ratio": 0.1}
 """
+
 import math
 
 import torch

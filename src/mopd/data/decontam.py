@@ -6,6 +6,7 @@ large share of one benchmark problem's 13-grams. Both directions use this measur
   - benchmark build: which benchmark problems are near-duplicated by some training prompt;
   - training subset build: drop training rows that near-duplicate any benchmark problem.
 """
+
 import re
 
 N = 13
@@ -14,7 +15,7 @@ THRESHOLD = 0.3
 
 def ngrams(text, n=N):
     words = re.findall(r"\w+", text.lower())
-    return {" ".join(words[i:i + n]) for i in range(len(words) - n + 1)}
+    return {" ".join(words[i : i + n]) for i in range(len(words) - n + 1)}
 
 
 class BenchmarkIndex:

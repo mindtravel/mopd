@@ -1,4 +1,5 @@
 """Official scorers, shared by benchmark grading and offline analysis."""
+
 import os
 import sys
 from pathlib import Path
@@ -35,8 +36,12 @@ def grade_math(solution, response):
     try:
         parsed_gold = parse("$\\boxed{" + gold + "}$")
         parsed_predicted = parse("$\\boxed{" + predicted + "}$")
-        return {"correct": bool(verify(parsed_gold, parsed_predicted)),
-                "grade_error": None, "prediction": predicted, "gold": gold}
+        return {
+            "correct": bool(verify(parsed_gold, parsed_predicted)),
+            "grade_error": None,
+            "prediction": predicted,
+            "gold": gold,
+        }
     except Exception as error:
         return {"correct": False, "grade_error": repr(error), "prediction": predicted, "gold": gold}
 
@@ -47,6 +52,7 @@ def _instruction_lib():
     if vendor not in sys.path:
         sys.path.insert(0, vendor)
     from instruction_following_eval import evaluation_lib
+
     return evaluation_lib
 
 
@@ -55,11 +61,13 @@ def grade_instruction(row, text):
     evaluation_lib = _instruction_lib()
     meta = row["metadata"]
     example = evaluation_lib.InputExample(
-        key=meta["key"], instruction_id_list=meta["instruction_id_list"],
-        prompt=row["prompt"], kwargs=meta["kwargs"])
+        key=meta["key"], instruction_id_list=meta["instruction_id_list"], prompt=row["prompt"], kwargs=meta["kwargs"]
+    )
     result = evaluation_lib.test_instruction_following_strict(example, {row["prompt"]: text})
-    return {"correct": bool(result.follow_all_instructions),
-            "instruction_checks": [bool(v) for v in result.follow_instruction_list]}
+    return {
+        "correct": bool(result.follow_all_instructions),
+        "instruction_checks": [bool(v) for v in result.follow_instruction_list],
+    }
 
 
 def check(row, text):

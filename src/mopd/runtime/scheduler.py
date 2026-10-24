@@ -21,6 +21,7 @@ A job is a dict:
 Events go to <logdir>/events.jsonl, the live state to <logdir>/status.json, exactly as
 run_experiment.py wrote them before.
 """
+
 import json
 import os
 import subprocess
@@ -82,9 +83,22 @@ def collectives_ok(gpus, max_seconds=3.0):
     if len(gpus) < 2:
         return True, 0.0
     env = {**os.environ, "CUDA_VISIBLE_DEVICES": ",".join(map(str, gpus))}
-    r = subprocess.run([PY, "-m", "torch.distributed.run", "--standalone", f"--nproc_per_node={len(gpus)}",
-                        "scripts/probe_collectives.py", "--max-seconds", str(max_seconds)],
-                       cwd=ROOT, env=env, capture_output=True, text=True)
+    r = subprocess.run(
+        [
+            PY,
+            "-m",
+            "torch.distributed.run",
+            "--standalone",
+            f"--nproc_per_node={len(gpus)}",
+            "scripts/probe_collectives.py",
+            "--max-seconds",
+            str(max_seconds),
+        ],
+        cwd=ROOT,
+        env=env,
+        capture_output=True,
+        text=True,
+    )
     line = next((l for l in r.stdout.splitlines() if "all-gather" in l), r.stdout[-200:])
     try:
         seconds = float(line.split(":")[-1].split("s")[0])
@@ -102,14 +116,21 @@ class Scheduler:
         self.lock = threading.Lock()
 
     def add(self, job):
-        job.setdefault("deps", []); job.setdefault("gpus", {"min": 1}); job.setdefault("order", 5)
-        job.setdefault("done", lambda: False); job.setdefault("gate", None)
+        job.setdefault("deps", [])
+        job.setdefault("gpus", {"min": 1})
+        job.setdefault("order", 5)
+        job.setdefault("done", lambda: False)
+        job.setdefault("gate", None)
         self.jobs[job["id"]] = job
 
     # ------------------------------------------------------------ bookkeeping
     def log(self, event, **fields):
-        record = {"time": time.strftime("%Y-%m-%dT%H:%M:%S"), "event": event,
-                  "ssd_free_gib": round(self.free_gib(), 1), **fields}
+        record = {
+            "time": time.strftime("%Y-%m-%dT%H:%M:%S"),
+            "event": event,
+            "ssd_free_gib": round(self.free_gib(), 1),
+            **fields,
+        }
         with self.lock, (self.logdir / "events.jsonl").open("a") as f:
             f.write(json.dumps(record) + "\n")
         print(json.dumps(record), flush=True)
@@ -138,12 +159,18 @@ class Scheduler:
                 ok, seconds = collectives_ok(gpus)
                 if not ok:
                     self.pool.give_back(gpus)
-                    self.log("bandwidth_hold", job=job["id"], gpus=gpus, all_gather_seconds=seconds,
-                             retry_in=GATE_RETRY_SECONDS)
+                    self.log(
+                        "bandwidth_hold",
+                        job=job["id"],
+                        gpus=gpus,
+                        all_gather_seconds=seconds,
+                        retry_in=GATE_RETRY_SECONDS,
+                    )
                     time.sleep(GATE_RETRY_SECONDS)
                     continue
             break
-        self.state[job["id"]] = {"state": "running", "gpus": gpus, "started": time.strftime("%H:%M:%S")}; self.save()
+        self.state[job["id"]] = {"state": "running", "gpus": gpus, "started": time.strftime("%H:%M:%S")}
+        self.save()
         self.log("start", job=job["id"], gpus=gpus)
         try:
             job["run"](gpus)
@@ -152,7 +179,8 @@ class Scheduler:
             self.state[job["id"]].update(state="failed", error=str(error)[-500:])
         finally:
             self.pool.give_back(gpus)
-        self.state[job["id"]]["finished"] = time.strftime("%H:%M:%S"); self.save()
+        self.state[job["id"]]["finished"] = time.strftime("%H:%M:%S")
+        self.save()
         self.log("finish", job=job["id"], state=self.state[job["id"]]["state"])
 
     def run(self):
@@ -172,17 +200,24 @@ class Scheduler:
                 if failed:
                     self.state[j["id"]] = {"state": "blocked", "by": failed}
             pending = [j for j in pending if j["id"] not in self.state]
-            ready = sorted((j for j in pending if all(self.state.get(d, {}).get("state") == "complete" for d in j["deps"])),
-                           key=lambda j: j["order"])
+            ready = sorted(
+                (j for j in pending if all(self.state.get(d, {}).get("state") == "complete" for d in j["deps"])),
+                key=lambda j: j["order"],
+            )
             for j in ready:  # enqueue every ready job before any thread asks: exact fair shares
                 if self.free_gib() < self.min_free:
-                    self.log("low_disk_hold", job=j["id"]); break
+                    self.log("low_disk_hold", job=j["id"])
+                    break
                 if j["gpus"] != 0:
                     self.pool.enqueue(j["id"])
                 self.state[j["id"]] = {"state": "starting"}
             for j in ready:
-                if self.state.get(j["id"], {}).get("state") == "starting" and not any(t.name == j["id"] for t in threads):
-                    t = threading.Thread(target=self._worker, args=(j,), daemon=False, name=j["id"]); t.start(); threads.append(t)
+                if self.state.get(j["id"], {}).get("state") == "starting" and not any(
+                    t.name == j["id"] for t in threads
+                ):
+                    t = threading.Thread(target=self._worker, args=(j,), daemon=False, name=j["id"])
+                    t.start()
+                    threads.append(t)
             self.save()
             time.sleep(self.poll_seconds)
         for t in threads:

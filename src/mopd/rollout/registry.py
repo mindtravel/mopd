@@ -1,4 +1,5 @@
 """Rollout backend selection by config name."""
+
 from mopd.rollout.hf_batch import generate
 from mopd.rollout.processes import ProcessRollouts
 from mopd.rollout.replicas import RolloutReplicas
@@ -16,6 +17,7 @@ def build_rollout(config, student):
         return None
     if backend == "vllm":
         from mopd.rollout.vllm_processes import VllmRollouts
+
         return VllmRollouts(config, student)
     factories = {"replicas": RolloutReplicas, "processes": ProcessRollouts}
     if backend not in factories:

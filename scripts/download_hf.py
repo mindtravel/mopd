@@ -7,9 +7,11 @@ resolve/<commit>/<path> (HF_ENDPOINT, default hf-mirror), and writes download-ma
 commit and each file's size and sha256. Existing files whose size matches are kept and partial ones are
 resumed; transfers below 100 kB/s for 30 s are restarted (the mirror can stall silently).
 """
+
 import argparse, fnmatch, hashlib, json, os, subprocess, urllib.request
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
+
 ROOT = Path(__file__).resolve().parents[1]
 
 
@@ -22,7 +24,8 @@ def api(endpoint, path):
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("repo"); ap.add_argument("dest")
+    ap.add_argument("repo")
+    ap.add_argument("dest")
     ap.add_argument("--include", nargs="+", default=["*"])
     ap.add_argument("--revision", default="main")
     ap.add_argument("--jobs", type=int, default=4)
@@ -41,7 +44,9 @@ def main():
         for _ in range(50):  # the mirror sometimes stalls without closing: abort slow transfers, resume with -C -
             if out.exists() and out.stat().st_size == f["size"]:
                 break
-            subprocess.run(["curl", "-sSL", "--speed-limit", "100000", "--speed-time", "30", "-C", "-", "-o", str(out), url])
+            subprocess.run(
+                ["curl", "-sSL", "--speed-limit", "100000", "--speed-time", "30", "-C", "-", "-o", str(out), url]
+            )
         if out.stat().st_size != f["size"]:
             raise SystemExit(f"size mismatch: {out}")
         h = hashlib.sha256()

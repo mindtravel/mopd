@@ -7,9 +7,11 @@ Same row format, prompt and grader as the test set (mopd.evaluation.livecodebenc
   python scripts/prepare_lcb_dev.py                # -> data/full_eval/lcb-dev-v1/{lcbdev.jsonl,tests/,manifest.json}
   python scripts/prepare_lcb_dev.py --style think  # -> data/full_eval/lcb-dev-v2-think (prompt_think, same rows/tests)
 """
+
 import argparse, hashlib, json
 from pathlib import Path
 from mopd.evaluation import livecodebench as lcb
+
 ROOT = Path(__file__).resolve().parents[1]
 OUTS = {"code": ROOT / "data/full_eval/lcb-dev-v1", "think": ROOT / "data/full_eval/lcb-dev-v2-think"}
 RAW = ROOT / "data/raw/livecodebench"
@@ -18,7 +20,9 @@ TEST_SET = ROOT / "data/full_eval/unified-v2/livecodebench342.jsonl"
 
 
 def main():
-    ap = argparse.ArgumentParser(); ap.add_argument("--style", choices=sorted(OUTS), default="code"); a = ap.parse_args()
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--style", choices=sorted(OUTS), default="code")
+    a = ap.parse_args()
     OUT = OUTS[a.style]
     OUT.mkdir(parents=True, exist_ok=False)
     (OUT / "tests").mkdir()
@@ -29,11 +33,20 @@ def main():
         raise ValueError(f"dev rows also in the test set: {clash[:5]}")
     path = OUT / "lcbdev.jsonl"
     path.write_text("".join(json.dumps(r, ensure_ascii=False) + "\n" for r in rows))
-    count = lambda key: {v: sum(r["metadata"][key] == v for r in rows) for v in sorted({r["metadata"][key] for r in rows})}
-    manifest = {"version": OUT.name, "prompt_style": a.style, "rows": len(rows), "sha256": hashlib.sha256(path.read_bytes()).hexdigest(),
-                "dates": [min(r["metadata"]["contest_date"] for r in rows), max(r["metadata"]["contest_date"] for r in rows)],
-                "difficulty": count("difficulty"), "platform": count("platform"), "testtype": count("testtype"),
-                "raw": json.loads((RAW / "download-manifest.json").read_text())["commit"]}
+    count = lambda key: {
+        v: sum(r["metadata"][key] == v for r in rows) for v in sorted({r["metadata"][key] for r in rows})
+    }
+    manifest = {
+        "version": OUT.name,
+        "prompt_style": a.style,
+        "rows": len(rows),
+        "sha256": hashlib.sha256(path.read_bytes()).hexdigest(),
+        "dates": [min(r["metadata"]["contest_date"] for r in rows), max(r["metadata"]["contest_date"] for r in rows)],
+        "difficulty": count("difficulty"),
+        "platform": count("platform"),
+        "testtype": count("testtype"),
+        "raw": json.loads((RAW / "download-manifest.json").read_text())["commit"],
+    }
     (OUT / "manifest.json").write_text(json.dumps(manifest, indent=2))
     print(json.dumps(manifest, indent=2))
 

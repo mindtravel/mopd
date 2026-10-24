@@ -1,5 +1,6 @@
 import sys
 from pathlib import Path
+
 _ROOT = Path(__file__).resolve().parents[1]
 sys.path[:0] = [str(_ROOT / "src"), str(_ROOT / "scripts")]
 import unittest
@@ -33,9 +34,7 @@ class ChatTemplateIdsTests(unittest.TestCase):
         self.assertEqual(result, [11, 12, 13])
 
     def test_preserves_requested_tensor_return(self):
-        result = apply_chat_template_ids(
-            EncodingTokenizer(), [{"role": "user", "content": "x"}], return_tensors="pt"
-        )
+        result = apply_chat_template_ids(EncodingTokenizer(), [{"role": "user", "content": "x"}], return_tensors="pt")
         self.assertTrue(torch.equal(result, torch.tensor([[11, 12, 13]])))
 
 

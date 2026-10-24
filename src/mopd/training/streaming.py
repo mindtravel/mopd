@@ -6,6 +6,7 @@ ends. Each trajectory lands in exactly one micro-batch, and per-domain counts ar
 against the step plan, so the step's sample set and loss weights do not depend on arrival
 order -- only micro-batch composition (a floating-point effect) does.
 """
+
 from collections import Counter, defaultdict
 from typing import Iterable, Iterator
 

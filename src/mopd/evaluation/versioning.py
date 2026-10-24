@@ -1,4 +1,5 @@
 """Write a stable model-version manifest for each MOPD run and checkpoint."""
+
 import hashlib
 import json
 import os
@@ -32,9 +33,15 @@ def _build_training_inputs(config: dict, run: Path) -> dict:
         sources = spec.get("sources") or ([{"name": "train", "path": train_file, "weight": 1.0}] if train_file else [])
         domains[name] = {
             "train": _file_identity(sources[0]["path"]) if len(sources) == 1 else None,
-            "sources": [{"name": s["name"], "weight": s["weight"],
-                         "per_step": spec.get("source_counts", {}).get(s["name"]), **_file_identity(s["path"])}
-                        for s in sources],
+            "sources": [
+                {
+                    "name": s["name"],
+                    "weight": s["weight"],
+                    "per_step": spec.get("source_counts", {}).get(s["name"]),
+                    **_file_identity(s["path"]),
+                }
+                for s in sources
+            ],
             "mixture": spec.get("mixture_preset"),
             "holdouts": [_file_identity(path) for path in spec.get("holdout_files", [])],
         }
@@ -85,35 +92,52 @@ def build_manifest(
             artifact_type = "fairy2i_qat_scale_update"
             complete = (checkpoint / "qat-update.json").is_file()
         else:
-            artifact_type = ("lora_adapter" if (checkpoint / "adapter_config.json").is_file()
-                             else "full_model" if (checkpoint / "config.json").is_file() else "checkpoint")
+            artifact_type = (
+                "lora_adapter"
+                if (checkpoint / "adapter_config.json").is_file()
+                else "full_model" if (checkpoint / "config.json").is_file() else "checkpoint"
+            )
             complete = (checkpoint / "adapter_model.safetensors").is_file() or any(checkpoint.glob("*.safetensors"))
-        checkpoints.append({
-            "version_id": f"{run.name}:step-{suffix}",
-            "path": str(checkpoint),
-            "step": step,
-            "artifact_type": artifact_type,
-            "complete": complete,
-        })
+        checkpoints.append(
+            {
+                "version_id": f"{run.name}:step-{suffix}",
+                "path": str(checkpoint),
+                "step": step,
+                "artifact_type": artifact_type,
+                "complete": complete,
+            }
+        )
 
     student_backend = config.get("student_backend", "hf_lora")
-    student_precision = config.get("forward_precision", config.get("student_precision", config.get("dtype", "bfloat16")))
+    student_precision = config.get(
+        "forward_precision", config.get("student_precision", config.get("dtype", "bfloat16"))
+    )
     quantization = config.get("quantization", config.get("student_quantization"))
     if student_backend == "fairy2i_qat" and quantization is None:
-        quantization = {"scheme": "fairy2i_complex_1bit", "scale_update": "trainable", "base_weights": "frozen_bfloat16"}
+        quantization = {
+            "scheme": "fairy2i_complex_1bit",
+            "scale_update": "trainable",
+            "base_weights": "frozen_bfloat16",
+        }
     student = {
         "base_model": config.get("student"),
         "backend": student_backend,
-        "update_type": config.get("update_type", {"fairy2i_qat": "quant_scale_only", "hf_full": "full"}.get(student_backend, "lora")),
+        "update_type": config.get(
+            "update_type", {"fairy2i_qat": "quant_scale_only", "hf_full": "full"}.get(student_backend, "lora")
+        ),
         "initial_adapter": config.get("student_adapter"),
         "prompt_format": config.get("student_prompt_format"),
         "forward_precision": student_precision,
         "quantization": quantization,
     }
     teachers = {
-        domain: {"model": spec.get("teacher"), "device": spec.get("device"), "trainable": False,
-                 "prompt_format": spec.get("teacher_prompt_format", "chat_template_v1"),
-                 "source": _teacher_source(spec.get("teacher"))}
+        domain: {
+            "model": spec.get("teacher"),
+            "device": spec.get("device"),
+            "trainable": False,
+            "prompt_format": spec.get("teacher_prompt_format", "chat_template_v1"),
+            "source": _teacher_source(spec.get("teacher")),
+        }
         for domain, spec in config.get("domains", {}).items()
     }
     if not teachers and config.get("teacher"):
@@ -179,7 +203,8 @@ def resolve_checkpoint(manifest: dict, reference: str) -> dict:
         }
 
     matches = [
-        item for item in manifest.get("checkpoints", [])
+        item
+        for item in manifest.get("checkpoints", [])
         if reference in (item.get("version_id"), item.get("path"), Path(item.get("path", "")).name)
     ]
     if len(matches) != 1:

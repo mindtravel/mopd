@@ -1,6 +1,8 @@
 """mopd.runtime.profile: FLOP arithmetic and MFU against hand-computed values (CPU, no model)."""
+
 import sys
 from pathlib import Path
+
 _ROOT = Path(__file__).resolve().parents[1]
 sys.path[:0] = [str(_ROOT / "src"), str(_ROOT / "scripts")]
 import sys, unittest
@@ -17,7 +19,7 @@ class ProfileTest(unittest.TestCase):
     def test_flops_match_hand_computation(self):
         sh = self.shape()
         # two sequences of 1000 and 3000 tokens
-        tokens, sum_sq = 4000, 1000 ** 2 + 3000 ** 2
+        tokens, sum_sq = 4000, 1000**2 + 3000**2
         dense = 6 * 4e9 * 4000
         attention = 6 * 36 * (32 * 128) * sum_sq
         self.assertAlmostEqual(sh.flops(tokens, sum_sq), dense + attention, delta=1)
@@ -31,7 +33,7 @@ class ProfileTest(unittest.TestCase):
         r = prof.finish()
         self.assertEqual(r["tokens"], 4000)
         self.assertAlmostEqual(r["padding_fraction"], 1 - 4000 / 6000, places=4)
-        expected = sh.flops(4000, 1000 ** 2 + 3000 ** 2) / 10.0 / 8 / 1e12
+        expected = sh.flops(4000, 1000**2 + 3000**2) / 10.0 / 8 / 1e12
         self.assertAlmostEqual(r["model_tflops_per_gpu"], expected, places=1)
         self.assertAlmostEqual(r["mfu"], expected / 200.0, places=3)
         self.assertGreater(r["hfu"], r["mfu"])
@@ -40,7 +42,8 @@ class ProfileTest(unittest.TestCase):
         prof = StepProfile(self.shape(), gpus=1, recompute=False, peak_tflops=None, device="cpu")
         prof.add_batch([10], width=10)
         r = prof.finish()
-        self.assertNotIn("mfu", r); self.assertIn("model_tflops_per_gpu", r)
+        self.assertNotIn("mfu", r)
+        self.assertIn("model_tflops_per_gpu", r)
 
 
 if __name__ == "__main__":

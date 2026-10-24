@@ -12,6 +12,7 @@ Sources, holdout check and shuffle seeds are exactly those of mixture.plan_domai
 same as in the sample-matched plan; only how many rows land in each step differs.
 MOPD cannot use this: rollout lengths are unknown before generation.
 """
+
 import random
 
 from mopd.data.mixture import _rows
@@ -29,8 +30,11 @@ def plan_by_tokens(config, sample_tokens):
         rows = _rows(spec["sources"][0]["path"], domain, spec["sources"][0]["name"])
         if len({text_hash(r["prompt"]) for r in rows}) != len(rows):
             raise ValueError(f"domains.{domain}: duplicate normalized prompts in pool")
-        holdout = [dict(r, prompt=r.get("prompt", r.get("problem")))
-                   for path in spec.get("holdout_files", []) for r in load_pool(path)]
+        holdout = [
+            dict(r, prompt=r.get("prompt", r.get("problem")))
+            for path in spec.get("holdout_files", [])
+            for r in load_pool(path)
+        ]
         if holdout:
             validate_holdout(rows, holdout)
         if any(r.get("split") != "train" for r in rows):
@@ -44,7 +48,8 @@ def plan_by_tokens(config, sample_tokens):
             while filled < quota:
                 if cursor == len(order):
                     raise ValueError(f"domains.{domain}: pool exhausted at step {step + 1}; no implicit repeats")
-                row = order[cursor]; cursor += 1
+                row = order[cursor]
+                cursor += 1
                 filled += sample_tokens(row)
                 per_step[step].append(row)
     return per_step

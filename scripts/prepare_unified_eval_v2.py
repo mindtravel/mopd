@@ -14,14 +14,20 @@ Like v1, every sub-benchmark file holds the same JSON lines as all.jsonl. LiveCo
 path and sha256 from each row. The manifest lists benchmark problems whose 13-grams are largely
 covered by a single training-pool prompt (near-duplicates).
 """
+
 import hashlib, json
 from pathlib import Path
 from mopd.data import decontam
 from mopd.evaluation import livecodebench as lcb
+
 ROOT = Path(__file__).resolve().parents[1]
 VERSION = "unified-v2"
 OUT = ROOT / "data/full_eval" / VERSION
-TRAIN_POOLS = ["data/sft/numina_v3/train.jsonl", "data/sft/smol_constraints/train.jsonl", "data/sft/opencoder_stage2_clean/train.jsonl"]
+TRAIN_POOLS = [
+    "data/sft/numina_v3/train.jsonl",
+    "data/sft/smol_constraints/train.jsonl",
+    "data/sft/opencoder_stage2_clean/train.jsonl",
+]
 # must match the pools production experts actually train on (configs/experiments/*/expert-c.json);
 # this listed the retired stage1 opencoder pool until caught in an architecture review (2026-10-23)
 
@@ -34,9 +40,18 @@ def math500():
     for r in map(json.loads, (ROOT / "data/math/upstream/math500/test.jsonl").read_text().splitlines()):
         if "\\boxed{" not in r["solution"]:
             raise ValueError(f"{r['unique_id']}: solution without \\boxed answer")
-        yield {"id": r["unique_id"], "domain": "math", "split": "eval", "source": "HuggingFaceH4/MATH-500",
-               "prompt": r["problem"], "problem": r["problem"], "solution": r["solution"],
-               "level": r["level"], "type": r["subject"], "benchmark": "math500"}
+        yield {
+            "id": r["unique_id"],
+            "domain": "math",
+            "split": "eval",
+            "source": "HuggingFaceH4/MATH-500",
+            "prompt": r["problem"],
+            "problem": r["problem"],
+            "solution": r["solution"],
+            "level": r["level"],
+            "type": r["subject"],
+            "benchmark": "math500",
+        }
 
 
 def livecodebench(tests_dir):
@@ -52,8 +67,11 @@ def overlap(rows, field, threshold=decontam.THRESHOLD):
     for bench in dict.fromkeys(r["benchmark"] for r in rows):
         ids = [r["id"] for r in rows if r["benchmark"] == bench]
         dups = sorted((i for i in ids if best[i] >= threshold), key=lambda i: -best[i])
-        report[bench] = {"rows": len(ids), "near_duplicates": [[i, round(best[i], 3)] for i in dups],
-                         "max_coverage": round(max(best[i] for i in ids), 3)}
+        report[bench] = {
+            "rows": len(ids),
+            "near_duplicates": [[i, round(best[i], 3)] for i in dups],
+            "max_coverage": round(max(best[i] for i in ids), 3),
+        }
     return report
 
 
@@ -62,8 +80,17 @@ def main():
     tests_dir = OUT / "tests/livecodebench"
     tests_dir.mkdir(parents=True)
     v1 = ROOT / "data/full_eval/unified-v1"
-    reused = {b: [json.loads(l) for l in (v1 / f"{b}.jsonl").read_text().splitlines()] for b in ("ifeval541", "humaneval164", "mbpp257")}
-    rows = list(math500()) + reused["ifeval541"] + list(livecodebench(tests_dir)) + reused["humaneval164"] + reused["mbpp257"]
+    reused = {
+        b: [json.loads(l) for l in (v1 / f"{b}.jsonl").read_text().splitlines()]
+        for b in ("ifeval541", "humaneval164", "mbpp257")
+    }
+    rows = (
+        list(math500())
+        + reused["ifeval541"]
+        + list(livecodebench(tests_dir))
+        + reused["humaneval164"]
+        + reused["mbpp257"]
+    )
     keys = [(r["domain"], str(r["id"])) for r in rows]
     if len(set(keys)) != len(keys):
         raise ValueError("Duplicate benchmark ID across sources")
@@ -76,11 +103,16 @@ def main():
         path = OUT / f"{name}.jsonl"
         path.write_text("".join(body))
         manifest["files"][name] = {"path": str(path), "rows": len(body), "sha256": sha(path)}
-    sources = [ROOT / "data/math/upstream/math500/test.jsonl", *(ROOT / "data/code/upstream/livecodebench").glob("test*.jsonl"),
-               *(v1 / f"{b}.jsonl" for b in reused)]
+    sources = [
+        ROOT / "data/math/upstream/math500/test.jsonl",
+        *(ROOT / "data/code/upstream/livecodebench").glob("test*.jsonl"),
+        *(v1 / f"{b}.jsonl" for b in reused),
+    ]
     manifest["sources"] = {str(p): sha(p) for p in sources}
     manifest["contamination_vs_train_prompts"] = overlap(
-        [r for r in rows if r["benchmark"] in ("math500", "livecodebench342")], lambda r: r.get("problem") or r["prompt"].split("Question: ", 1)[1])
+        [r for r in rows if r["benchmark"] in ("math500", "livecodebench342")],
+        lambda r: r.get("problem") or r["prompt"].split("Question: ", 1)[1],
+    )
     (OUT / "manifest.json").write_text(json.dumps(manifest, indent=2))
     print(json.dumps({k: v for k, v in manifest.items() if k != "sources"}, indent=2))
 

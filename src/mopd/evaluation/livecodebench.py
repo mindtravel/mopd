@@ -14,6 +14,7 @@ scripts/prepare_unified_eval_v2.py with an unpickler that rejects every global (
 plain str), and stored as gzip JSON next to the benchmark file; rows reference that file and its
 sha256. Execution uses the same isolation as code_exec (separate `python -I`, rlimits, timeout).
 """
+
 import gzip
 import hashlib
 import io
@@ -32,16 +33,24 @@ MEMORY_LIMIT_BYTES = 4 << 30
 
 # Imports the official harness prepends to every candidate.
 # Prompt wording follows the official LCB generation prompt, adapted to one instruction.
-INSTRUCTION = ("You will be given a question (problem specification) and will generate a correct Python program "
-               "that matches the specification and passes all tests.\n\nQuestion: {question}\n\n")
-STDIN_FORMAT = ("Read the inputs from stdin, solve the problem and write the answer to stdout (do not directly test on "
-                "the sample inputs). Reply with the complete program in a single ```python code block.")
-FUNCTIONAL_FORMAT = ("Use the following starter code and reply with the complete solution in a single ```python code "
-                     "block.\n```python\n{starter}\n```")
+INSTRUCTION = (
+    "You will be given a question (problem specification) and will generate a correct Python program "
+    "that matches the specification and passes all tests.\n\nQuestion: {question}\n\n"
+)
+STDIN_FORMAT = (
+    "Read the inputs from stdin, solve the problem and write the answer to stdout (do not directly test on "
+    "the sample inputs). Reply with the complete program in a single ```python code block."
+)
+FUNCTIONAL_FORMAT = (
+    "Use the following starter code and reply with the complete solution in a single ```python code "
+    "block.\n```python\n{starter}\n```"
+)
 
 
 def prompt(question, kind, starter=""):
-    return INSTRUCTION.format(question=question) + (FUNCTIONAL_FORMAT.format(starter=starter) if kind == "functional" else STDIN_FORMAT)
+    return INSTRUCTION.format(question=question) + (
+        FUNCTIONAL_FORMAT.format(starter=starter) if kind == "functional" else STDIN_FORMAT
+    )
 
 
 # "Think first" protocol (lcb-dev-v2-think / student prompt format plain_qa_think_v1): the prompt
@@ -49,9 +58,13 @@ def prompt(question, kind, starter=""):
 # the reasoning (<think>), and the reply is reasoning, </think>, then one complete code block. The
 # harness still calls Solution().<method>, so a functional problem states the required class and
 # method signature in prose.
-THINK_TAIL = ("Think through the problem first. Then give the complete {what} in a single ```python code block "
-              "after your reasoning.")
-THINK_STDIN = "Read the inputs from stdin, solve the problem and write the answer to stdout (do not test on the sample inputs). "
+THINK_TAIL = (
+    "Think through the problem first. Then give the complete {what} in a single ```python code block "
+    "after your reasoning."
+)
+THINK_STDIN = (
+    "Read the inputs from stdin, solve the problem and write the answer to stdout (do not test on the sample inputs). "
+)
 THINK_CLASS = "Your solution must define `{cls}` with the method `{signature}`. "
 THINK_FUNCTION = "Your solution must define the function `{signature}`. "
 
@@ -73,7 +86,11 @@ def requirement_of(starter):
 
 def prompt_think(question, kind, starter=""):
     lead = requirement_of(starter) if kind == "functional" else THINK_STDIN
-    return INSTRUCTION.format(question=question) + lead + THINK_TAIL.format(what="solution" if kind == "functional" else "program")
+    return (
+        INSTRUCTION.format(question=question)
+        + lead
+        + THINK_TAIL.format(what="solution" if kind == "functional" else "program")
+    )
 
 
 HEADER = """import sys, os, io, re, math, string, random, bisect, heapq, itertools, functools, collections, operator, copy, decimal, fractions, statistics
@@ -117,6 +134,7 @@ class _NoGlobals(pickle.Unpickler):
 def decode_private_tests(blob):
     import base64
     import zlib
+
     raw = _NoGlobals(io.BytesIO(zlib.decompress(base64.b64decode(blob)))).load()
     if not isinstance(raw, str):
         raise ValueError(f"expected a JSON string payload, got {type(raw).__name__}")
@@ -136,18 +154,30 @@ def benchmark_rows(files, tests_dir, root, tag, style="code"):
             kind = kinds.pop()
             path = Path(tests_dir) / f"{r['question_id']}.json.gz"
             path.write_bytes(gzip.compress(json.dumps(tests).encode(), mtime=0))
-            meta = {"benchmark": "livecodebench", "testtype": kind, "tests_path": str(path.relative_to(root)),
-                    "tests_sha256": hashlib.sha256(path.read_bytes()).hexdigest(), "num_tests": len(tests),
-                    "difficulty": r["difficulty"], "platform": r["platform"], "contest_date": r["contest_date"],
-                    "release_file": Path(f).name}
+            meta = {
+                "benchmark": "livecodebench",
+                "testtype": kind,
+                "tests_path": str(path.relative_to(root)),
+                "tests_sha256": hashlib.sha256(path.read_bytes()).hexdigest(),
+                "num_tests": len(tests),
+                "difficulty": r["difficulty"],
+                "platform": r["platform"],
+                "contest_date": r["contest_date"],
+                "release_file": Path(f).name,
+            }
             starter = ""
             if kind == "functional":
                 meta["func_name"] = json.loads(r["metadata"])["func_name"]
                 starter = r["starter_code"]
-            yield {"id": f"lcb/{r['question_id']}", "domain": "code", "split": "eval",
-                   "source": "livecodebench/code_generation_lite",
-                   "prompt": (prompt_think if style == "think" else prompt)(r["question_content"], kind, starter),
-                   "metadata": meta, "benchmark": tag}
+            yield {
+                "id": f"lcb/{r['question_id']}",
+                "domain": "code",
+                "split": "eval",
+                "source": "livecodebench/code_generation_lite",
+                "prompt": (prompt_think if style == "think" else prompt)(r["question_content"], kind, starter),
+                "metadata": meta,
+                "benchmark": tag,
+            }
 
 
 def load_tests(metadata, root):
@@ -179,6 +209,7 @@ def outputs_match(got, expected):
 
 def _limits():
     import resource
+
     resource.setrlimit(resource.RLIMIT_AS, (MEMORY_LIMIT_BYTES, MEMORY_LIMIT_BYTES))
 
 
@@ -188,8 +219,15 @@ def _run_stdin(code, tests):
         path.write_text(HEADER + "\n" + code)
         for i, t in enumerate(tests):
             try:
-                r = subprocess.run([sys.executable, "-I", str(path)], cwd=tmp, input=t["input"], capture_output=True,
-                                   text=True, timeout=TEST_TIMEOUT_SECONDS, preexec_fn=_limits)
+                r = subprocess.run(
+                    [sys.executable, "-I", str(path)],
+                    cwd=tmp,
+                    input=t["input"],
+                    capture_output=True,
+                    text=True,
+                    timeout=TEST_TIMEOUT_SECONDS,
+                    preexec_fn=_limits,
+                )
             except subprocess.TimeoutExpired:
                 return {"passed": False, "error": f"test {i}: timeout"}
             if r.returncode != 0:
@@ -203,10 +241,18 @@ def _run_functional(code, tests, func):
     with tempfile.TemporaryDirectory(prefix="mopd-lcb-") as tmp:
         (Path(tmp) / "tests.json").write_text(json.dumps(tests))
         path = Path(tmp) / "main.py"
-        path.write_text(HEADER + "\n" + code + "\n" + _FUNCTIONAL_RUNNER.format(timeout=TEST_TIMEOUT_SECONDS, func=func))
+        path.write_text(
+            HEADER + "\n" + code + "\n" + _FUNCTIONAL_RUNNER.format(timeout=TEST_TIMEOUT_SECONDS, func=func)
+        )
         try:
-            r = subprocess.run([sys.executable, "-I", str(path), "tests.json"], cwd=tmp, capture_output=True, text=True,
-                               timeout=TEST_TIMEOUT_SECONDS * len(tests) + 10, preexec_fn=_limits)
+            r = subprocess.run(
+                [sys.executable, "-I", str(path), "tests.json"],
+                cwd=tmp,
+                capture_output=True,
+                text=True,
+                timeout=TEST_TIMEOUT_SECONDS * len(tests) + 10,
+                preexec_fn=_limits,
+            )
         except subprocess.TimeoutExpired:
             return {"passed": False, "error": "timeout"}
         if r.returncode == 0 and r.stdout.strip().endswith("PASS"):
@@ -233,5 +279,10 @@ def grade(row, text, root):
     loose = code_exec.extract_code_lenient(text)
     if not lenient_ok and loose != strict_code:
         lenient_ok = run(loose)["passed"]
-    return {"correct": strict["passed"], "correct_lenient": lenient_ok, "grade_error": None,
-            "prediction": strict_code if strict_code.strip() else None, "execution_error": strict["error"]}
+    return {
+        "correct": strict["passed"],
+        "correct_lenient": lenient_ok,
+        "grade_error": None,
+        "prediction": strict_code if strict_code.strip() else None,
+        "execution_error": strict["error"],
+    }

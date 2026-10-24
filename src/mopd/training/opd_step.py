@@ -10,6 +10,7 @@ domain (sharded_step). FSDP reduces gradients inside each backward call, so rank
 same number of backward calls in the same domain order; a rank with fewer micro-batches in a domain
 runs a zero-weight one instead.
 """
+
 import time
 
 import torch
@@ -56,10 +57,16 @@ class DomainBlockContribution:
         self.params, self.device, self.norms, self._before = params, device, {}, None
 
     def before(self):
-        self._before = [local(p.grad).detach().clone() if p.grad is not None else torch.zeros_like(local(p)) for p in self.params]
+        self._before = [
+            local(p.grad).detach().clone() if p.grad is not None else torch.zeros_like(local(p)) for p in self.params
+        ]
 
     def after(self, domain):
-        sq = sum((local(p.grad).detach() - b).float().square().sum() for p, b in zip(self.params, self._before) if p.grad is not None)
+        sq = sum(
+            (local(p.grad).detach() - b).float().square().sum()
+            for p, b in zip(self.params, self._before)
+            if p.grad is not None
+        )
         total = torch.as_tensor(sq, device=self.device, dtype=torch.float64)
         dist.all_reduce(total)
         self.norms[domain] = float(total) ** 0.5
@@ -72,8 +79,9 @@ class DomainBlockContribution:
 class OPDStepScorer:
     """One training step's scoring/backward state: timings, per-sample entries, contributions."""
 
-    def __init__(self, *, config, student, student_tokenizer, teachers, params, scales, eos_ids, sync, step,
-                 contribution=None):
+    def __init__(
+        self, *, config, student, student_tokenizer, teachers, params, scales, eos_ids, sync, step, contribution=None
+    ):
         self.c, self.student, self.stok, self.teachers = config, student, student_tokenizer, teachers
         self.scales, self.eos_ids, self.sync, self.step = scales, eos_ids, sync, step
         self.contrib = contribution or GradContribution(params, config["domains"])
@@ -91,14 +99,19 @@ class OPDStepScorer:
         tt, teacher = self.teachers[domain]
         tseqs, tstarts = [], []
         for r in chunk:
-            prefix = teacher_prefix_ids(tt, r["row"], spec.get("teacher_prompt_format", "chat_template_v1"), r["prefix"])
-            tseqs.append(prefix + r["answer"]); tstarts.append(len(prefix))
-            assert tseqs[-1][tstarts[-1]:] == r["answer"]
+            prefix = teacher_prefix_ids(
+                tt, r["row"], spec.get("teacher_prompt_format", "chat_template_v1"), r["prefix"]
+            )
+            tseqs.append(prefix + r["answer"])
+            tstarts.append(len(prefix))
+            assert tseqs[-1][tstarts[-1] :] == r["answer"]
         tid, ta, tm = pack(tseqs, tstarts, tt.pad_token_id, spec["device"])
-        self.sync(); mark = time.perf_counter()
+        self.sync()
+        mark = time.perf_counter()
         with torch.no_grad():
             tp = [v.to(self.c["student_device"]) for v in logps(teacher, tid, ta, tm)]
-        self.sync(); self.teacher_seconds += time.perf_counter() - mark
+        self.sync()
+        self.teacher_seconds += time.perf_counter() - mark
         return tp
 
     def student_backward(self, domain, chunk, tp, weight=1.0):
@@ -107,26 +120,43 @@ class OPDStepScorer:
         seqs = [r["prefix"] + r["answer"] for r in chunk]
         starts = [len(r["prefix"]) for r in chunk]
         sid, sa, sm = pack(seqs, starts, self.stok.pad_token_id, self.c["student_device"])
-        self.student.train(); mark = time.perf_counter()
-        sp = logps(self.student, sid, sa, sm); losses = []
+        self.student.train()
+        mark = time.perf_counter()
+        sp = logps(self.student, sid, sa, sm)
+        losses = []
         for sv, tv, r in zip(sp, tp, chunk):
             loss, info = policy_loss(sv, tv.to(sv.device))
             if not torch.isfinite(loss):
                 raise ValueError("Nonfinite loss")
             losses.append(loss)
             if weight:
-                info.update(loss=loss.item(), tokens=len(r["answer"]), truncated=not is_eos_token(r["answer"][-1], self.eos_ids))
+                info.update(
+                    loss=loss.item(), tokens=len(r["answer"]), truncated=not is_eos_token(r["answer"][-1], self.eos_ids)
+                )
                 self.entries[domain].append(info)
-                self.records.append({"step": self.step, "student_version": self.step - 1, "domain": domain,
-                    "teacher": spec["teacher"], "id": r["row"]["id"], "prompt": r["row"]["prompt"],
-                    "response": self.stok.decode(r["answer"]), "response_ids": r["answer"], **info})
+                self.records.append(
+                    {
+                        "step": self.step,
+                        "student_version": self.step - 1,
+                        "domain": domain,
+                        "teacher": spec["teacher"],
+                        "id": r["row"]["id"],
+                        "prompt": r["row"]["prompt"],
+                        "response": self.stok.decode(r["answer"]),
+                        "response_ids": r["answer"],
+                        **info,
+                    }
+                )
         domain_loss = torch.stack(losses).sum() * self.scales[domain] * weight
         self.weighted_loss[domain] += domain_loss.item()
         if isinstance(self.contrib, GradContribution):
-            self.contrib.before(); domain_loss.backward(); self.contrib.after(domain)
+            self.contrib.before()
+            domain_loss.backward()
+            self.contrib.after(domain)
         else:
             domain_loss.backward()
-        self.sync(); self.student_seconds += time.perf_counter() - mark
+        self.sync()
+        self.student_seconds += time.perf_counter() - mark
 
     def sharded_step(self, trajectories, teacher_lps, rank, world_size, micro):
         """Every rank: backpropagate this rank's share of each domain, domain by domain, in lockstep.
@@ -137,7 +167,7 @@ class OPDStepScorer:
             calls = -(-max(len(items[r::world_size]) for r in range(world_size)) // micro)
             self.contrib.before()
             for i in range(calls):
-                chunk = mine[i * micro:(i + 1) * micro]
+                chunk = mine[i * micro : (i + 1) * micro]
                 if chunk:
                     self.student_backward(domain, [t for t, _ in chunk], [lp for _, lp in chunk])
                 else:  # this rank ran out: same collectives, no contribution
@@ -162,9 +192,14 @@ class OPDStepScorer:
             if not contribution > 0:
                 raise ValueError("Zero domain gradient: " + domain)
             n = len(entries)
-            stats[domain] = {"grad_contribution_l2": contribution, "count": n, "loss": sum(e["loss"] for e in entries) / n,
+            stats[domain] = {
+                "grad_contribution_l2": contribution,
+                "count": n,
+                "loss": sum(e["loss"] for e in entries) / n,
                 "weighted_loss": self.weighted_loss[domain],
                 "sampled_log_ratio": sum(e["sampled_log_ratio"] for e in entries) / n,
                 "clipped_fraction": sum(e["clipped_fraction"] for e in entries) / n,
-                "tokens": sum(e["tokens"] for e in entries), "truncated": sum(e["truncated"] for e in entries)}
+                "tokens": sum(e["tokens"] for e in entries),
+                "truncated": sum(e["truncated"] for e in entries),
+            }
         return stats

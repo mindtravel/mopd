@@ -21,8 +21,10 @@ Runs: runs/sweeps/<sweep>/<variant>/; leaderboard: results/sweeps/<sweep>/leader
 
   python scripts/run_sweep.py configs/sweeps/code-data-v1.json [--only a b] [--final a b] [--collect]
 """
+
 import argparse, json, os, shutil, subprocess, sys, time
 from pathlib import Path
+
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 from mopd.data import recipes
@@ -32,7 +34,11 @@ from mopd.runtime.scheduler import Scheduler
 from mopd.students.registry import is_sharded
 from mopd.evaluation.eval_commands import eval_commands, PY
 
-BASE_WEIGHTS = ["model-00001-of-00003.safetensors", "model-00002-of-00003.safetensors", "model-00003-of-00003.safetensors"]
+BASE_WEIGHTS = [
+    "model-00001-of-00003.safetensors",
+    "model-00002-of-00003.safetensors",
+    "model-00003-of-00003.safetensors",
+]
 
 
 class Sweep:
@@ -48,24 +54,53 @@ class Sweep:
         c, ev = self.spec["controls"], self.spec["eval"]
         pool = ROOT / "data/recipes" / manifest["name"]
         student = Path(c["student"])
-        pins = {str(pool / "train.jsonl"): manifest["train_sha256"], str(pool / "dev.jsonl"): manifest["dev_sha256"],
-                ev["data"]: ev["data_sha256"], **{str(student / w): sha256(student / w) for w in BASE_WEIGHTS}}
+        pins = {
+            str(pool / "train.jsonl"): manifest["train_sha256"],
+            str(pool / "dev.jsonl"): manifest["dev_sha256"],
+            ev["data"]: ev["data_sha256"],
+            **{str(student / w): sha256(student / w) for w in BASE_WEIGHTS},
+        }
         micro = manifest["recipe"].get("micro_batch_size", 2)
-        budget = manifest["recipe"].get("micro_batch_tokens")  # padded-token cap per micro-batch (mopd.training.microbatch)
+        budget = manifest["recipe"].get(
+            "micro_batch_tokens"
+        )  # padded-token cap per micro-batch (mopd.training.microbatch)
         # student_device is cuda:0 regardless of GPU count: CUDA_VISIBLE_DEVICES always remaps the
         # assigned GPU(s) to start at index 0. Under torchrun with world_size > 1, train_sft.py derives
         # the real per-rank device from LOCAL_RANK instead and ignores this field.
         system = {k: c[k] for k in ("fsdp", "gradient_checkpointing") if k in c}  # same for every variant
-        return {"student": c["student"], "student_backend": c.get("student_backend", "hf_lora"), **system,
-                "student_prompt_format": c.get("student_prompt_format", "plain_qa_v1"),
-                "seed": c["seed"], "steps": c["steps"], "lr": c["lr"], "lr_schedule": c["lr_schedule"],
-                "micro_batch_size": micro, **({"micro_batch_tokens": budget} if budget else {}),
-                "save_every": c["save_every"], "max_seq_len": manifest["recipe"]["max_total_tokens"],
-                "output": str(self.runs / v["name"]), "data_pins": pins, "training_method": "sft", "student_device": "cuda:0",
-                **({"lora": v["lora"]} if "lora" in v else {}),  # e.g. {"rank": 64, "alpha": 128, "targets": [...]}
-                "sweep": {"name": self.name, "variant": v["name"], "recipe": v["recipe"], "recipe_version": manifest["version"]},
-                "domains": {"code": {"train_file": str(pool / "train.jsonl"), "holdout_files": [str(pool / "dev.jsonl"), ev["data"]],
-                                     "count": c["samples_per_step"], "weight": 1.0}}}
+        return {
+            "student": c["student"],
+            "student_backend": c.get("student_backend", "hf_lora"),
+            **system,
+            "student_prompt_format": c.get("student_prompt_format", "plain_qa_v1"),
+            "seed": c["seed"],
+            "steps": c["steps"],
+            "lr": c["lr"],
+            "lr_schedule": c["lr_schedule"],
+            "micro_batch_size": micro,
+            **({"micro_batch_tokens": budget} if budget else {}),
+            "save_every": c["save_every"],
+            "max_seq_len": manifest["recipe"]["max_total_tokens"],
+            "output": str(self.runs / v["name"]),
+            "data_pins": pins,
+            "training_method": "sft",
+            "student_device": "cuda:0",
+            **({"lora": v["lora"]} if "lora" in v else {}),  # e.g. {"rank": 64, "alpha": 128, "targets": [...]}
+            "sweep": {
+                "name": self.name,
+                "variant": v["name"],
+                "recipe": v["recipe"],
+                "recipe_version": manifest["version"],
+            },
+            "domains": {
+                "code": {
+                    "train_file": str(pool / "train.jsonl"),
+                    "holdout_files": [str(pool / "dev.jsonl"), ev["data"]],
+                    "count": c["samples_per_step"],
+                    "weight": 1.0,
+                }
+            },
+        }
 
     def trained(self, v):
         status = self.runs / v["name"] / "status.json"
@@ -80,8 +115,11 @@ class Sweep:
     def shell(self, cmds, log):
         with log.open("a") as f:
             for cmd, extra in cmds:
-                f.write(f"\n$ {' '.join(map(str, cmd))}\n"); f.flush()
-                subprocess.run(cmd, cwd=ROOT, env={**os.environ, **extra}, stdout=f, stderr=subprocess.STDOUT, check=True)
+                f.write(f"\n$ {' '.join(map(str, cmd))}\n")
+                f.flush()
+                subprocess.run(
+                    cmd, cwd=ROOT, env={**os.environ, **extra}, stdout=f, stderr=subprocess.STDOUT, check=True
+                )
 
     def evaluate(self, v, ckpt, gpus, log, kind="eval"):
         """On the granted GPUs; generate_benchmark_vllm.py hands rows to whichever of them has room."""
@@ -89,10 +127,19 @@ class Sweep:
         out = self.eval_dir(v, ckpt, kind)
         common = dict(data=ev["data"], protocol_id=ev["protocol_id"], max_new_tokens=ev["max_new_tokens"], device=gpus)
         if v.get("base"):
-            cmds = eval_commands(**common, out=out, model=self.spec["controls"]["student"], model_version_id="base:Qwen3-4B-Base",
-                                 student_prompt_format=self.spec["controls"].get("student_prompt_format", "plain_qa_v1"))
+            cmds = eval_commands(
+                **common,
+                out=out,
+                model=self.spec["controls"]["student"],
+                model_version_id="base:Qwen3-4B-Base",
+                student_prompt_format=self.spec["controls"].get("student_prompt_format", "plain_qa_v1"),
+            )
         else:
-            cmds = eval_commands(**common, model_version=str(self.runs / v["name"] / "model-version.json"), checkpoint=f"checkpoint-{ckpt:04d}")
+            cmds = eval_commands(
+                **common,
+                model_version=str(self.runs / v["name"] / "model-version.json"),
+                checkpoint=f"checkpoint-{ckpt:04d}",
+            )
         self.shell(cmds, log)
 
     def train(self, v, manifest, gpus, log):
@@ -103,13 +150,22 @@ class Sweep:
         cfg_path = self.results / "configs" / f"{v['name']}.json"
         cfg_path.parent.mkdir(exist_ok=True)
         cfg_path.write_text(json.dumps(self.config(v, manifest), indent=1))
-        cmd = [PY, "-m", "torch.distributed.run", "--standalone", f"--nproc_per_node={len(gpus)}",
-               "scripts/train_sft.py", "--config", str(cfg_path)]
+        cmd = [
+            PY,
+            "-m",
+            "torch.distributed.run",
+            "--standalone",
+            f"--nproc_per_node={len(gpus)}",
+            "scripts/train_sft.py",
+            "--config",
+            str(cfg_path),
+        ]
         self.shell([(cmd, {"CUDA_VISIBLE_DEVICES": ",".join(map(str, gpus))})], log)
 
     # ------------------------------------------------------------ run
     def jobs(self, scheduler, todo, final):
-        logdir = self.results / "logs"; logdir.mkdir(exist_ok=True)
+        logdir = self.results / "logs"
+        logdir.mkdir(exist_ok=True)
         for v in todo:
             log = logdir / f"{v['name']}.log"
             ckpts = [0] if v.get("base") else self.spec["eval"]["checkpoints"]
@@ -117,18 +173,39 @@ class Sweep:
             if not v.get("base"):
                 manifest = recipes.build(ROOT / v["recipe"])  # cached: built once up front in run()
                 sharded = is_sharded(self.config(v, manifest))
-                scheduler.add({"id": f"train:{v['name']}", "order": 1, "done": lambda v=v: self.trained(v),
-                               "gpus": {"min": 4 if sharded else 1}, "gate": "collectives" if sharded else None,
-                               "run": lambda gpus, v=v, m=manifest, log=log: self.train(v, m, gpus, log)})
+                scheduler.add(
+                    {
+                        "id": f"train:{v['name']}",
+                        "order": 1,
+                        "done": lambda v=v: self.trained(v),
+                        "gpus": {"min": 4 if sharded else 1},
+                        "gate": "collectives" if sharded else None,
+                        "run": lambda gpus, v=v, m=manifest, log=log: self.train(v, m, gpus, log),
+                    }
+                )
                 deps = [f"train:{v['name']}"]
             for ck in ckpts:
-                scheduler.add({"id": f"eval:{v['name']}:{ck}", "deps": deps, "order": 5, "gpus": {"min": 1},
-                               "done": lambda v=v, ck=ck: (self.eval_dir(v, ck) / "summary.json").exists(),
-                               "run": lambda gpus, v=v, ck=ck, log=log: self.evaluate(v, ck, gpus, log)})
+                scheduler.add(
+                    {
+                        "id": f"eval:{v['name']}:{ck}",
+                        "deps": deps,
+                        "order": 5,
+                        "gpus": {"min": 1},
+                        "done": lambda v=v, ck=ck: (self.eval_dir(v, ck) / "summary.json").exists(),
+                        "run": lambda gpus, v=v, ck=ck, log=log: self.evaluate(v, ck, gpus, log),
+                    }
+                )
             if final:
-                scheduler.add({"id": f"test:{v['name']}", "deps": deps, "order": 6, "gpus": {"min": 1},
-                               "done": lambda v=v, ck=ckpts[-1]: (self.eval_dir(v, ck, "test") / "summary.json").exists(),
-                               "run": lambda gpus, v=v, ck=ckpts[-1], log=log: self.evaluate(v, ck, gpus, log, kind="test")})
+                scheduler.add(
+                    {
+                        "id": f"test:{v['name']}",
+                        "deps": deps,
+                        "order": 6,
+                        "gpus": {"min": 1},
+                        "done": lambda v=v, ck=ckpts[-1]: (self.eval_dir(v, ck, "test") / "summary.json").exists(),
+                        "run": lambda gpus, v=v, ck=ckpts[-1], log=log: self.evaluate(v, ck, gpus, log, kind="test"),
+                    }
+                )
 
     def run(self, only, final):
         if sha256(self.spec["eval"]["data"]) != self.spec["eval"]["data_sha256"]:
@@ -139,7 +216,12 @@ class Sweep:
         for v in todo:
             if not v.get("base"):
                 m = recipes.build(ROOT / v["recipe"])
-                print(json.dumps({"variant": v["name"], "stage": "recipe", "rows": m["train_rows"], "version": m["version"]}), flush=True)
+                print(
+                    json.dumps(
+                        {"variant": v["name"], "stage": "recipe", "rows": m["train_rows"], "version": m["version"]}
+                    ),
+                    flush=True,
+                )
         # Live check, not a fixed allow-list: the server is shared and another team's job can occupy
         # any GPU. Only GPUs idle right at launch go in the pool.
         idle = idle_gpus(self.spec["gpus"])
@@ -158,8 +240,12 @@ class Sweep:
     def scores(self, out, data):
         cases = [json.loads(l) for l in (out / "cases.jsonl").read_text().splitlines()]
         res = {}
-        for name, keep in (("all", lambda m: True), ("easy", lambda m: m["difficulty"] == "easy"),
-                           ("medium", lambda m: m["difficulty"] == "medium"), ("hard", lambda m: m["difficulty"] == "hard")):
+        for name, keep in (
+            ("all", lambda m: True),
+            ("easy", lambda m: m["difficulty"] == "easy"),
+            ("medium", lambda m: m["difficulty"] == "medium"),
+            ("hard", lambda m: m["difficulty"] == "hard"),
+        ):
             rows = [c for c in cases if keep(data[c["id"]]["metadata"])]
             res[name] = round(100 * sum(c["correct"] for c in rows) / len(rows), 1)
         res["lenient"] = round(100 * sum(c.get("correct_lenient", c["correct"]) for c in cases) / len(cases), 1)
@@ -176,17 +262,43 @@ class Sweep:
                 for ck in ([0] if v.get("base") else self.spec["eval"]["checkpoints"]):
                     out = self.eval_dir(v, ck, kind)
                     if (out / "cases.jsonl").exists():
-                        m = json.loads((ROOT / "data/recipes" / json.loads((ROOT / v["recipe"]).read_text())["name"] / "manifest.json").read_text()) if not v.get("base") else None
-                        board.append({"set": kind, "variant": v["name"], "checkpoint": ck, **self.scores(out, data),
-                                      "recipe_version": m and m["version"], "train_rows": m and m["train_rows"]})
+                        m = (
+                            json.loads(
+                                (
+                                    ROOT
+                                    / "data/recipes"
+                                    / json.loads((ROOT / v["recipe"]).read_text())["name"]
+                                    / "manifest.json"
+                                ).read_text()
+                            )
+                            if not v.get("base")
+                            else None
+                        )
+                        board.append(
+                            {
+                                "set": kind,
+                                "variant": v["name"],
+                                "checkpoint": ck,
+                                **self.scores(out, data),
+                                "recipe_version": m and m["version"],
+                                "train_rows": m and m["train_rows"],
+                            }
+                        )
         (self.results / "leaderboard.json").write_text(json.dumps(board, indent=1))
         base = {b["set"]: b["all"] for b in board if b["variant"] == "base"}
-        lines = [f"# {self.name}", "", self.spec.get("description", ""), "",
-                 "| set | variant | ckpt | all | Δbase | easy | medium | hard | lenient | truncated |",
-                 "|---|---|---|---|---|---|---|---|---|---|"]
+        lines = [
+            f"# {self.name}",
+            "",
+            self.spec.get("description", ""),
+            "",
+            "| set | variant | ckpt | all | Δbase | easy | medium | hard | lenient | truncated |",
+            "|---|---|---|---|---|---|---|---|---|---|",
+        ]
         for b in sorted(board, key=lambda b: (b["set"], -b["all"])):
             d = f"{b['all'] - base[b['set']]:+.1f}" if b["set"] in base else ""
-            lines.append(f"| {b['set']} | {b['variant']} | {b['checkpoint']} | {b['all']} | {d} | {b['easy']} | {b['medium']} | {b['hard']} | {b['lenient']} | {b['truncated']} |")
+            lines.append(
+                f"| {b['set']} | {b['variant']} | {b['checkpoint']} | {b['all']} | {d} | {b['easy']} | {b['medium']} | {b['hard']} | {b['lenient']} | {b['truncated']} |"
+            )
         (self.results / "leaderboard.md").write_text("\n".join(lines) + "\n")
         print("\n".join(lines))
 
@@ -197,7 +309,7 @@ def main():
     ap.add_argument("--only", nargs="*")
     ap.add_argument("--final", nargs="*", default=[])
     ap.add_argument("--collect", action="store_true")
-    ap.add_argument("--gpus", type=int, nargs="*", help="override spec[\"gpus\"]")
+    ap.add_argument("--gpus", type=int, nargs="*", help='override spec["gpus"]')
     a = ap.parse_args()
     s = Sweep(a.sweep)
     if a.gpus:

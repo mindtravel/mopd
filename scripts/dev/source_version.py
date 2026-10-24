@@ -3,6 +3,7 @@
 The hash covers tracked diffs against HEAD and the contents of untracked, non-ignored
 files, i.e. exactly what scripts/dev/remote_sync.sh copies to the server.
 """
+
 import hashlib
 import subprocess
 import sys

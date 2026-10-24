@@ -7,6 +7,7 @@ engine level (no error) while the prompt-length check's own hardcoded 16384 rais
 row for an unrelated reason. Every caller now either omits --max-model-len (gets this default) or
 passes one explicitly; there is no third place that independently hardcodes a context length.
 """
+
 PROMPT_MARGIN = 4096  # headroom for the prompt + special tokens, on top of the generation budget
 FLOOR = 16384  # unchanged default context for every existing protocol at max_new_tokens <= 12288
 

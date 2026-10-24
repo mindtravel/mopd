@@ -25,7 +25,9 @@ def validate_reply(reply, inputs, version, digest, max_new_tokens, eos):
     indices = [r["index"] for r in output]
     if len(indices) != len(expected) or len(set(indices)) != len(indices) or set(indices) != set(expected):
         raise ValueError("Missing, duplicated, or unexpected rollout")
-    found = {item["index"]: validate_item(item, expected[item["index"]], version, max_new_tokens, eos) for item in output}
+    found = {
+        item["index"]: validate_item(item, expected[item["index"]], version, max_new_tokens, eos) for item in output
+    }
     return [found[r["index"]] for r in inputs]
 
 

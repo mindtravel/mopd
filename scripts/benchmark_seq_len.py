@@ -8,6 +8,7 @@ micro-batch can get. This measures that effect directly instead of estimating it
 
   python scripts/benchmark_seq_len.py --caps 4096 8192 16384 20480 --micro 1 2 --device cuda:0
 """
+
 import argparse, glob, random, time
 from pathlib import Path
 import pyarrow.parquet as pq
@@ -15,6 +16,7 @@ import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer
 from mopd.backends.student_adapter import attach_student_adapter
 from mopd.training.batching import pack, logps
+
 ROOT = Path(__file__).resolve().parents[1]
 
 
@@ -62,7 +64,7 @@ def main():
                 continue
             batches, longest = [], 0
             for i in range(0, len(pool) - micro + 1, micro):
-                group = pool[i:i + micro]
+                group = pool[i : i + micro]
                 batches.append(group)
                 longest = max(longest, max(lens[id(r)] for r in group))
                 if len(batches) == 8:
@@ -84,8 +86,11 @@ def main():
                     torch.cuda.synchronize()
                     times.append(time.time() - t0)
             except torch.OutOfMemoryError:
-                print(f"cap={cap:6d} micro={micro}  OOM at batch {len(times) + 1}/{len(batches)} "
-                      f"(widest batch attempted so far, up to longest_batch_width={longest})", flush=True)
+                print(
+                    f"cap={cap:6d} micro={micro}  OOM at batch {len(times) + 1}/{len(batches)} "
+                    f"(widest batch attempted so far, up to longest_batch_width={longest})",
+                    flush=True,
+                )
                 for p in params:
                     p.grad = None
                 torch.cuda.empty_cache()
@@ -94,9 +99,12 @@ def main():
                 continue
             mean = sum(times[1:]) / len(times[1:]) if len(times) > 1 else times[0]
             peak = torch.cuda.max_memory_allocated(a.device) / 2**30
-            print(f"cap={cap:6d} micro={micro}  pool={len(pool)}/{len(rows)} ({100 * len(pool) / len(rows):.0f}%)  "
-                  f"batches={len(batches)}  longest_batch_width={longest}  "
-                  f"mean_step={mean * 1000:.0f}ms  peak_mem={peak:.1f}GiB", flush=True)
+            print(
+                f"cap={cap:6d} micro={micro}  pool={len(pool)}/{len(rows)} ({100 * len(pool) / len(rows):.0f}%)  "
+                f"batches={len(batches)}  longest_batch_width={longest}  "
+                f"mean_step={mean * 1000:.0f}ms  peak_mem={peak:.1f}GiB",
+                flush=True,
+            )
 
 
 if __name__ == "__main__":

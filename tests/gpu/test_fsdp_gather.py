@@ -3,8 +3,10 @@ torch.distributed.checkpoint full state dict to bf16, tensor for tensor, on a sh
 
   torchrun --standalone --nproc_per_node=4 scripts/test_fsdp_gather.py
 """
+
 import sys
 from pathlib import Path
+
 _ROOT = Path(__file__).resolve().parents[2]
 sys.path[:0] = [str(_ROOT / "src"), str(_ROOT / "scripts")]
 import sys
@@ -17,8 +19,9 @@ from mopd.training import fsdp
 from mopd.training.distributed import dist_info
 
 rank, world, device = dist_info()
-model = AutoModelForCausalLM.from_pretrained("/ssd/lzx/mopd/models/Qwen3-4B-Base", dtype=torch.float32,
-                                             local_files_only=True).to(device)
+model = AutoModelForCausalLM.from_pretrained(
+    "/ssd/lzx/mopd/models/Qwen3-4B-Base", dtype=torch.float32, local_files_only=True
+).to(device)
 scorer = fsdp.shard(model)
 with torch.no_grad():  # make every shard differ from the base so a mis-assembled tensor would show
     for p in scorer.parameters():
@@ -32,4 +35,5 @@ if rank == 0:
     bad = [k for k in fast if not torch.equal(fast[k], ref[k])]
     assert not bad, bad[:5]
     print(f"gather ok: {len(fast)} tensors identical to the reference (tied lm_head omitted: {bool(missing)})")
-dist.barrier(); dist.destroy_process_group()
+dist.barrier()
+dist.destroy_process_group()

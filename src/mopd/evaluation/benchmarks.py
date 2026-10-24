@@ -1,4 +1,5 @@
 """Benchmark registry: where the data lives and which scorer applies."""
+
 from pathlib import Path
 
 from mopd.evaluation import grading

@@ -7,8 +7,10 @@ evals outside a sweep, e.g. re-scoring a checkpoint with sampling or a bigger ge
     --max-new-tokens 16384 --temperature 0.6 --top-p 0.95 \
     --model-version-id rstar-seed-concise:step-0128 --protocol-id lcbdev-plainqa-t0.6p0.95-16384
 """
+
 import argparse, os, subprocess, sys
 from pathlib import Path
+
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 from mopd.evaluation.eval_commands import eval_commands
@@ -29,11 +31,20 @@ def main():
     ap.add_argument("--temperature", type=float, default=0.0)
     ap.add_argument("--top-p", type=float, default=1.0)
     a = ap.parse_args()
-    for cmd, extra in eval_commands(data=a.data, out=a.out, device=a.gpus, protocol_id=a.protocol_id,
-                                    max_new_tokens=a.max_new_tokens, max_model_len=a.max_model_len,
-                                    student_prompt_format=a.student_prompt_format, model=a.base,
-                                    model_version_id=a.model_version_id, adapter=a.adapter,
-                                    temperature=a.temperature, top_p=a.top_p):
+    for cmd, extra in eval_commands(
+        data=a.data,
+        out=a.out,
+        device=a.gpus,
+        protocol_id=a.protocol_id,
+        max_new_tokens=a.max_new_tokens,
+        max_model_len=a.max_model_len,
+        student_prompt_format=a.student_prompt_format,
+        model=a.base,
+        model_version_id=a.model_version_id,
+        adapter=a.adapter,
+        temperature=a.temperature,
+        top_p=a.top_p,
+    ):
         subprocess.run(cmd, cwd=ROOT, env={**os.environ, **extra}, check=True)
     print((Path(a.out) / "summary.json").read_text())
 

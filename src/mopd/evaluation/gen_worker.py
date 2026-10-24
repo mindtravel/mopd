@@ -16,6 +16,7 @@ Wire (JSON lines, worker output prefixed with TAG):
   coordinator -> worker: {"rows": [[key, prompt_token_ids], ...]} (may be empty) or {"eof": true};
   one reply per want.
 """
+
 import contextlib, json, queue, sys, threading, traceback
 
 TAG = "GEN_JSON:"
@@ -35,7 +36,8 @@ def main():
     wire = sys.stdout
 
     def emit(value):
-        wire.write(TAG + json.dumps(value) + "\n"); wire.flush()
+        wire.write(TAG + json.dumps(value) + "\n")
+        wire.flush()
 
     inbox = queue.Queue()
 
@@ -50,15 +52,31 @@ def main():
             from vllm import LLM, SamplingParams
             from vllm.lora.request import LoRARequest
             from mopd.rollout.engine_stream import stream_feed
-            engine = LLM(model=c["model"], dtype="bfloat16", max_model_len=c["max_model_len"],
-                gpu_memory_utilization=.85, max_num_seqs=c["max_seqs"], max_num_batched_tokens=c["max_num_batched_tokens"],
-                enable_chunked_prefill=True, enable_prefix_caching=True, generation_config="vllm",
-                enable_lora=bool(c["adapter"]), max_lora_rank=lora_rank(c["adapter"]), seed=20261013)
+
+            engine = LLM(
+                model=c["model"],
+                dtype="bfloat16",
+                max_model_len=c["max_model_len"],
+                gpu_memory_utilization=0.85,
+                max_num_seqs=c["max_seqs"],
+                max_num_batched_tokens=c["max_num_batched_tokens"],
+                enable_chunked_prefill=True,
+                enable_prefix_caching=True,
+                generation_config="vllm",
+                enable_lora=bool(c["adapter"]),
+                max_lora_rank=lora_rank(c["adapter"]),
+                seed=20261013,
+            )
             scheduler = engine.llm_engine.engine_core.engine_core.scheduler
             eos = engine.get_tokenizer().eos_token_id
             sampled = c["temperature"] > 0
-            params = SamplingParams(temperature=c["temperature"], top_p=c["top_p"] if sampled else 1.0,
-                seed=20261013 if sampled else None, max_tokens=c["max_new_tokens"], stop_token_ids=[eos])
+            params = SamplingParams(
+                temperature=c["temperature"],
+                top_p=c["top_p"] if sampled else 1.0,
+                seed=20261013 if sampled else None,
+                max_tokens=c["max_new_tokens"],
+                stop_token_ids=[eos],
+            )
             adapter = LoRARequest("evaluated-student", 1, c["adapter"]) if c["adapter"] else None
             emit({"ready": True, "eos": eos})
             asked = False
@@ -67,7 +85,8 @@ def main():
             def feed(unfinished):
                 nonlocal asked, full
                 if not asked and not full and scheduler.get_request_counts()[1] == 0:
-                    emit({"want": ASK}); asked = True
+                    emit({"want": ASK})
+                    asked = True
                 try:
                     msg = inbox.get(block=unfinished == 0)
                 except queue.Empty:

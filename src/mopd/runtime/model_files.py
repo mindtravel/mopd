@@ -12,12 +12,21 @@ that so after any writer has put the weights down:
     copy of the embedding (torch.distributed.checkpoint's full state dict does that) is dropped
     after checking it is identical; anything else that differs fails here rather than at eval.
 """
+
 import json
 import shutil
 from pathlib import Path
 
-BASE_FILES = ("config.json", "generation_config.json", "tokenizer.json", "tokenizer_config.json",
-              "vocab.json", "merges.txt", "special_tokens_map.json", "added_tokens.json")
+BASE_FILES = (
+    "config.json",
+    "generation_config.json",
+    "tokenizer.json",
+    "tokenizer_config.json",
+    "vocab.json",
+    "merges.txt",
+    "special_tokens_map.json",
+    "added_tokens.json",
+)
 
 
 def copy_base_files(base, out):
@@ -32,16 +41,21 @@ def check_config_matches_base(model_dir, base):
     theirs = json.loads((Path(base) / "config.json").read_text())
     if mine != theirs:
         diff = sorted(k for k in mine.keys() | theirs.keys() if mine.get(k) != theirs.get(k))
-        raise ValueError(f"{model_dir}/config.json differs from the base model's in {diff}: "
-                         "re-serialized by another transformers version? copy the base config")
+        raise ValueError(
+            f"{model_dir}/config.json differs from the base model's in {diff}: "
+            "re-serialized by another transformers version? copy the base config"
+        )
 
 
 def _shards(d):
     """{tensor name: (shard file, shape)} for a safetensors model directory."""
     from safetensors import safe_open
+
     d = Path(d)
     index = d / "model.safetensors.index.json"
-    files = sorted(set(json.loads(index.read_text())["weight_map"].values())) if index.exists() else ["model.safetensors"]
+    files = (
+        sorted(set(json.loads(index.read_text())["weight_map"].values())) if index.exists() else ["model.safetensors"]
+    )
     out = {}
     for f in files:
         with safe_open(str(d / f), "pt") as h:
@@ -55,6 +69,7 @@ def _drop_tensor(d, name, shard):
     import torch
     from safetensors import safe_open
     from safetensors.torch import save_file
+
     with safe_open(str(shard), "pt") as h:
         keep = {k: h.get_tensor(k) for k in h.keys() if k != name}
         meta = h.metadata()
@@ -72,6 +87,7 @@ def finalize(model_dir, base):
     """Make model_dir load like `base` everywhere (module docstring). Idempotent. Returns a summary."""
     import torch
     from safetensors import safe_open
+
     model_dir, base = Path(model_dir), Path(base)
     mine, theirs = _shards(model_dir), _shards(base)
     dropped = None
@@ -84,7 +100,8 @@ def finalize(model_dir, base):
         if not torch.equal(head, embed):
             raise ValueError(f"{model_dir}: lm_head.weight differs from the tied embedding")
         _drop_tensor(model_dir, "lm_head.weight", mine["lm_head.weight"][0])
-        dropped = "lm_head.weight"; mine.pop("lm_head.weight")
+        dropped = "lm_head.weight"
+        mine.pop("lm_head.weight")
     if set(mine) != set(theirs):
         raise ValueError(f"{model_dir}: tensor names differ from base: {sorted(set(mine) ^ set(theirs))[:5]}")
     bad = {k: (mine[k][1], theirs[k][1]) for k in theirs if mine[k][1] != theirs[k][1]}

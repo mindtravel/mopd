@@ -1,4 +1,5 @@
 """Dispatch model-version evaluation to a compatible generation backend and scorer."""
+
 import argparse
 import json
 import os
@@ -33,6 +34,7 @@ def build_command(args):
         raise ValueError(f"vLLM cannot load checkpoint artifact {checkpoint['artifact_type']!r}")
     if checkpoint["artifact_type"] == "full_model":
         from mopd.runtime.model_files import check_config_matches_base
+
         check_config_matches_base(checkpoint["path"], student["base_model"])
     if requested == "hf_qat" and checkpoint["artifact_type"] not in {"base_weights", "fairy2i_qat_scale_update"}:
         raise ValueError(f"HF QAT cannot load checkpoint artifact {checkpoint['artifact_type']!r}")
@@ -54,12 +56,32 @@ def build_command(args):
 
     if requested == "hf_qat":
         generator = ROOT / "scripts/generate_benchmark_hf_qat.py"
-        command = [str(ROOT / "mopd_train/bin/python"), str(generator),
-            "--model-version", str(manifest_path), "--checkpoint", args.checkpoint,
-            "--data", str(data_path), "--out", str(output), "--device", "cuda:0",
-            "--protocol-id", args.protocol_id, "--max-new-tokens", str(args.max_new_tokens),
-            "--max-model-len", str(args.max_model_len), "--batch-size", str(args.batch_size),
-            "--seed", str(args.seed), "--student-prompt-format", prompt_format]
+        command = [
+            str(ROOT / "mopd_train/bin/python"),
+            str(generator),
+            "--model-version",
+            str(manifest_path),
+            "--checkpoint",
+            args.checkpoint,
+            "--data",
+            str(data_path),
+            "--out",
+            str(output),
+            "--device",
+            "cuda:0",
+            "--protocol-id",
+            args.protocol_id,
+            "--max-new-tokens",
+            str(args.max_new_tokens),
+            "--max-model-len",
+            str(args.max_model_len),
+            "--batch-size",
+            str(args.batch_size),
+            "--seed",
+            str(args.seed),
+            "--student-prompt-format",
+            prompt_format,
+        ]
         env = os.environ.copy()
         if len(args.device) != 1:
             raise ValueError("the hf_qat backend runs on one GPU")
@@ -69,16 +91,35 @@ def build_command(args):
         env["NLTK_DATA"] = str(ROOT / "cache/nltk")
     else:
         generator = ROOT / "scripts/generate_benchmark_vllm.py"
-        command = [str(ROOT / "mopd_infer/bin/python"), str(generator),
+        command = [
+            str(ROOT / "mopd_infer/bin/python"),
+            str(generator),
             # a fully fine-tuned checkpoint is itself the model; a LoRA one is an adapter on the base
-            "--model", checkpoint["path"] if checkpoint["artifact_type"] == "full_model" else student["base_model"],
-            "--data", str(data_path), "--out", str(output),
-            "--device", *map(str, args.device), "--model-version-id", checkpoint["version_id"],
-            "--protocol-id", args.protocol_id, "--max-new-tokens", str(args.max_new_tokens),
-            "--max-seqs", str(args.max_seqs), "--batch-size", str(args.batch_size),
-            "--max-num-batched-tokens", str(args.max_num_batched_tokens),
-            "--max-model-len", str(args.max_model_len),
-            "--student-prompt-format", prompt_format]
+            "--model",
+            checkpoint["path"] if checkpoint["artifact_type"] == "full_model" else student["base_model"],
+            "--data",
+            str(data_path),
+            "--out",
+            str(output),
+            "--device",
+            *map(str, args.device),
+            "--model-version-id",
+            checkpoint["version_id"],
+            "--protocol-id",
+            args.protocol_id,
+            "--max-new-tokens",
+            str(args.max_new_tokens),
+            "--max-seqs",
+            str(args.max_seqs),
+            "--batch-size",
+            str(args.batch_size),
+            "--max-num-batched-tokens",
+            str(args.max_num_batched_tokens),
+            "--max-model-len",
+            str(args.max_model_len),
+            "--student-prompt-format",
+            prompt_format,
+        ]
         if checkpoint["path"] and checkpoint["artifact_type"] == "lora_adapter":
             command.extend(["--adapter", checkpoint["path"]])
         env = os.environ.copy()
@@ -95,7 +136,9 @@ def main():
     parser.add_argument("--protocol-id", required=True)
     parser.add_argument("--out")
     parser.add_argument("--backend", choices=("auto", "hf_qat", "vllm"), default="auto")
-    parser.add_argument("--device", type=int, nargs="+", required=True, help="physical GPU ID(s); vLLM spreads rows over all of them")
+    parser.add_argument(
+        "--device", type=int, nargs="+", required=True, help="physical GPU ID(s); vLLM spreads rows over all of them"
+    )
     parser.add_argument("--max-new-tokens", type=int, default=2048)
     parser.add_argument("--max-model-len", type=int, help="default: max(16384, max-new-tokens+4096)")
     parser.add_argument("--max-seqs", type=int, default=8)
@@ -106,14 +149,21 @@ def main():
     args = parser.parse_args()
     if args.max_model_len is None:
         from mopd.evaluation.context import default_max_model_len
+
         args.max_model_len = default_max_model_len(args.max_new_tokens)
 
     command, env, output, backend = build_command(args)
     output.mkdir(parents=True, exist_ok=True)
     print(json.dumps({"backend": backend, "output": str(output), "command": command}, ensure_ascii=False), flush=True)
     subprocess.run(command, cwd=ROOT, env=env, check=True)
-    scorer = [str(ROOT / "mopd_train/bin/python"), str(ROOT / "scripts/grade_benchmark_outputs.py"),
-        "--data", str(Path(args.data).resolve()), "--out", str(output)]
+    scorer = [
+        str(ROOT / "mopd_train/bin/python"),
+        str(ROOT / "scripts/grade_benchmark_outputs.py"),
+        "--data",
+        str(Path(args.data).resolve()),
+        "--out",
+        str(output),
+    ]
     subprocess.run(scorer, cwd=ROOT, env=env, check=True)
 
 

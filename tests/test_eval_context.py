@@ -1,8 +1,10 @@
 """mopd.evaluation.context.default_max_model_len: the single source of truth for vLLM's context
 length, so no caller can hardcode a stale value that silently truncates once max_new_tokens grows
 past it (what generate_benchmark_vllm.py did before this existed)."""
+
 import sys
 from pathlib import Path
+
 _ROOT = Path(__file__).resolve().parents[1]
 sys.path[:0] = [str(_ROOT / "src"), str(_ROOT / "scripts")]
 import unittest

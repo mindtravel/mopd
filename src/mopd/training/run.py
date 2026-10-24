@@ -18,6 +18,7 @@ scripts/train_multidomain_opd.py): everything around the training signal.
             run.checkpoint(step)                # every save_every and at the end; barrier
         run.complete()                          # weight delta > 0, status complete + manifest
 """
+
 import json
 import time
 import traceback
@@ -116,28 +117,45 @@ class TrainRun:
                 save_student(self.scorer if self.sharded else self.model, c, self.ckpt, step, self.main)
             if self.main:
                 if not self.sharded:  # a sharded optimizer's rank-0 state is a fragment; sharded runs do not resume
-                    torch.save({"step": step, "optimizer": self.opt.state_dict(), "scheduler": self.sched.state_dict(),
-                                "rng": torch.get_rng_state(), "cuda_rng": torch.cuda.get_rng_state_all()},
-                               self.ckpt / "training_state.pt")
+                    torch.save(
+                        {
+                            "step": step,
+                            "optimizer": self.opt.state_dict(),
+                            "scheduler": self.sched.state_dict(),
+                            "rng": torch.get_rng_state(),
+                            "cuda_rng": torch.cuda.get_rng_state_all(),
+                        },
+                        self.ckpt / "training_state.pt",
+                    )
                 write_manifest(c, self.out, {"state": "training", "step": step})
         self.barrier()
 
     # ------------------------------------------------------------ end
     def weight_delta(self):
         """L2 norm of (final - initial) over every trainable parameter, summed over shards."""
-        delta2 = sum((local(p).detach().cpu() - v).float().square().sum().item() for p, v in zip(self.params, self.initial))
+        delta2 = sum(
+            (local(p).detach().cpu() - v).float().square().sum().item() for p, v in zip(self.params, self.initial)
+        )
         if self.sharded:
             total = torch.tensor(delta2, device=self.device, dtype=torch.float64)
             dist.all_reduce(total)
             delta2 = float(total)
-        return delta2 ** 0.5
+        return delta2**0.5
 
     def complete(self, **extra):
         delta = self.weight_delta() if (self.main or self.sharded) else None
         if self.main:
             assert delta > 0
-            dump(self.out / "status.json", {"state": "complete", "steps": self.c["steps"], **extra,
-                                             "adapter_delta_l2": delta, "final_adapter": str(self.ckpt)})
+            dump(
+                self.out / "status.json",
+                {
+                    "state": "complete",
+                    "steps": self.c["steps"],
+                    **extra,
+                    "adapter_delta_l2": delta,
+                    "final_adapter": str(self.ckpt),
+                },
+            )
             write_manifest(self.c, self.out, {"state": "complete", "step": self.c["steps"]})
 
     def barrier(self):
@@ -152,7 +170,10 @@ class TrainRun:
         try:
             if error is not None and self.main:
                 state = "stopped" if isinstance(error, (SystemExit, KeyboardInterrupt)) else "failed"
-                dump(self.out / "status.json", {"state": state, "traceback": "".join(traceback.format_exception(kind, error, tb))})
+                dump(
+                    self.out / "status.json",
+                    {"state": state, "traceback": "".join(traceback.format_exception(kind, error, tb))},
+                )
                 write_manifest(self.c, self.out, {"state": state})
         finally:
             self._files.close()

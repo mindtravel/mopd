@@ -7,6 +7,7 @@ from the same policy version and parameters only change after the step, so consu
 trajectories early (scoring and backpropagating them while others still decode) leaves the
 step's gradient unchanged up to floating-point accumulation order.
 """
+
 import time
 from typing import Callable, Iterable, Iterator
 

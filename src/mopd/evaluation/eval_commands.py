@@ -6,6 +6,7 @@ or a merged model -- has no model-version.json, so it chains generate_benchmark_
 grade_benchmark_outputs.py by hand) independently, and the vLLM scheduling flags were a
 copy-pasted constant in each file.
 """
+
 import sys
 from pathlib import Path
 
@@ -18,14 +19,27 @@ PY = sys.executable
 SCHEDULING = ["--batch-size", "4096", "--max-seqs", "256", "--max-num-batched-tokens", "8192"]
 
 
-def eval_commands(*, data, protocol_id, max_new_tokens, device, student_prompt_format="plain_qa_v1",
-                   out=None,  # omitted for the model_version branch: evaluate_model_version.py
-                              # then writes inside the run (<run>/evaluations/<checkpoint>/<protocol>);
-                              # required for the raw-model branch, which has no run to write inside
-                   model=None, model_version_id=None, adapter=None,  # a raw model directory (base or merged)
-                   model_version=None, checkpoint=None,  # a training run's model-version.json + checkpoint
-                   max_model_len=None, scheduling=SCHEDULING, mopd_infer_python=None,
-                   temperature=0.0, top_p=1.0):  # sampling: raw-model branch only for now
+def eval_commands(
+    *,
+    data,
+    protocol_id,
+    max_new_tokens,
+    device,
+    student_prompt_format="plain_qa_v1",
+    out=None,  # omitted for the model_version branch: evaluate_model_version.py
+    # then writes inside the run (<run>/evaluations/<checkpoint>/<protocol>);
+    # required for the raw-model branch, which has no run to write inside
+    model=None,
+    model_version_id=None,
+    adapter=None,  # a raw model directory (base or merged)
+    model_version=None,
+    checkpoint=None,  # a training run's model-version.json + checkpoint
+    max_model_len=None,
+    scheduling=SCHEDULING,
+    mopd_infer_python=None,
+    temperature=0.0,
+    top_p=1.0,
+):  # sampling: raw-model branch only for now
     """Returns [(argv, extra_env), ...] -- run each in order; the output directory ends up holding
     generated.jsonl, cases.jsonl and summary.json either way. Exactly one of (model_version,
     checkpoint) or (model,) must be given."""
@@ -40,17 +54,39 @@ def eval_commands(*, data, protocol_id, max_new_tokens, device, student_prompt_f
     if model_version:
         if temperature:
             raise ValueError("sampling is only wired for the raw-model branch (model=..., adapter=...)")
-        cmd = [PY, "scripts/evaluate_model_version.py", "--model-version", str(model_version),
-               "--checkpoint", checkpoint, "--device", *devices, *common, *scheduling]
+        cmd = [
+            PY,
+            "scripts/evaluate_model_version.py",
+            "--model-version",
+            str(model_version),
+            "--checkpoint",
+            checkpoint,
+            "--device",
+            *devices,
+            *common,
+            *scheduling,
+        ]
         if out is not None:
             cmd += ["--out", str(out)]
         return [(cmd, {})]
     if out is None:
         raise ValueError("out is required when evaluating a raw model (no run to default into)")
-    gen = [str(mopd_infer_python or ROOT / "mopd_infer/bin/python"), "scripts/generate_benchmark_vllm.py",
-           "--model", str(model), "--out", str(out), "--device", *devices,
-           "--model-version-id", model_version_id or f"model:{Path(model).name}",
-           "--student-prompt-format", student_prompt_format, *common, *scheduling]
+    gen = [
+        str(mopd_infer_python or ROOT / "mopd_infer/bin/python"),
+        "scripts/generate_benchmark_vllm.py",
+        "--model",
+        str(model),
+        "--out",
+        str(out),
+        "--device",
+        *devices,
+        "--model-version-id",
+        model_version_id or f"model:{Path(model).name}",
+        "--student-prompt-format",
+        student_prompt_format,
+        *common,
+        *scheduling,
+    ]
     if adapter:
         gen += ["--adapter", str(adapter)]
     if temperature:

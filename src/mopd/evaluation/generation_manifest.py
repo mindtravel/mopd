@@ -1,11 +1,22 @@
 """Canonical manifest for generated benchmark outputs across inference backends."""
+
 import hashlib
 import json
 
 
 def build_generation_manifest(
-    *, run_id, model_version_id, protocol_id, prompt_mode, generation,
-    data_path, data_sha256, backend, weight_representation, inference_dtype, model,
+    *,
+    run_id,
+    model_version_id,
+    protocol_id,
+    prompt_mode,
+    generation,
+    data_path,
+    data_sha256,
+    backend,
+    weight_representation,
+    inference_dtype,
+    model,
 ):
     protocol = {
         "protocol_id": protocol_id,

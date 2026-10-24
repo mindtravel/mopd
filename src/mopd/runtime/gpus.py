@@ -6,13 +6,18 @@ protects against that one GPU, on that one day; anything we schedule, including 
 commands, should check real occupancy immediately before claiming a device, the same way
 run_experiment.py already does for its own preflight.
 """
+
 import subprocess
 
 
 def gpu_memory_used(gpus=None):
     """{gpu_id: MiB used}, for every GPU or just `gpus` if given."""
-    out = subprocess.run(["nvidia-smi", "--query-gpu=index,memory.used", "--format=csv,noheader,nounits"],
-                         capture_output=True, text=True, check=True).stdout
+    out = subprocess.run(
+        ["nvidia-smi", "--query-gpu=index,memory.used", "--format=csv,noheader,nounits"],
+        capture_output=True,
+        text=True,
+        check=True,
+    ).stdout
     used = {int(i): int(m) for i, m in (line.split(",") for line in out.strip().splitlines())}
     return {g: used[g] for g in gpus} if gpus is not None else used
 

@@ -1,5 +1,6 @@
 import sys
 from pathlib import Path
+
 _ROOT = Path(__file__).resolve().parents[1]
 sys.path[:0] = [str(_ROOT / "src"), str(_ROOT / "scripts")]
 import tempfile
@@ -29,12 +30,14 @@ class ResolveCheckpointTests(unittest.TestCase):
             manifest = {
                 "run_id": "fairy-run",
                 "components": {"student": {"base_model": "/models/fairy"}},
-                "checkpoints": [{
-                    "version_id": "fairy-run:step-0002",
-                    "path": str(checkpoint),
-                    "artifact_type": "fairy2i_qat_scale_update",
-                    "complete": True,
-                }],
+                "checkpoints": [
+                    {
+                        "version_id": "fairy-run:step-0002",
+                        "path": str(checkpoint),
+                        "artifact_type": "fairy2i_qat_scale_update",
+                        "complete": True,
+                    }
+                ],
             }
 
             resolved = resolve_checkpoint(manifest, "checkpoint-0002")
@@ -46,11 +49,13 @@ class ResolveCheckpointTests(unittest.TestCase):
         manifest = {
             "run_id": "fairy-run",
             "components": {"student": {"base_model": "/models/fairy"}},
-            "checkpoints": [{
-                "version_id": "fairy-run:step-0002",
-                "path": "/runs/fairy-run/checkpoint-0002",
-                "complete": False,
-            }],
+            "checkpoints": [
+                {
+                    "version_id": "fairy-run:step-0002",
+                    "path": "/runs/fairy-run/checkpoint-0002",
+                    "complete": False,
+                }
+            ],
         }
 
         with self.assertRaisesRegex(ValueError, "incomplete"):

@@ -12,8 +12,10 @@ Two real bugs this guards against:
     took 4 and the second was offered 4 // 2 = 2 of the remaining 4 -- too few for a full
     fine-tuning run, which then failed at start-up.
 """
+
 import sys
 from pathlib import Path
+
 _ROOT = Path(__file__).resolve().parents[1]
 sys.path[:0] = [str(_ROOT / "src"), str(_ROOT / "scripts")]
 import threading
@@ -35,12 +37,15 @@ class GPUPoolTest(unittest.TestCase):
         self.assertEqual(len(pool.want("a", min_gpus=1, max_gpus=1)), 1)  # `gpu, = ...` used to crash on 7
 
     def test_jobs_enqueued_together_split_evenly_whatever_their_thread_order(self):
-        pool = GPUPool(range(7)); got = {}
+        pool = GPUPool(range(7))
+        got = {}
         for i in range(7):
             pool.enqueue(f"j{i}")
         threads = [threading.Thread(target=lambda i=i: got.__setitem__(i, pool.want(f"j{i}"))) for i in range(7)]
-        for t in threads: t.start()
-        for t in threads: t.join()
+        for t in threads:
+            t.start()
+        for t in threads:
+            t.join()
         self.assertEqual(sorted(len(g) for g in got.values()), [1] * 7)
         self.assertEqual(sorted(g for v in got.values() for g in v), list(range(7)))
 
@@ -50,32 +55,44 @@ class GPUPoolTest(unittest.TestCase):
         self.assertEqual(len(pool.want("ready")), 8)
 
     def test_waiting_job_gets_gpus_back_when_one_finishes(self):
-        pool = GPUPool(range(4)); pool.enqueue("a"); pool.enqueue("b")
-        a = pool.want("a"); b = pool.want("b")
+        pool = GPUPool(range(4))
+        pool.enqueue("a")
+        pool.enqueue("b")
+        a = pool.want("a")
+        b = pool.want("b")
         self.assertEqual((len(a), len(b)), (2, 2))
         done = []
-        t = threading.Thread(target=lambda: done.append(pool.want("c", min_gpus=3))); t.start()
-        time.sleep(0.05); self.assertEqual(done, [])  # only 0 free: c waits
-        pool.give_back(a); pool.give_back(b); t.join(2)
+        t = threading.Thread(target=lambda: done.append(pool.want("c", min_gpus=3)))
+        t.start()
+        time.sleep(0.05)
+        self.assertEqual(done, [])  # only 0 free: c waits
+        pool.give_back(a)
+        pool.give_back(b)
+        t.join(2)
         self.assertEqual(len(done[0]), 4)
 
 
 class SchedulerTest(unittest.TestCase):
     def test_dag_runs_deps_first_blocks_on_failure_and_skips_done(self):
         import tempfile
+
         order, log = [], tempfile.mkdtemp()
         sched = Scheduler([0, 1, 2, 3], log, min_free_gib=0, name="t", poll_seconds=0.05)
         sched.add({"id": "a", "gpus": {"min": 1}, "run": lambda g: order.append(("a", len(g)))})
         sched.add({"id": "b", "deps": ["a"], "gpus": 0, "run": lambda g: order.append(("b", len(g)))})
-        sched.add({"id": "c", "deps": ["a"], "gpus": {"min": 1}, "run": lambda g: (_ for _ in ()).throw(RuntimeError("boom"))})
+        sched.add(
+            {"id": "c", "deps": ["a"], "gpus": {"min": 1}, "run": lambda g: (_ for _ in ()).throw(RuntimeError("boom"))}
+        )
         sched.add({"id": "d", "deps": ["c"], "gpus": {"min": 1}, "run": lambda g: order.append(("d", len(g)))})
         sched.add({"id": "e", "gpus": {"min": 1}, "done": lambda: True, "run": lambda g: order.append(("e", len(g)))})
         state = sched.run()
         self.assertEqual([k for k, _ in order][:1], ["a"])
         self.assertEqual(dict(order)["a"], 4)  # a lone ready job takes every idle GPU
         self.assertEqual(dict(order)["b"], 0)
-        self.assertEqual(state["c"]["state"], "failed"); self.assertEqual(state["d"]["state"], "blocked")
-        self.assertTrue(state["e"].get("skipped")); self.assertNotIn("d", dict(order))
+        self.assertEqual(state["c"]["state"], "failed")
+        self.assertEqual(state["d"]["state"], "blocked")
+        self.assertTrue(state["e"].get("skipped"))
+        self.assertNotIn("d", dict(order))
 
 
 if __name__ == "__main__":

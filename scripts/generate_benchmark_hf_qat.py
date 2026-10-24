@@ -1,4 +1,5 @@
 """Generate resumable benchmark outputs with the native Fairy2i QAT forward."""
+
 import argparse
 import fcntl
 import hashlib
@@ -77,10 +78,12 @@ def main():
     parser.add_argument("--batch-size", type=int, default=2)
     parser.add_argument("--seed", type=int, default=20261014)
     from mopd.data.templates import STUDENT_PROMPT_MODES
+
     parser.add_argument("--student-prompt-format", required=True, choices=sorted(STUDENT_PROMPT_MODES))
     args = parser.parse_args()
     if args.max_model_len is None:
         from mopd.evaluation.context import default_max_model_len
+
         args.max_model_len = default_max_model_len(args.max_new_tokens)
 
     manifest_path = Path(args.model_version).resolve()
@@ -109,6 +112,7 @@ def main():
         raise FileNotFoundError("Fairy2i checkpoint has no qat_scales.safetensors")
 
     from mopd.training.batching import normalize_eos_token_ids
+
     base_path = Path(student["base_model"])
     generation_path = base_path / "generation_config.json"
     if generation_path.is_file():
@@ -131,6 +135,7 @@ def main():
         "eos_token_ids": list(eos_ids),
     }
     from mopd.evaluation.generation_manifest import build_generation_manifest
+
     generation = build_generation_manifest(
         run_id=model_manifest["run_id"],
         model_version_id=checkpoint["version_id"],
@@ -179,14 +184,15 @@ def main():
         tokenizer, model = load_fairy2i_qat_student(
             student["base_model"], args.device, trainable_scales=False, update_path=update_path
         )
-        from mopd.training.batching import generation_eos_ids,is_eos_token,trim_generated
-        if generation_eos_ids(model,tokenizer) != eos_ids:
+        from mopd.training.batching import generation_eos_ids, is_eos_token, trim_generated
+
+        if generation_eos_ids(model, tokenizer) != eos_ids:
             raise ValueError("Loaded student EOS tokens differ from the recorded generation protocol")
         model.eval()
         started = time.monotonic()
         with records_path.open("a", encoding="utf-8", buffering=1) as stream:
             for offset in range(0, len(pending), args.batch_size):
-                batch = pending[offset:offset + args.batch_size]
+                batch = pending[offset : offset + args.batch_size]
                 prompts = [student_prompt(tokenizer, row, args.student_prompt_format) for row in batch]
                 encoded = tokenizer(prompts, padding=True, return_tensors="pt").to(args.device)
                 if encoded.input_ids.shape[1] + args.max_new_tokens > args.max_model_len:
@@ -201,11 +207,11 @@ def main():
                         use_cache=True,
                     )
                 for index, (source, sequence) in enumerate(zip(batch, output_ids)):
-                    generated_ids = sequence[encoded.input_ids.shape[1]:]
-                    token_ids = trim_generated(generated_ids,eos_ids)
-                    stopped = bool(token_ids) and is_eos_token(token_ids[-1],eos_ids)
+                    generated_ids = sequence[encoded.input_ids.shape[1] :]
+                    token_ids = trim_generated(generated_ids, eos_ids)
+                    stopped = bool(token_ids) and is_eos_token(token_ids[-1], eos_ids)
                     if stopped:
-                        generated_ids = generated_ids[:len(token_ids)]
+                        generated_ids = generated_ids[: len(token_ids)]
                     response = tokenizer.decode(generated_ids, skip_special_tokens=True)
                     record = {
                         "id": source["id"],
@@ -223,12 +229,17 @@ def main():
                     done.add((record["domain"], str(record["id"])))
                 stream.flush()
                 os.fsync(stream.fileno())
-                atomic_json(output / "generation-progress.json", {
-                    "done": len(done), "total": len(rows),
-                    "seconds_this_session": time.monotonic() - started,
-                    "backend": "hf_fairy2i_qat", "model_version_id": checkpoint["version_id"],
-                    "protocol_id": args.protocol_id,
-                })
+                atomic_json(
+                    output / "generation-progress.json",
+                    {
+                        "done": len(done),
+                        "total": len(rows),
+                        "seconds_this_session": time.monotonic() - started,
+                        "backend": "hf_fairy2i_qat",
+                        "model_version_id": checkpoint["version_id"],
+                        "protocol_id": args.protocol_id,
+                    },
+                )
                 emit_progress({"done": len(done), "total": len(rows)})
 
 

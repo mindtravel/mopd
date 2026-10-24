@@ -5,6 +5,7 @@ chat template, and 23 of 32 first-step rollouts collapsed into repeated garbage.
 The format check below would have refused to start; the rollout gate catches the
 class of failure that a format check alone cannot.
 """
+
 import unicodedata
 
 # Scripts whose presence in a response, but not in the prompt, indicates decoding collapse.
@@ -40,13 +41,13 @@ def check_rollout_gate(rollouts, max_degenerate=0.1, min_rows=8):
     """
     if len(rollouts) < min_rows:
         raise ValueError(f"Rollout gate needs at least {min_rows} rows, got {len(rollouts)}")
-    degenerate = [r for r in rollouts
-                  if r.get("truncated") or foreign_script(r["response"], r.get("prompt", ""))]
+    degenerate = [r for r in rollouts if r.get("truncated") or foreign_script(r["response"], r.get("prompt", ""))]
     rate = len(degenerate) / len(rollouts)
     if rate > max_degenerate:
         example = degenerate[0]
         raise ValueError(
             f"Rollout gate failed: {len(degenerate)}/{len(rollouts)} ({rate:.0%}) answers are "
             f"truncated or contain foreign script. First: id={example.get('id')} "
-            f"response={example['response'][:120]!r}")
+            f"response={example['response'][:120]!r}"
+        )
     return rate

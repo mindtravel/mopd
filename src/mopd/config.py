@@ -4,6 +4,7 @@ The config is the contract between the launcher, the training loop and the
 model-version record. Keeping validation here means a new backend, domain or
 prompt format is added in one file instead of being re-checked at each call site.
 """
+
 import json
 from pathlib import Path
 
@@ -55,22 +56,25 @@ def _check_devices(config):
 def _check_prompt_protocol(config, adapter_config):
     prompt_format = config.get("student_prompt_format")
     if prompt_format not in STUDENT_PROMPT_MODES:
-        raise ConfigError("student_prompt_format must be one of " + ", ".join(STUDENT_PROMPT_MODES)
-                          + f", got {prompt_format!r}")
+        raise ConfigError(
+            "student_prompt_format must be one of " + ", ".join(STUDENT_PROMPT_MODES) + f", got {prompt_format!r}"
+        )
     adapter = config.get("student_adapter")
     if not adapter:
         return
     if adapter_config is None:
         raise ConfigError(
             f"student_adapter {adapter!r} has no sibling config.json, so the format it was trained "
-            "with is unknown; pass student_adapter_prompt_format explicitly")
+            "with is unknown; pass student_adapter_prompt_format explicitly"
+        )
     # A parent run only records its format once it has been migrated (see protocol.py).
     trained = adapter_config.get("student_prompt_format", config.get("student_adapter_prompt_format"))
     if trained != prompt_format:
         raise ConfigError(
             f"Adapter {adapter!r} was trained with student prompt {trained!r}, "
             f"but this config sets student_prompt_format={prompt_format!r}. "
-            "An adapter must be rolled out with the format it was trained on.")
+            "An adapter must be rolled out with the format it was trained on."
+        )
 
 
 def _check_domains(config, project_root):
@@ -84,7 +88,9 @@ def _check_domains(config, project_root):
             _require(spec, key, str, where)
         teacher_format = spec.get("teacher_prompt_format", "chat_template_v1")
         if teacher_format not in TEACHER_PROMPT_FORMATS:
-            raise ConfigError(f"{where}teacher_prompt_format must be one of {TEACHER_PROMPT_FORMATS}, got {teacher_format!r}")
+            raise ConfigError(
+                f"{where}teacher_prompt_format must be one of {TEACHER_PROMPT_FORMATS}, got {teacher_format!r}"
+            )
         if not isinstance(spec.get("count"), int) or spec["count"] < 1:
             raise ConfigError(f"{where}count must be a positive integer")
         try:

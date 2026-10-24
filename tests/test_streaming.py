@@ -1,6 +1,8 @@
 """Streaming-pipeline pieces that need no GPU: batching, gradient attribution, stream validation."""
+
 import sys
 from pathlib import Path
+
 _ROOT = Path(__file__).resolve().parents[1]
 sys.path[:0] = [str(_ROOT / "src"), str(_ROOT / "scripts")]
 import random
@@ -61,7 +63,9 @@ class GradContributionTest(unittest.TestCase):
         w.grad = None
         gc = GradContribution([w], ["a", "b"])
         for d, x in [("a", xs["a"][0]), ("b", xs["b"][0]), ("a", xs["a"][1]), ("b", xs["b"][1]), ("a", xs["a"][2])]:
-            gc.before(); (w * x).sum().pow(2).backward(); gc.after(d)
+            gc.before()
+            (w * x).sum().pow(2).backward()
+            gc.after(d)
         self.assertTrue(torch.allclose(w.grad, total))
         for d in ("a", "b"):
             self.assertAlmostEqual(gc.l2(d), ref[d], places=4)
@@ -95,6 +99,7 @@ class OpenStreamTest(unittest.TestCase):
         class Batch:
             def generate(self, student, rows, version):
                 return [traj(0, "math")], 1.5, {"backend": "batch"}
+
         s = open_stream(Batch(), None, [], 0, streaming=True)
         self.assertEqual(len(list(s)), 1)
         self.assertGreaterEqual(s.seconds, 1.5)

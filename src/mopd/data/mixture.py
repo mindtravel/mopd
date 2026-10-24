@@ -13,6 +13,7 @@ largest remainder), so the mixture ratio is exact per step instead of following 
 sizes. A single-source domain is planned exactly as before, so legacy runs re-plan
 to the same batches.
 """
+
 import hashlib
 import json
 import math
@@ -58,8 +59,10 @@ def load_preset(name, domain, project_root=PROJECT_ROOT):
         "path": str(path),
         "sha256": hashlib.sha256(raw).hexdigest(),
         "description": preset.get("description", ""),
-        "sources": [{"name": s["name"], "path": _absolute(s["path"], project_root), "weight": float(s["weight"])}
-                    for s in sources],
+        "sources": [
+            {"name": s["name"], "path": _absolute(s["path"], project_root), "weight": float(s["weight"])}
+            for s in sources
+        ],
         "holdout_files": [_absolute(p, project_root) for p in preset.get("holdout_files", [])],
     }
 
@@ -90,7 +93,7 @@ def quotas(count, sources):
     exact = [count * s["weight"] / total for s in sources]
     result = [math.floor(x) for x in exact]
     order = sorted(range(len(sources)), key=lambda j: (-(exact[j] - result[j]), j))
-    for j in order[:count - sum(result)]:
+    for j in order[: count - sum(result)]:
         result[j] += 1
     zero = [s["name"] for s, n in zip(sources, result) if n == 0]
     if zero:
@@ -99,8 +102,16 @@ def quotas(count, sources):
 
 
 def _rows(path, domain, source):
-    return [dict(r, prompt=r.get("prompt", r.get("problem")), domain=domain, split=r.get("split", "train"),
-                 mixture_source=source) for r in load_pool(path)]
+    return [
+        dict(
+            r,
+            prompt=r.get("prompt", r.get("problem")),
+            domain=domain,
+            split=r.get("split", "train"),
+            mixture_source=source,
+        )
+        for r in load_pool(path)
+    ]
 
 
 def plan_domains(config):
@@ -108,21 +119,30 @@ def plan_domains(config):
     seed, steps = config["seed"], config["steps"]
     per_step = [[] for _ in range(steps)]
     for i, (domain, spec) in enumerate(config["domains"].items()):
-        holdout = [dict(r, prompt=r.get("prompt", r.get("problem")))
-                   for path in spec.get("holdout_files", []) for r in load_pool(path)]
+        holdout = [
+            dict(r, prompt=r.get("prompt", r.get("problem")))
+            for path in spec.get("holdout_files", [])
+            for r in load_pool(path)
+        ]
         ids, texts = set(), set()
         for j, source in enumerate(spec["sources"]):
             rows = _rows(source["path"], domain, source["name"])
             keys = {(r["domain"], r["id"]) for r in rows}
             hashes = {text_hash(r["prompt"]) for r in rows}
             if keys & ids or hashes & texts:
-                raise ValueError(f"domains.{domain}: source {source['name']!r} repeats IDs or prompts of an earlier source")
+                raise ValueError(
+                    f"domains.{domain}: source {source['name']!r} repeats IDs or prompts of an earlier source"
+                )
             ids |= keys
             texts |= hashes
             if holdout:
                 validate_holdout(rows, holdout)
-            plan = build_plan(rows, seed=seed + i + SOURCE_SEED_STRIDE * j, steps=steps,
-                              batch_size=spec["source_counts"][source["name"]])
+            plan = build_plan(
+                rows,
+                seed=seed + i + SOURCE_SEED_STRIDE * j,
+                steps=steps,
+                batch_size=spec["source_counts"][source["name"]],
+            )
             for step, batch in enumerate(plan):
                 per_step[step].extend(batch)
     return per_step

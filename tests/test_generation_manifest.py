@@ -1,5 +1,6 @@
 import sys
 from pathlib import Path
+
 _ROOT = Path(__file__).resolve().parents[1]
 sys.path[:0] = [str(_ROOT / "src"), str(_ROOT / "scripts")]
 import sys
@@ -12,11 +13,15 @@ from mopd.evaluation.generation_manifest import build_generation_manifest
 class GenerationManifestTests(unittest.TestCase):
     def build(self, *, model_version_id="run:base", data_sha256="data-a"):
         return build_generation_manifest(
-            run_id="run", model_version_id=model_version_id,
-            protocol_id="ifeval-v1", prompt_mode="student-prompt-v1",
+            run_id="run",
+            model_version_id=model_version_id,
+            protocol_id="ifeval-v1",
+            prompt_mode="student-prompt-v1",
             generation={"temperature": 0, "max_new_tokens": 128, "seed": 7},
-            data_path="/project/data.jsonl", data_sha256=data_sha256,
-            backend="hf_fairy2i_qat", weight_representation="qat-base",
+            data_path="/project/data.jsonl",
+            data_sha256=data_sha256,
+            backend="hf_fairy2i_qat",
+            weight_representation="qat-base",
             inference_dtype="bf16-activation-1bit-linear",
             model={"base_model": "/models/student", "checkpoint_path": None},
         )
@@ -33,11 +38,14 @@ class GenerationManifestTests(unittest.TestCase):
         manifest = self.build()
 
         self.assertEqual(manifest["schema"], "ifairy.benchmark_generation.v1")
-        self.assertEqual(manifest["protocol"], {
-            "protocol_id": "ifeval-v1",
-            "prompt_mode": "student-prompt-v1",
-            "generation": {"temperature": 0, "max_new_tokens": 128, "seed": 7},
-        })
+        self.assertEqual(
+            manifest["protocol"],
+            {
+                "protocol_id": "ifeval-v1",
+                "prompt_mode": "student-prompt-v1",
+                "generation": {"temperature": 0, "max_new_tokens": 128, "seed": 7},
+            },
+        )
         self.assertEqual(manifest["dataset"]["path"], "/project/data.jsonl")
 
 

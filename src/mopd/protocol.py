@@ -4,6 +4,7 @@ Two model versions are only comparable when they used the same protocol, so ever
 decision about prompt text and EOS handling lives here and is recorded in the
 model-version manifest. Nothing in this module imports the rest of mopd.
 """
+
 from collections.abc import Mapping
 
 # Prompt formats are part of the training protocol: an adapter must be rolled out and
@@ -69,12 +70,20 @@ TEACHER_PROMPT_FORMATS = ("chat_template_v1", "student_prefix_v1")
 
 def teacher_prefix_ids(tokenizer, row, prompt_format, student_prefix_ids):
     if prompt_format == "chat_template_v1":
-        return apply_chat_template_ids(tokenizer, [{"role": "user", "content": teacher_content(row)}],
-                                       add_generation_prompt=True, enable_thinking=False)
+        return apply_chat_template_ids(
+            tokenizer,
+            [{"role": "user", "content": teacher_content(row)}],
+            add_generation_prompt=True,
+            enable_thinking=False,
+        )
     if prompt_format == "student_prefix_v1":
         return list(student_prefix_ids)
-    raise ValueError("Unknown teacher prompt format: " + repr(prompt_format)
-                     + "; expected one of " + ", ".join(TEACHER_PROMPT_FORMATS))
+    raise ValueError(
+        "Unknown teacher prompt format: "
+        + repr(prompt_format)
+        + "; expected one of "
+        + ", ".join(TEACHER_PROMPT_FORMATS)
+    )
 
 
 def student_prompt(tokenizer, row, prompt_format):
@@ -91,8 +100,9 @@ def student_prompt(tokenizer, row, prompt_format):
             add_generation_prompt=True,
             enable_thinking=False,
         )
-    raise ValueError("Unknown student prompt format: " + repr(prompt_format)
-                     + "; expected one of " + ", ".join(STUDENT_PROMPT_MODES))
+    raise ValueError(
+        "Unknown student prompt format: " + repr(prompt_format) + "; expected one of " + ", ".join(STUDENT_PROMPT_MODES)
+    )
 
 
 def normalize_eos_token_ids(value):
@@ -107,9 +117,11 @@ def normalize_eos_token_ids(value):
 def generation_eos_ids(model, tokenizer):
     generation = getattr(model, "generation_config", None)
     config = getattr(model, "config", None)
-    for value in (getattr(generation, "eos_token_id", None),
-                  getattr(config, "eos_token_id", None),
-                  getattr(tokenizer, "eos_token_id", None)):
+    for value in (
+        getattr(generation, "eos_token_id", None),
+        getattr(config, "eos_token_id", None),
+        getattr(tokenizer, "eos_token_id", None),
+    ):
         ids = normalize_eos_token_ids(value)
         if ids:
             return ids
@@ -126,5 +138,5 @@ def trim_generated(tokens, eos):
     eos_ids = set(normalize_eos_token_ids(eos))
     for index, token in enumerate(values):
         if token in eos_ids:
-            return values[:index + 1]
+            return values[: index + 1]
     return values

@@ -8,6 +8,7 @@ A policy descriptor {"kind", "path", "id", "version"} tells mopd.rollout.vllm_wo
 sha256 for LoRA; for full weights version and byte size (hashing 8 GB every step would cost more
 than the load itself, and each version gets a fresh file name).
 """
+
 import hashlib
 import os
 from pathlib import Path
@@ -22,6 +23,7 @@ def shm_dir(config):
 def cleanup(config):
     """Free the RAM held by a run's last published full-weight file (call once training ends)."""
     import shutil
+
     shutil.rmtree(shm_dir(config), ignore_errors=True)
 
 
@@ -29,6 +31,7 @@ def publish(student, config, root, version, tokenizer, main_rank):
     """Collective for sharded students (every rank calls); returns the descriptor on rank 0."""
     if is_sharded(config):
         from mopd.training import fsdp
+
         shm = shm_dir(config)
         path = shm / f"policy-{version:06d}.safetensors"
         if main_rank:

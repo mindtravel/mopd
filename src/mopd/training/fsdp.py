@@ -10,6 +10,7 @@ must live in the same unit. Gradients are reduce-scattered as a SUM (divide fact
 per-sample scales are computed over the whole global step, so summing per-rank gradients is what
 reproduces the single-GPU gradient, the same contract as its LoRA all-reduce path.
 """
+
 from pathlib import Path
 
 import torch
@@ -17,6 +18,7 @@ from torch.distributed.fsdp import MixedPrecisionPolicy, fully_shard
 
 from mopd.runtime.model_files import finalize
 from mopd.training.batching import TokenLogProbs
+
 
 def shard(model, reshard_after_forward=True, gather_once_per_step=False):
     """Wrap a causal LM (fp32 parameters on this rank's GPU) for sharded training; returns the
@@ -28,8 +30,10 @@ def shard(model, reshard_after_forward=True, gather_once_per_step=False):
     after every micro-batch, so the summed gradient is unchanged. Implies reshard_after_forward=False."""
     policy = MixedPrecisionPolicy(param_dtype=torch.bfloat16, reduce_dtype=torch.float32)
     scorer = TokenLogProbs(model)
-    units = [fully_shard(layer, mp_policy=policy, reshard_after_forward=reshard_after_forward and not gather_once_per_step)
-             for layer in scorer.base.model.layers]
+    units = [
+        fully_shard(layer, mp_policy=policy, reshard_after_forward=reshard_after_forward and not gather_once_per_step)
+        for layer in scorer.base.model.layers
+    ]
     units.append(fully_shard(scorer, mp_policy=policy))
     for unit in units:
         unit.set_reduce_scatter_divide_factor(1.0)
@@ -84,6 +88,7 @@ def write_weights(scorer, path, main_rank):
     if not main_rank:
         return
     from safetensors.torch import save_file
+
     tmp = Path(str(path) + ".partial")
     save_file({k: v.contiguous() for k, v in state.items()}, str(tmp))
     tmp.replace(path)
