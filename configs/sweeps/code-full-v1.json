@@ -113,6 +113,42 @@
     128,
     256
    ]
+  },
+  {
+   "name": "rstar-code-instr11-lr1e-6",
+   "recipe": "configs/recipes/code/rstar-code-instr11.json",
+   "controls": {
+    "lr": 1e-06
+   },
+   "checkpoints": [
+    64,
+    128,
+    256
+   ]
+  },
+  {
+   "name": "rstar-code-instr11-lr5e-7",
+   "recipe": "configs/recipes/code/rstar-code-instr11.json",
+   "controls": {
+    "lr": 5e-07
+   },
+   "checkpoints": [
+    64,
+    128,
+    256
+   ]
+  },
+  {
+   "name": "rstar-code-instr12-lr2e-6",
+   "recipe": "configs/recipes/code/rstar-code-instr12.json",
+   "controls": {
+    "lr": 2e-06
+   },
+   "checkpoints": [
+    64,
+    128,
+    256
+   ]
   }
  ]
 }
