@@ -47,6 +47,9 @@ def measure_peak_tflops(device=None, n=8192, iters=50):
 
 
 def cached_peak_tflops(device=None):
+    """None when no measurement is cached for this GPU model, or without CUDA at all."""
+    if not torch.cuda.is_available():
+        return None
     f = CACHE / f"peak-{_gpu_key(device)}.json"
     return json.loads(f.read_text())["bf16_tflops"] if f.is_file() else None
 
