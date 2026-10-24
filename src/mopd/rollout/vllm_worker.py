@@ -59,12 +59,11 @@ def stream_generate(engine, rows, params, adapter, emit, header):
 
 
 def load_full_weights(worker, path):
-    """Runs inside vLLM's worker (LLM.collective_rpc): replace every weight in place from one
-    safetensors file (mopd.training.fsdp.write_weights)."""
-    from safetensors import safe_open
+    """Runs inside vLLM's worker (LLM.collective_rpc): replace every weight in place from the
+    trainer's shared bf16 buffer (mopd.training.fsdp.SharedWeights), mapped without copying."""
+    from mopd.training.fsdp import read_shared_weights
 
-    with safe_open(path, "pt", device="cpu") as f:
-        worker.model_runner.model.load_weights((k, f.get_tensor(k)) for k in f.keys())
+    worker.model_runner.model.load_weights(read_shared_weights(path))
 
 
 class Policy:
@@ -72,6 +71,7 @@ class Policy:
 
     def __init__(self, engine, kind):
         self.engine, self.kind, self.version, self.id, self.adapter = engine, kind, None, None, None
+        self.load_seconds = 0.0
 
     def use(self, p):
         from vllm.lora.request import LoRARequest
@@ -94,8 +94,10 @@ class Policy:
             if not self.engine.llm_engine.add_lora(self.adapter):
                 raise RuntimeError("LoRA load failed")
         else:
+            mark = time.perf_counter()
             self.engine.collective_rpc(load_full_weights, args=(p["path"],))
             self.engine.reset_prefix_cache()
+            self.load_seconds = time.perf_counter() - mark
         self.version, self.id = p["version"], p["id"]
         return self.adapter
 
@@ -157,7 +159,13 @@ def main():
                     seed=request["seed"],
                     logprobs=request.get("debug_logprobs"),
                 )
-                header = {"version": policy.version, "policy_id": policy.id, "device": a.device}
+                header = {
+                    "version": policy.version,
+                    "policy_id": policy.id,
+                    "device": a.device,
+                    "load_seconds": policy.load_seconds,
+                }
+                policy.load_seconds = 0.0
                 run = stream_generate if request.get("stream") else batch_generate
                 run(engine, request["inputs"], params, adapter, emit, header)
             except BaseException:

@@ -1,4 +1,4 @@
-"""Where full-weight publishing time goes (mopd.rollout.policy -> fsdp.write_weights), on a sharded
+"""Where full-weight publishing time goes (mopd.rollout.policy -> fsdp.SharedWeights), on a sharded
 Qwen3-4B student:  torchrun --standalone --nproc_per_node=4 tests/gpu/bench_publish.py"""
 import sys, time
 from pathlib import Path
@@ -32,20 +32,19 @@ def per_param_gpu():  # all-gathers only, results stay on GPU and are dropped
         del f
 
 
-for _ in range(2):
+shared = fsdp.SharedWeights(scorer, "/dev/shm/bench-publish.bf16", main)
+for _ in range(3):
     timed("gather per parameter, GPU only", per_param_gpu)
-    state = timed("gather per parameter + .cpu() (current fsdp.gather)", lambda: fsdp.gather(scorer, main))
-    if main:
-        from safetensors.torch import save_file
-        t = time.perf_counter(); save_file({k: v.contiguous() for k, v in state.items()}, "/dev/shm/bench-publish.safetensors")
-        print(f"save_file 8 GB to /dev/shm: {time.perf_counter() - t:.2f}s", flush=True)
-        n = sum(v.numel() for v in state.values())
-        pinned = torch.empty(n, dtype=torch.bfloat16, pin_memory=True)
-        t = time.perf_counter(); off = 0
-        for v in state.values():
-            pinned[off:off + v.numel()].copy_(v.reshape(-1)); off += v.numel()
-        print(f"memcpy into pinned buffer: {time.perf_counter() - t:.2f}s", flush=True)
+    timed("SharedWeights.write (gather + DMA into page-locked shared buffer)", lambda: shared.write(scorer))
+    if main:  # what a rollout engine does: map the buffer and copy each tensor to its GPU
+        t = time.perf_counter()
+        for name, v in fsdp.read_shared_weights(shared.path):
+            v.to(device, non_blocking=False)
+        torch.cuda.synchronize()
+        print(f"map + host-to-device copy of every tensor (rollout side): {time.perf_counter() - t:.2f}s", flush=True)
     dist.barrier()
+shared.close()
 if main:
-    Path("/dev/shm/bench-publish.safetensors").unlink(missing_ok=True)
+    Path("/dev/shm/bench-publish.bf16").unlink(missing_ok=True)
+    Path("/dev/shm/bench-publish.bf16.json").unlink(missing_ok=True)
 dist.destroy_process_group()

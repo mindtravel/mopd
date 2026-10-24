@@ -2,11 +2,11 @@
 
 A policy descriptor {"kind", "path", "id", "version"} tells mopd.rollout.vllm_worker what to run:
   lora: an adapter directory, loaded with add_lora on top of the base model (cheap, ~0.2 s/step);
-  full: a safetensors file of every weight, loaded in place with model.load_weights. Written to
-        /dev/shm (RAM) because it is rewritten every step; only the newest version is kept.
+  full: one page-locked bf16 buffer in /dev/shm (fsdp.SharedWeights), rewritten in place every step
+        and mapped by the rollout engines, which load it with model.load_weights.
 `id` is what workers echo back so a reply can be matched to the exact weights it used: the adapter
-sha256 for LoRA; for full weights version and byte size (hashing 8 GB every step would cost more
-than the load itself, and each version gets a fresh file name).
+sha256 for LoRA; for full weights the version (hashing 8 GB every step would cost more than the
+load; the trainer only rewrites the buffer after every rollout of the previous version returned).
 """
 
 import hashlib
@@ -15,14 +15,21 @@ from pathlib import Path
 
 from mopd.students.registry import is_sharded
 
+_shared = None  # fsdp.SharedWeights of this process's run (full-parameter students)
+
 
 def shm_dir(config):
     return Path("/dev/shm/mopd") / Path(config["output"]).name
 
 
 def cleanup(config):
-    """Free the RAM held by a run's last published full-weight file (call once training ends)."""
+    """Free the RAM held by a run's published full-weight buffer (call once training ends)."""
     import shutil
+
+    global _shared
+    if _shared is not None:
+        _shared.close()
+        _shared = None
 
     shutil.rmtree(shm_dir(config), ignore_errors=True)
 
@@ -32,17 +39,13 @@ def publish(student, config, root, version, tokenizer, main_rank):
     if is_sharded(config):
         from mopd.training import fsdp
 
-        shm = shm_dir(config)
-        path = shm / f"policy-{version:06d}.safetensors"
-        if main_rank:
-            shm.mkdir(parents=True, exist_ok=True)
-        fsdp.write_weights(student, path, main_rank)
+        global _shared
+        if _shared is None:  # one page-locked shared buffer per run, rewritten every step
+            _shared = fsdp.SharedWeights(student, shm_dir(config) / "policy.bf16", main_rank)
+        _shared.write(student)
         if not main_rank:
             return None
-        for old in shm.glob("policy-*.safetensors"):
-            if old != path:
-                old.unlink()
-        return {"kind": "full", "path": str(path), "id": f"full:{version}:{os.path.getsize(path)}", "version": version}
+        return {"kind": "full", "path": str(_shared.path), "id": f"full:{version}", "version": version}
     adapter = Path(root) / f"adapter-{version:06d}"
     if adapter.exists():
         raise ValueError("Adapter versions must be immutable and unique")

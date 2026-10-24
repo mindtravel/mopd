@@ -11,6 +11,7 @@ per-sample scales are computed over the whole global step, so summing per-rank g
 reproduces the single-GPU gradient, the same contract as its LoRA all-reduce path.
 """
 
+import json
 from pathlib import Path
 
 import torch
@@ -81,14 +82,58 @@ def save(scorer, path, base_model, main_rank):
     finalize(path, base_model)  # base config/tokenizer, tensor set checked against the base (model_files.py)
 
 
-def write_weights(scorer, path, main_rank):
-    """Collective. Rank 0 writes the weights alone as one safetensors file, for a rollout engine to
-    load in place (mopd.rollout.vllm_worker). A tied lm_head is left out: it is the embedding."""
-    state = gather(scorer, main_rank)
-    if not main_rank:
-        return
-    from safetensors.torch import save_file
+class SharedWeights:
+    """The student's bf16 weights in one flat buffer in shared memory (a /dev/shm file), page-locked,
+    rewritten in place every step for rollout engines to map (mopd.rollout.vllm_worker).
 
-    tmp = Path(str(path) + ".partial")
-    save_file({k: v.contiguous() for k, v in state.items()}, str(tmp))
-    tmp.replace(path)
+    Measured on this server while another job saturated host memory bandwidth: gathering the 8 GB
+    of bf16 weights to rank 0's GPU takes 0.5 s, but copying them to ordinary (pageable) host memory
+    took 10-18 s and serializing them with safetensors another 17-30 s -- every CPU memcpy is slow
+    when the host is busy. Here each gathered tensor is DMA-copied straight from the GPU into the
+    registered shared buffer: no pageable copy, no serialization, one buffer for the whole run.
+    Layout: <path> holds the tensors back to back; <path>.json their names, shapes and offsets."""
+
+    def __init__(self, scorer, path, main_rank):
+        self.path, self.main = Path(path), main_rank
+        self.layout, offset = [], 0
+        for name, p in scorer.named_parameters():
+            n = p.numel()
+            self.layout.append(
+                {"name": name.removeprefix("base."), "shape": list(p.shape), "offset": offset, "numel": n}
+            )
+            offset += n
+        self.numel, self.buffer = offset, None
+        if main_rank:
+            self.path.parent.mkdir(parents=True, exist_ok=True)
+            self.buffer = torch.from_file(str(self.path), shared=True, size=offset, dtype=torch.bfloat16)
+            rc = torch.cuda.cudart().cudaHostRegister(self.buffer.data_ptr(), offset * 2, 0)
+            if int(rc) != 0:
+                raise RuntimeError(f"cudaHostRegister failed ({rc}) for {self.path}")
+            Path(str(self.path) + ".json").write_text(json.dumps({"dtype": "bfloat16", "tensors": self.layout}))
+
+    def write(self, scorer):
+        """Collective: every rank must call. Rank 0's buffer holds the current weights on return."""
+        for (name, p), item in zip(scorer.named_parameters(), self.layout):
+            full = p.detach().to(torch.bfloat16)
+            full = full.full_tensor() if hasattr(full, "full_tensor") else full
+            if self.main:
+                self.buffer[item["offset"] : item["offset"] + item["numel"]].view(item["shape"]).copy_(
+                    full, non_blocking=True
+                )
+            del full
+        if self.main:
+            torch.cuda.synchronize()
+
+    def close(self):
+        if self.buffer is not None:
+            torch.cuda.cudart().cudaHostUnregister(self.buffer.data_ptr())
+            self.buffer = None
+
+
+def read_shared_weights(path):
+    """(name, tensor) views into a SharedWeights buffer, mapped without copying (rollout side)."""
+    meta = json.loads(Path(str(path) + ".json").read_text())
+    total = sum(t["numel"] for t in meta["tensors"])
+    flat = torch.from_file(str(path), shared=True, size=total, dtype=torch.bfloat16)
+    for t in meta["tensors"]:
+        yield t["name"], flat[t["offset"] : t["offset"] + t["numel"]].view(t["shape"])
