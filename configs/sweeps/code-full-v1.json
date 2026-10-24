@@ -69,6 +69,14 @@
   {
    "name": "rstar-code-instr11",
    "recipe": "configs/recipes/code/rstar-code-instr11.json"
+  },
+  {
+   "name": "rstar-code-instr12",
+   "recipe": "configs/recipes/code/rstar-code-instr12.json"
+  },
+  {
+   "name": "rstar-code-instr13",
+   "recipe": "configs/recipes/code/rstar-code-instr13.json"
   }
  ]
 }

@@ -1,0 +1,35 @@
+{
+ "name": "rstar-code-instr12",
+ "description": "rstar-code 与 smol-constraints 指令数据 1:2 混合（0→3:1→1:1 为 23.4→24.7→26.6，继续加大指令比例）",
+ "parts": [
+  {
+   "subset": "rstar-seed",
+   "where": {
+    "meta.verified": [
+     true
+    ],
+    "meta.is_passed": [
+     true
+    ],
+    "meta.self_contained": [
+     true
+    ]
+   },
+   "weight": 1
+  },
+  {
+   "subset": "smol-constraints",
+   "prompt": "plain",
+   "response": "full",
+   "weight": 2
+  }
+ ],
+ "response": "code",
+ "per_problem": 1,
+ "prompt": "lcb",
+ "rows": 8192,
+ "dev_rows": 64,
+ "seed": 20261022,
+ "max_total_tokens": 10240,
+ "micro_batch_size": 4
+}
