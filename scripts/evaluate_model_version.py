@@ -146,6 +146,7 @@ def main():
     parser.add_argument("--max-num-batched-tokens", type=int, default=2048, help="vLLM prefill token budget")
     parser.add_argument("--seed", type=int, default=20261014)
     parser.add_argument("--student-prompt-format", help="required only for manifests without student prompt_format")
+    parser.add_argument("--skip-grade", action="store_true", help="generate only; grade later on CPU (frees the GPUs)")
     args = parser.parse_args()
     if args.max_model_len is None:
         from mopd.evaluation.context import default_max_model_len
@@ -156,6 +157,8 @@ def main():
     output.mkdir(parents=True, exist_ok=True)
     print(json.dumps({"backend": backend, "output": str(output), "command": command}, ensure_ascii=False), flush=True)
     subprocess.run(command, cwd=ROOT, env=env, check=True)
+    if args.skip_grade:
+        return
     scorer = [
         str(ROOT / "mopd_train/bin/python"),
         str(ROOT / "scripts/grade_benchmark_outputs.py"),

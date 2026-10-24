@@ -39,6 +39,7 @@ def eval_commands(
     mopd_infer_python=None,
     temperature=0.0,
     top_p=1.0,
+    grade=True,  # False: generation only (GPU); run grade_command() afterwards as a CPU job
 ):  # sampling: raw-model branch only for now
     """Returns [(argv, extra_env), ...] -- run each in order; the output directory ends up holding
     generated.jsonl, cases.jsonl and summary.json either way. Exactly one of (model_version,
@@ -68,6 +69,8 @@ def eval_commands(
         ]
         if out is not None:
             cmd += ["--out", str(out)]
+        if not grade:
+            cmd += ["--skip-grade"]
         return [(cmd, {})]
     if out is None:
         raise ValueError("out is required when evaluating a raw model (no run to default into)")
@@ -91,5 +94,9 @@ def eval_commands(
         gen += ["--adapter", str(adapter)]
     if temperature:
         gen += ["--temperature", str(temperature), "--top-p", str(top_p)]
-    grade = [PY, "scripts/grade_benchmark_outputs.py", "--data", str(data), "--out", str(out)]
-    return [(gen, {}), (grade, {})]
+    return [(gen, {})] + ([grade_command(data, out)] if grade else [])
+
+
+def grade_command(data, out):
+    """(argv, env) grading out/generated.jsonl on CPU into cases.jsonl + summary.json (idempotent)."""
+    return [PY, "scripts/grade_benchmark_outputs.py", "--data", str(data), "--out", str(out)], {}

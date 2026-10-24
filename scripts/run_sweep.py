@@ -34,7 +34,7 @@ from mopd.runtime.provenance import sha256
 from mopd.runtime.gpus import idle_gpus
 from mopd.runtime.scheduler import Scheduler
 from mopd.students.registry import is_sharded
-from mopd.evaluation.eval_commands import eval_commands, PY
+from mopd.evaluation.eval_commands import eval_commands, grade_command, PY
 
 BASE_WEIGHTS = [
     "model-00001-of-00003.safetensors",
@@ -127,11 +127,31 @@ class Sweep:
                     cmd, cwd=ROOT, env={**os.environ, **extra}, stdout=f, stderr=subprocess.STDOUT, check=True
                 )
 
+    def generated(self, v, ckpt, kind="eval"):
+        """Generation finished (every row written), whether or not it is graded yet."""
+        p = self.eval_dir(v, ckpt, kind) / "generation-progress.json"
+        if (self.eval_dir(v, ckpt, kind) / "summary.json").exists():
+            return True
+        if not p.exists():
+            return False
+        g = json.loads(p.read_text())
+        return g.get("done") == g.get("total") and g.get("total")
+
+    def grade(self, v, ckpt, log, kind="eval"):
+        ev = {**self.spec["eval"], **self.spec.get(kind, {})}
+        self.shell([grade_command(ev["data"], self.eval_dir(v, ckpt, kind))], log)
+
     def evaluate(self, v, ckpt, gpus, log, kind="eval"):
         """On the granted GPUs; generate_benchmark_vllm.py hands rows to whichever of them has room."""
         ev = {**self.spec["eval"], **self.spec.get(kind, {})}
         out = self.eval_dir(v, ckpt, kind)
-        common = dict(data=ev["data"], protocol_id=ev["protocol_id"], max_new_tokens=ev["max_new_tokens"], device=gpus)
+        common = dict(
+            data=ev["data"],
+            protocol_id=ev["protocol_id"],
+            max_new_tokens=ev["max_new_tokens"],
+            device=gpus,
+            grade=False,
+        )
         if v.get("base"):
             cmds = eval_commands(
                 **common,
@@ -197,8 +217,19 @@ class Sweep:
                         "deps": deps,
                         "order": 5,
                         "gpus": {"min": 1},
-                        "done": lambda v=v, ck=ck: (self.eval_dir(v, ck) / "summary.json").exists(),
+                        "done": lambda v=v, ck=ck: self.generated(v, ck),
                         "run": lambda gpus, v=v, ck=ck, log=log: self.evaluate(v, ck, gpus, log),
+                    }
+                )
+                # grading runs code on the CPU for minutes; as its own job it no longer holds the GPUs
+                scheduler.add(
+                    {
+                        "id": f"grade:{v['name']}:{ck}",
+                        "deps": [f"eval:{v['name']}:{ck}"],
+                        "order": 7,
+                        "gpus": 0,
+                        "done": lambda v=v, ck=ck: (self.eval_dir(v, ck) / "summary.json").exists(),
+                        "run": lambda gpus, v=v, ck=ck, log=log: self.grade(v, ck, log),
                     }
                 )
             if final:
@@ -208,8 +239,18 @@ class Sweep:
                         "deps": deps,
                         "order": 6,
                         "gpus": {"min": 1},
-                        "done": lambda v=v, ck=ckpts[-1]: (self.eval_dir(v, ck, "test") / "summary.json").exists(),
+                        "done": lambda v=v, ck=ckpts[-1]: self.generated(v, ck, "test"),
                         "run": lambda gpus, v=v, ck=ckpts[-1], log=log: self.evaluate(v, ck, gpus, log, kind="test"),
+                    }
+                )
+                scheduler.add(
+                    {
+                        "id": f"grade-test:{v['name']}",
+                        "deps": [f"test:{v['name']}"],
+                        "order": 7,
+                        "gpus": 0,
+                        "done": lambda v=v, ck=ckpts[-1]: (self.eval_dir(v, ck, "test") / "summary.json").exists(),
+                        "run": lambda gpus, v=v, ck=ckpts[-1], log=log: self.grade(v, ck, log, kind="test"),
                     }
                 )
 
