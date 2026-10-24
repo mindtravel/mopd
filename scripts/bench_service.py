@@ -14,10 +14,12 @@ shared server exposes no new port.
                     -> {"id": ...}
   GET  /jobs        all jobs (newest first)      GET /jobs/<id>   one job, with scores when done
 
-A model directory with adapter_config.json is served as a LoRA on its base model. Each benchmark
-owns one GPU (paths.SERVICE_GPUS: IFBench 6, AutomationBench 7; training and evals never get them)
-and works through its own queue: a job's benchmarks run at the same time, each with its own vLLM.
-The service holds both GPUs' leases while it runs.
+A model directory with adapter_config.json is served as a LoRA on its base model. The service GPUs
+(paths.SERVICE_GPUS, 6 and 7; training and evals never get them) are equal workers on one queue: a
+job takes one GPU and runs all its benchmarks at once against that GPU's engine, so their requests
+share vLLM's batches (IFBench's long-answer tail is filled with AutomationBench turns and vice versa)
+and two checkpoints are evaluated side by side. AutomationBench runs as several client processes over
+disjoint task ranges: one process cannot keep the engine busy. The service holds both GPUs' leases.
 
   python scripts/bench_service.py [--port 18090]
 """
@@ -45,15 +47,16 @@ class Jobs:
     def __init__(self):
         self.dir = STATE / "jobs"
         self.dir.mkdir(parents=True, exist_ok=True)
-        self.lock, self.queues = threading.Lock(), {b: [] for b in BENCHMARKS}
+        self.lock, self.queue = threading.Lock(), []
         self.jobs = {}
         for f in sorted(self.dir.glob("*.json")):
             j = json.loads(f.read_text())
             self.jobs[j["id"]] = j
-            for b, part in j.get("parts", {}).items():
-                if part["state"] in ("queued", "running"):
-                    part.update(state="queued", note="re-queued after service restart")
-                    self.queues[b].append(j["id"])
+            if any(p["state"] in ("queued", "running") for p in j.get("parts", {}).values()):
+                for p in j["parts"].values():
+                    if p["state"] != "complete":
+                        p.update(state="queued", note="re-queued after service restart")
+                self.queue.append(j["id"])
             self.refresh(j)
             self.save(j)
 
@@ -80,24 +83,24 @@ class Jobs:
                 "domains": "simple",
                 "num_examples": None,
                 "max_steps": 50,
-                "max_concurrent": 32,
+                "max_concurrent": 8,  # per client process
+                "shards": 4,  # client processes over disjoint task ranges
                 **req.get("automationbench", {}),
             },
             "max_model_len": req.get("max_model_len", 32768),
-            "parts": {b: {"state": "queued", "gpu": paths.SERVICE_GPUS[b]} for b in benches},
+            "parts": {b: {"state": "queued"} for b in benches},
             "submitted": time.strftime("%Y-%m-%dT%H:%M:%S"),
         }
         with self.lock:
             self.jobs[j["id"]] = j
-            for b in benches:
-                self.queues[b].append(j["id"])
+            self.queue.append(j["id"])
             self.refresh(j)
             self.save(j)
         return j
 
-    def take(self, bench):
+    def take(self):
         with self.lock:
-            return self.jobs[self.queues[bench].pop(0)] if self.queues[bench] else None
+            return self.jobs[self.queue.pop(0)] if self.queue else None
 
     @staticmethod
     def refresh(j):
@@ -218,10 +221,10 @@ def wait_ready(proc, port, log, timeout=900):
     raise RuntimeError(f"vLLM not ready after {timeout} s")
 
 
-def docker(job_dir, args, log):
+def docker(job_dir, args, log, name=None):
     """Run the benchmark image against the host's vLLM (host network: bridge networking is broken here)."""
     cmd = ["docker", "run", "--rm", "--network", "host", "-e", "API_KEY=EMPTY", "-e", "OPENAI_API_KEY=EMPTY",
-           "-v", f"{job_dir}:/out", "--name", f"mopd-bench-{job_dir.name}-{args[0]}", IMAGE, *args]
+           "-v", f"{job_dir}:/out", "--name", f"mopd-bench-{job_dir.name}-{name or args[0]}", IMAGE, *args]
     with log.open("a") as f:
         f.write(f"\n$ {' '.join(cmd)}\n")
         f.flush()
@@ -242,16 +245,45 @@ def run_ifbench(j, job_dir, api, log, served):
     return {mode: {k: round(100 * v, 2) for k, v in m[mode].items() if "accuracy" in k} for mode in ("strict", "loose") if mode in m} or m
 
 
+DOMAIN_TASKS = {"simple": 200, "sales": 100, "marketing": 100, "operations": 100, "support": 100, "finance": 100, "hr": 100}
+
+
 def run_automationbench(j, job_dir, api, log, served):
+    """Shards: contiguous task ranges (--skip/--num-examples) in parallel client processes, merged."""
     o = j["automationbench"]
-    args = ["automationbench", "--model", served, "--base-url", api, "--api", "chat_completions",
-            "--domains", o["domains"], "--max-steps", str(o["max_steps"]), "--max-concurrent", str(o["max_concurrent"]),
-            "--export-json", "/out/automationbench/results.json"]
-    if o.get("num_examples"):
-        args += ["--num-examples", str(o["num_examples"])]
-    if docker(job_dir, args, log) != 0:
-        raise RuntimeError(f"automationbench failed; see {log}")
-    return summarize_automation(json.loads((job_dir / "automationbench/results.json").read_text()))
+    domains = list(DOMAIN_TASKS)[1:] if o["domains"] == "all" else o["domains"].split(",")
+    total = o.get("num_examples") or sum(DOMAIN_TASKS[d] for d in domains)
+    shards = max(1, min(o.get("shards", 1), total))
+    bounds = [(k * total // shards, (k + 1) * total // shards) for k in range(shards)]
+    codes = [None] * shards
+
+    def shard(k):
+        lo, hi = bounds[k]
+        args = ["automationbench", "--model", served, "--base-url", api, "--api", "chat_completions",
+                "--domains", o["domains"], "--max-steps", str(o["max_steps"]), "--max-concurrent", str(o["max_concurrent"]),
+                "--skip", str(lo), "--num-examples", str(hi - lo), "--export-json", f"/out/automationbench/shard-{k}.json"]
+        codes[k] = docker(job_dir, args, Path(f"{log}.shard{k}"), name=f"auto{k}")
+
+    threads = [threading.Thread(target=shard, args=(k,)) for k in range(shards)]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
+    if any(codes):
+        raise RuntimeError(f"automationbench shard(s) {[k for k, c in enumerate(codes) if c]} failed; see {log}.shard*")
+    parts = [json.loads((job_dir / f"automationbench/shard-{k}.json").read_text()) for k in range(shards)]
+    tasks = [t for p in parts for t in p["tasks"]]
+    names = [t["name"] for t in tasks]
+    if len(set(names)) != len(names) or len(tasks) != total:
+        raise RuntimeError(f"automationbench shards returned {len(tasks)} tasks ({len(set(names))} distinct), expected {total}")
+    merged = {"meta": {**parts[0]["meta"], "total_tasks": total, "shards": shards}, "tasks": tasks,
+              "summary": {"pass_rate": sum(str(t["passed"]) == "True" for t in tasks) / total,
+                          "avg_score": sum(float(t["score"]) for t in tasks) / total,
+                          "total_tool_calls": sum(p["summary"].get("total_tool_calls") or 0 for p in parts),
+                          "tasks_with_errors": sum(p["summary"].get("tasks_with_errors") or 0 for p in parts),
+                          "aborted_tasks": [x for p in parts for x in p["summary"].get("aborted_tasks") or []]}}
+    (job_dir / "automationbench/results.json").write_text(json.dumps(merged, ensure_ascii=False))
+    return summarize_automation(merged)
 
 
 def summarize_automation(r):
@@ -276,43 +308,57 @@ def summarize_automation(r):
 RUNNERS = {"ifbench": run_ifbench, "automationbench": run_automationbench}
 
 
-def execute(jobs, j, bench, engine):
-    """One benchmark of one job on that benchmark's GPU, on its resident engine."""
+def execute(jobs, j, engine):
+    """All of a job's benchmarks at once on this worker's engine (shared batches)."""
     job_dir = STATE / "runs" / j["id"]
     job_dir.mkdir(parents=True, exist_ok=True)
-    log = job_dir / f"{bench}.log"
+    now = lambda: time.strftime("%Y-%m-%dT%H:%M:%S")
+    for b in j["benchmarks"]:
+        if j["parts"][b]["state"] != "complete":
+            jobs.update(j, b, state="running", note="loading model", gpu=engine.gpu, started=now())
     try:
-        jobs.update(j, bench, state="running", note="loading model", started=time.strftime("%Y-%m-%dT%H:%M:%S"))
-        served, how = engine.use(j, log)
-        jobs.update(j, bench, note="benchmark running", engine=how)
-        mark = time.time()
-        scores = RUNNERS[bench](j, job_dir, f"http://127.0.0.1:{engine.port}/v1", log, served)
-        jobs.update(j, bench, state="complete", scores=scores, note=None, bench_seconds=round(time.time() - mark),
-                    finished=time.strftime("%Y-%m-%dT%H:%M:%S"))
+        served, how = engine.use(j, job_dir / "service.log")
     except Exception:
+        engine.stop()
+        for b in j["benchmarks"]:
+            jobs.update(j, b, state="failed", error=traceback.format_exc()[-3000:], note=None, finished=now())
+        return
+
+    def one(b):
+        try:
+            jobs.update(j, b, note="benchmark running", engine=how)
+            mark = time.time()
+            scores = RUNNERS[b](j, job_dir, f"http://127.0.0.1:{engine.port}/v1", job_dir / f"{b}.log", served)
+            jobs.update(j, b, state="complete", scores=scores, note=None, bench_seconds=round(time.time() - mark), finished=now())
+        except Exception:
+            jobs.update(j, b, state="failed", error=traceback.format_exc()[-3000:], note=None, finished=now())
+
+    threads = [threading.Thread(target=one, args=(b,)) for b in j["benchmarks"] if j["parts"][b]["state"] == "running"]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
+    if j["state"] == "failed":
         engine.stop()  # unknown state after a failure: the next job starts clean
-        jobs.update(j, bench, state="failed", error=traceback.format_exc()[-3000:], note=None,
-                    finished=time.strftime("%Y-%m-%dT%H:%M:%S"))
 
 
-def worker(jobs, bench, lease):
-    """Hold this benchmark's GPU lease for the service's lifetime (waiting out whoever has it now),
-    then run its queue."""
-    gpu = paths.SERVICE_GPUS[bench]
+def worker(jobs, gpu, lease):
+    """Hold this GPU's lease for the service's lifetime (waiting out whoever has it now), then take
+    jobs from the shared queue."""
     while not lease.try_take([gpu]):
-        jobs.waiting[bench] = f"GPU {gpu} still leased by an earlier job"
+        jobs.waiting[gpu] = f"GPU {gpu} still leased by an earlier job"
         time.sleep(30)
     while gpu_memory_used([gpu])[gpu] > 1000:
-        jobs.waiting[bench] = f"GPU {gpu} still has memory in use"
+        jobs.waiting[gpu] = f"GPU {gpu} still has memory in use"
         time.sleep(30)
-    jobs.waiting.pop(bench, None)
+    jobs.waiting.pop(gpu, None)
     engine = Engine(gpu)
     while True:
-        j = jobs.take(bench)
+        j = jobs.take()
         if j is None:
             time.sleep(5)
             continue
-        execute(jobs, j, bench, engine)
+        execute(jobs, j, engine)
 
 
 def handler(jobs):
@@ -332,8 +378,8 @@ def handler(jobs):
             if len(parts) == 2 and parts[0] == "jobs" and parts[1] in jobs.jobs:
                 return self.reply(200, jobs.jobs[parts[1]])
             if parts == ["health"]:
-                return self.reply(200, {"ok": True, "gpus": paths.SERVICE_GPUS, "waiting": jobs.waiting,
-                                        "queued": {b: len(q) for b, q in jobs.queues.items()}})
+                return self.reply(200, {"ok": True, "gpus": list(paths.SERVICE_GPUS), "waiting": jobs.waiting,
+                                        "queued": len(jobs.queue)})
             self.reply(404, {"error": "not found"})
 
         def do_POST(self):
@@ -361,8 +407,8 @@ def main():
     jobs = Jobs()
     jobs.waiting = {}
     lease = GpuLease()
-    for b in BENCHMARKS:
-        threading.Thread(target=worker, args=(jobs, b, lease), daemon=True).start()
+    for g in paths.SERVICE_GPUS:
+        threading.Thread(target=worker, args=(jobs, g, lease), daemon=True).start()
     print(f"bench service on 127.0.0.1:{a.port}, state {STATE}", flush=True)
     ThreadingHTTPServer(("127.0.0.1", a.port), handler(jobs)).serve_forever()
 

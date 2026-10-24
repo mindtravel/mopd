@@ -1,6 +1,5 @@
 """Short profiling runs of the bench service's serving path (scripts/bench_service.py): each variant
-serves one model on a service GPU with given `vllm serve` arguments, runs a benchmark subset at a given
-concurrency, and reports wall time with vLLM's own counters (token throughput, preemptions, prefix-cache
+runs one or both benchmarks (subsets) at once on a service GPU's resident engine and reports wall time with vLLM's own counters (token throughput, preemptions, prefix-cache
 hits) and sampled queue depth / KV-cache usage / GPU utilization. The service must be stopped (it
 holds GPUs 6/7); variants on the two GPUs run in parallel.
 
@@ -15,9 +14,6 @@ sys.path[:0] = [str(ROOT / "src"), str(ROOT / "scripts")]
 import bench_service as bs
 from mopd import paths
 from mopd.runtime.scheduler import GpuLease
-
-FP8 = ["--kv-cache-dtype", "fp8"]
-
 
 def metrics(port):
     text = urllib.request.urlopen(f"http://127.0.0.1:{port}/metrics", timeout=10).read().decode()
@@ -35,12 +31,13 @@ def gpu_util(gpu):
     return float(out.strip() or 0)
 
 
-def run_variant(name, bench, gpu, extra, opts, model, out):
-    engine = bs.Engine(gpu, extra)
-    j = {"id": name, "name": name, "model": model, "max_model_len": opts.pop("max_model_len", 32768),
-         "ifbench": {"max_tokens": 4096, "workers": 64, "limit": None},
-         "automationbench": {"domains": "simple", "num_examples": None, "max_steps": 50, "max_concurrent": 8}}
-    j[bench].update(opts)
+def run_variant(name, engine, benches, model, out, tasks, prompts):
+    """benches: {"ifbench": opts} and/or {"automationbench": opts}, run at once on the engine."""
+    j = {"id": name, "name": name, "model": model, "max_model_len": 32768,
+         "ifbench": {"max_tokens": 4096, "workers": 64, "limit": prompts},
+         "automationbench": {"domains": "simple", "num_examples": tasks, "max_steps": 50, "max_concurrent": 8, "shards": 1}}
+    for b, o in benches.items():
+        j[b].update(o)
     job_dir = out / name
     job_dir.mkdir(parents=True, exist_ok=True)
     try:
@@ -50,27 +47,40 @@ def run_variant(name, bench, gpu, extra, opts, model, out):
         def sample():
             while not stop.wait(2):
                 m = metrics(engine.port)
-                samples.append((m["num_requests_running"], m["num_requests_waiting"], m["kv_cache_usage_perc"], gpu_util(gpu)))
+                samples.append((m["num_requests_running"], m["num_requests_waiting"], m["kv_cache_usage_perc"], gpu_util(engine.gpu)))
 
         t = threading.Thread(target=sample, daemon=True)
         t.start()
+        walls, scores, errors = {}, {}, {}
+
+        def one(b):
+            mark = time.time()
+            try:
+                scores[b] = bs.RUNNERS[b](j, job_dir, f"http://127.0.0.1:{engine.port}/v1", job_dir / f"{b}.log", served)
+            except Exception as e:
+                errors[b] = str(e)[-300:]
+            walls[b] = round(time.time() - mark, 1)
+
         mark = time.time()
-        scores = bs.RUNNERS[bench](j, job_dir, f"http://127.0.0.1:{engine.port}/v1", job_dir / "bench.log", served)
+        threads = [threading.Thread(target=one, args=(b,)) for b in benches]
+        for x in threads:
+            x.start()
+        for x in threads:
+            x.join()
         wall = time.time() - mark
         stop.set()
         t.join()
-        after = metrics(engine.port)
-        d = {k: after[k] - before[k] for k in before}
-        mean = lambda i: round(sum(s[i] for s in samples) / max(1, len(samples)), 2)
-        r = {"variant": name, "bench": bench, "extra": " ".join(extra), **opts, "wall_s": round(wall, 1),
+        d = {k: v - before[k] for k, v in metrics(engine.port).items()}
+        mean = lambda i: round(sum(x[i] for x in samples) / max(1, len(samples)), 2)
+        r = {"variant": name, "gpu": engine.gpu, "benches": benches, "wall_s": round(wall, 1), "per_bench_s": walls,
              "engine": how, "gen_tok_s": round(d["generation_tokens_total"] / wall),
              "prompt_tok_s": round(d["prompt_tokens_total"] / wall), "preemptions": int(d["num_preemptions_total"]),
              "prefix_hit": round(d["prefix_cache_hits_total"] / max(1, d["prefix_cache_queries_total"]), 3),
-             "running": mean(0), "waiting": mean(1), "kv_usage": mean(2), "gpu_util": mean(3), "scores": scores}
+             "running": mean(0), "waiting": mean(1), "kv_usage": mean(2), "gpu_util": mean(3),
+             "scores": scores, **({"errors": errors} if errors else {})}
     except Exception as e:
-        r = {"variant": name, "bench": bench, "error": str(e)[-500:]}
-    finally:
         engine.stop()
+        r = {"variant": name, "error": str(e)[-500:]}
     print(json.dumps(r, ensure_ascii=False), flush=True)
     with (out / "results.jsonl").open("a") as f:
         f.write(json.dumps(r, ensure_ascii=False) + "\n")
@@ -79,41 +89,35 @@ def run_variant(name, bench, gpu, extra, opts, model, out):
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--model", default=str(paths.ROOT / "models/Qwen3-4B-Instruct-2507"))
-    ap.add_argument("--auto-tasks", type=int, default=32)
+    ap.add_argument("--auto-tasks", type=int, default=64)
     ap.add_argument("--if-prompts", type=int, default=64)
     ap.add_argument("--out", default=str(paths.ROOT / "runs/bench-service/profile" / time.strftime("%Y%m%d-%H%M%S")))
     a = ap.parse_args()
     out = Path(a.out)
     out.mkdir(parents=True, exist_ok=True)
-    G = paths.SERVICE_GPUS
-    auto = lambda c: {"num_examples": a.auto_tasks, "max_concurrent": c}
-    plans = {
-        G["automationbench"]: [
-            ("auto-bf16-c8", "automationbench", [], auto(8)),
-            ("auto-bf16-c16", "automationbench", [], auto(16)),
-            ("auto-fp8kv-c16", "automationbench", FP8, auto(16)),
-            ("auto-fp8kv-c32", "automationbench", FP8, auto(32)),
-            ("auto-fp8kv-c32-mbt16k", "automationbench", FP8 + ["--max-num-batched-tokens", "16384"], auto(32)),
-        ],
-        G["ifbench"]: [
-            ("if-bf16-c16", "ifbench", [], {"limit": a.if_prompts, "workers": 16}),
-            ("if-bf16-c64", "ifbench", [], {"limit": a.if_prompts, "workers": 64}),
-            ("if-fp8kv-c64", "ifbench", FP8, {"limit": a.if_prompts, "workers": 64}),
-        ],
-    }
+    g6, g7 = paths.SERVICE_GPUS
+    IF, A1, A4 = {}, {"shards": 1}, {"shards": 4}
+    rounds = [  # each round: {gpu: (variant, benches)}, the GPUs in parallel
+        {g6: ("ifbench-alone", {"ifbench": IF}), g7: ("auto-alone-1proc", {"automationbench": A1})},
+        {g6: ("merged-auto-1proc", {"ifbench": IF, "automationbench": A1}),
+         g7: ("merged-auto-4proc", {"ifbench": IF, "automationbench": A4})},
+        {g7: ("auto-alone-4proc", {"automationbench": A4})},
+    ]
     lease = GpuLease()
-    if not lease.try_take(list(plans)):
+    if not lease.try_take([g6, g7]):
         raise SystemExit("service GPUs are leased (stop scripts/bench_service.py first)")
-
-    def lane(gpu):
-        for name, bench, extra, opts in plans[gpu]:
-            run_variant(name, bench, gpu, extra, dict(opts), a.model, out)
-
-    threads = [threading.Thread(target=lane, args=(g,)) for g in plans]
-    for t in threads:
-        t.start()
-    for t in threads:
-        t.join()
+    engines = {g: bs.Engine(g) for g in (g6, g7)}
+    try:
+        for rnd in rounds:
+            threads = [threading.Thread(target=run_variant, args=(name, engines[g], benches, a.model, out, a.auto_tasks, a.if_prompts))
+                       for g, (name, benches) in rnd.items()]
+            for t in threads:
+                t.start()
+            for t in threads:
+                t.join()
+    finally:
+        for e in engines.values():
+            e.stop()
     print(f"results: {out / 'results.jsonl'}")
 
 
