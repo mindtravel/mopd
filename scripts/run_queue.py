@@ -13,8 +13,8 @@ instead of hand-written shell loops on the server.
 
 Steps run in order unless a step lists "deps" (ids). sweep/experiment steps start their own
 orchestrator (which schedules its GPUs itself, under the machine-wide GPU leases); "command" steps
-get the GPUs they ask for (a fixed set, a count, or none) via CUDA_VISIBLE_DEVICES, and an argv
-element "{gpus}" expands to the granted physical ids; "experiment" with
+get the GPUs they ask for: a fixed set is leased and used by physical id by the command itself; a count
+is passed as CUDA_VISIBLE_DEVICES, or as physical ids where the argv has "{gpus}"; "experiment" with
 "jobs" keeps only plan jobs whose id starts with one of the prefixes (plus their dependencies).
 A finished step leaves results/queues/<name>/<id>.done and is skipped on re-run; logs go to
 logs/queues/<name>/<id>.log.
@@ -130,12 +130,16 @@ def main():
             spec = gpus if isinstance(gpus, list) else ({"min": gpus, "max": gpus} if gpus else 0)
 
             def run(granted, step=step, log=log, marker=marker):
-                env = {"CUDA_VISIBLE_DEVICES": ",".join(map(str, granted))} if granted else {}
-                argv = [
-                    x
-                    for arg in step_command(step, state_dir)
-                    for x in ([str(g) for g in granted] if arg == "{gpus}" else [arg])
-                ]
+                argv = step_command(step, state_dir)
+                # Fixed GPU sets are addressed by physical id inside the command's own config (MOPD
+                # layouts: student/teacher/rollout devices), so the environment is left alone -- a
+                # CUDA_VISIBLE_DEVICES subset would renumber them. A count gets CUDA_VISIBLE_DEVICES
+                # unless the command takes the ids itself through "{gpus}".
+                takes_ids = "{gpus}" in argv
+                env = {}
+                if granted and not isinstance(step.get("gpus"), list) and not takes_ids:
+                    env = {"CUDA_VISIBLE_DEVICES": ",".join(map(str, granted))}
+                argv = [x for arg in argv for x in ([str(g) for g in granted] if arg == "{gpus}" else [arg])]
                 jobs.shell([(argv, env)], log)
                 marker.write_text(time.strftime("%Y-%m-%dT%H:%M:%S"))
 
