@@ -57,17 +57,34 @@ class TrainRun:
     def start(self, batch_plan=None, resuming=False):
         """Create the run directory with config.json, status.json (and batch_plan.json), record
         provenance; a resume keeps the existing directory and records its own provenance file."""
-        if self.main and not resuming:
+        def setup():
             self.out.mkdir(parents=True, exist_ok=False)
             dump(self.out / "config.json", self.c)
             dump(self.out / "status.json", {"state": "loading"})
             if batch_plan is not None:
                 dump(self.out / "batch_plan.json", batch_plan)
             write_manifest(self.c, self.out, {"state": "loading", "step": 0})
-        self.barrier()
-        if self.main and not resuming:
             record_provenance(self.c, self.out)
-        self.barrier()
+
+        if not resuming:
+            self.on_main(setup)
+
+    def on_main(self, fn):
+        """Run fn on rank 0 only, then make every rank share its outcome: if it raised, all ranks
+        raise. A rank-0-only failure followed by a barrier otherwise leaves the other ranks waiting out
+        the 10-minute NCCL timeout (2026-10-24: a provenance error hung a 4-rank MOPD run)."""
+        error = None
+        if self.main:
+            try:
+                fn()
+            except Exception:
+                error = traceback.format_exc()
+        if self.world_size > 1:
+            box = [error]
+            dist.broadcast_object_list(box, src=0)
+            error = box[0]
+        if error:
+            raise RuntimeError("rank 0 failed:\n" + error)
 
     def build_student(self):
         """The student to train and score with: a (PEFT) model, or for a sharded backend the
