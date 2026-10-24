@@ -9,5 +9,5 @@ if [ "$1" = "gpu" ]; then
   for t in tests/gpu/test_engine_stream.py tests/gpu/test_fsdp_gather.py; do echo "== $t (see file header for the launch command)"; done
   $PY -m unittest -v tests.gpu.test_dual_template tests.gpu.test_monitor_math_scoring
 else
-  CUDA_VISIBLE_DEVICES= $PY -m unittest discover -s tests -p "test_*.py" -t . "$@"
+  CUDA_VISIBLE_DEVICES= $PY -m unittest discover -s tests -p "test_*.py" "$@"
 fi
