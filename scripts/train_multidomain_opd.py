@@ -108,7 +108,7 @@ def run(c, resume=None):
         raise ValueError("several ranks need a sharded (hf_full) student")
     if sharded and resume:
         raise ValueError("resume is LoRA-only for now")
-    replicas = None
+    replicas = publisher = None  # the finally block below closes whichever exists
     with run:
         run.start(batch_plan=batches, resuming=bool(resume))
         torch.set_num_threads(2)
