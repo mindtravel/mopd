@@ -12,8 +12,17 @@ case "$what" in
     cd /opt/automationbench/repo
     exec /opt/automationbench/venv/bin/auto-bench "$@" ;;
   selftest)
-    /opt/ifbench/venv/bin/python -c "import instructions_registry; print('ifbench verifiers', len(instructions_registry.INSTRUCTION_DICT))" 2>/dev/null \
-      || (cd /opt/ifbench/repo && /opt/ifbench/venv/bin/python -c "import instructions_registry as r; print('ifbench verifiers', len(r.INSTRUCTION_DICT))")
+    # official sample answers must score as in the native deployment (strict prompt accuracy 0.28)
+    out="$(mktemp -d)"; cd /opt/ifbench/repo
+    /opt/ifbench/venv/bin/python run_eval.py --input_data=data/IFBench_test.jsonl \
+      --input_response_data=data/sample_output.jsonl --output_dir="$out" >/dev/null 2>&1
+    /opt/ifbench/venv/bin/python - "$out" <<'PY'
+import json, sys, pathlib
+rows = [json.loads(l) for l in (pathlib.Path(sys.argv[1]) / "eval_results_strict.jsonl").open()]
+acc = sum(r["follow_all_instructions"] for r in rows) / len(rows)
+print(f"ifbench sample strict prompt accuracy {acc:.4f} over {len(rows)}")
+assert len(rows) == 300 and abs(acc - 0.28) < 1e-9
+PY
     /opt/automationbench/venv/bin/auto-bench --help >/dev/null && echo "automationbench cli ok" ;;
   *) echo "unknown benchmark $what" >&2; exit 2 ;;
 esac
