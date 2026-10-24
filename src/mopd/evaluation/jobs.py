@@ -23,7 +23,9 @@ def shell(cmds, log):
         for cmd, extra in cmds:
             f.write(f"\n$ {' '.join(map(str, cmd))}\n")
             f.flush()
-            subprocess.run(cmd, cwd=paths.ROOT, env={**os.environ, **extra}, stdout=f, stderr=subprocess.STDOUT, check=True)
+            subprocess.run(
+                cmd, cwd=paths.ROOT, env={**os.environ, **extra}, stdout=f, stderr=subprocess.STDOUT, check=True
+            )
 
 
 def generated(out):
@@ -42,7 +44,7 @@ def graded(out):
     return (Path(out) / "summary.json").exists()
 
 
-def eval_jobs(job_id, *, out, data, protocol_id, max_new_tokens, log, deps=(), order=5, **model):
+def eval_jobs(job_id, *, out, data, protocol_id, max_new_tokens, log, deps=(), after=(), order=5, **model):
     """[generation job, grading job] for one model on one benchmark. model: model_version= +
     checkpoint= (a training run's checkpoint), or model= (+ adapter=, model_version_id=, ...) for a
     raw model directory. out is where the results go (inside the run for checkpoints)."""
@@ -51,6 +53,7 @@ def eval_jobs(job_id, *, out, data, protocol_id, max_new_tokens, log, deps=(), o
         {
             "id": job_id,
             "deps": list(deps),
+            "after": list(after),
             "order": order,
             "gpus": {"min": 1},
             "done": lambda: generated(out),

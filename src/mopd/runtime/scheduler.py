@@ -5,6 +5,7 @@ training.
 A job is a dict:
   id      unique name
   deps    ids that must be complete first (a failed dependency blocks the job)
+  after   ids that must have finished first, successfully or not (ordering only)
   gpus    0            CPU-only
           [0, 2, 3]    this fixed set, when all of it is free (MOPD's student/teacher/rollout layout)
           {"min": m, "max": M}   a fair share of the free GPUs, at least m, at most M (None = no cap):
@@ -174,6 +175,7 @@ class Scheduler:
 
     def add(self, job):
         job.setdefault("deps", [])
+        job.setdefault("after", [])  # ordering only: wait for these to finish, whether or not they succeeded
         job.setdefault("gpus", {"min": 1})
         job.setdefault("order", 5)
         job.setdefault("done", lambda: False)
@@ -264,8 +266,14 @@ class Scheduler:
                 if failed:
                     self.state[j["id"]] = {"state": "blocked", "by": failed}
             pending = [j for j in pending if j["id"] not in self.state]
+            ended = ("complete", "failed", "blocked")
             ready = sorted(
-                (j for j in pending if all(self.state.get(d, {}).get("state") == "complete" for d in j["deps"])),
+                (
+                    j
+                    for j in pending
+                    if all(self.state.get(d, {}).get("state") == "complete" for d in j["deps"])
+                    and all(self.state.get(d, {}).get("state") in ended for d in j["after"])
+                ),
                 key=lambda j: j["order"],
             )
             for j in ready:  # enqueue every ready job before any thread asks: exact fair shares

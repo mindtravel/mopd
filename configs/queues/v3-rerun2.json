@@ -1,0 +1,54 @@
+{
+ "name": "v3-rerun2",
+ "description": "steps blocked by the bf16 bench failure, plus the micro-batch fix bench and a base unified-v3 eval",
+ "steps": [
+  {
+   "id": "bench-keepgather-mb16",
+   "kind": "command",
+   "gpus": [
+    0,
+    1,
+    2,
+    3,
+    4,
+    5,
+    6,
+    7
+   ],
+   "argv": [
+    "mopd_train/bin/python",
+    "scripts/bench_mopd.py",
+    "--name",
+    "keepgather-mb16",
+    "--set",
+    "fsdp={\"reshard_after_forward\": false}",
+    "--set",
+    "micro_batch_tokens=16384",
+    "--set",
+    "micro_batch_size=16",
+    "--set",
+    "profile_step=3"
+   ]
+  },
+  {
+   "id": "base-unified-v3",
+   "kind": "eval",
+   "model": "/ssd/lzx/mopd/models/Qwen3-4B-Base",
+   "model_version_id": "base:Qwen3-4B-Base",
+   "data": "/ssd/lzx/mopd/data/full_eval/unified-v3/all.jsonl",
+   "out": "/ssd/lzx/mopd/results/experiments/full256/base/unified-v3-plainqa-greedy8192",
+   "protocol_id": "unified-v3-plainqa-greedy8192",
+   "max_new_tokens": 8192
+  },
+  {
+   "id": "code-think-v1",
+   "kind": "sweep",
+   "spec": "configs/sweeps/code-think-v1.json"
+  },
+  {
+   "id": "code-data-v1",
+   "kind": "sweep",
+   "spec": "configs/sweeps/code-data-v1.json"
+  }
+ ]
+}

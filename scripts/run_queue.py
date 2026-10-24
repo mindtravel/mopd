@@ -11,7 +11,8 @@ instead of hand-written shell loops on the server.
      {"id": "...", "kind": "command", "argv": [..., "{gpus}", ...], "gpus": [0, 1, 2, 3, 4, 5, 6, 7] | 2 | 0}
    ]}
 
-Steps run in order unless a step lists "deps" (ids). sweep/experiment steps start their own
+Steps run in order -- each after the previous one finishes, even if it failed -- unless a step lists
+"deps" (ids that must succeed first). sweep/experiment steps start their own
 orchestrator (which schedules its GPUs itself, under the machine-wide GPU leases); "command" steps
 get the GPUs they ask for: a fixed set is leased and used by physical id by the command itself; a count
 is passed as CUDA_VISIBLE_DEVICES, or as physical ids where the argv has "{gpus}"; "experiment" with
@@ -101,7 +102,9 @@ def main():
     prev = None
     for step in q["steps"]:
         sid = step["id"]
-        deps = step.get("deps", [prev] if prev else [])
+        # explicit deps must succeed; otherwise a step just runs after the previous one, even if it failed
+        deps = step.get("deps", [])
+        after = [] if "deps" in step or not prev else [prev]
         marker = state_dir / f"{sid}.done"
         log = logdir / f"{sid}.log"
         if step["kind"] == "wait":
@@ -110,7 +113,7 @@ def main():
                 while running(step["match"]):
                     time.sleep(30)
 
-            sched.add({"id": sid, "deps": deps, "gpus": 0, "run": wait})
+            sched.add({"id": sid, "deps": deps, "after": after, "gpus": 0, "run": wait})
         elif step["kind"] == "eval":
             model = {k: step[k] for k in ("model", "adapter", "model_version_id", "student_prompt_format") if k in step}
             for job in jobs.eval_jobs(
@@ -121,6 +124,7 @@ def main():
                 max_new_tokens=step["max_new_tokens"],
                 log=log,
                 deps=deps,
+                after=after,
                 **model,
             ):
                 sched.add(job)
@@ -143,7 +147,7 @@ def main():
                 jobs.shell([(argv, env)], log)
                 marker.write_text(time.strftime("%Y-%m-%dT%H:%M:%S"))
 
-            sched.add({"id": sid, "deps": deps, "gpus": spec, "done": marker.exists, "run": run})
+            sched.add({"id": sid, "deps": deps, "after": after, "gpus": spec, "done": marker.exists, "run": run})
         prev = sid
     state = sched.run()
     failed = sorted(k for k, s in state.items() if s["state"] in ("failed", "blocked"))

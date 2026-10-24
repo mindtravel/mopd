@@ -21,7 +21,7 @@ from mopd.runtime.model_files import finalize
 from mopd.training.batching import TokenLogProbs
 
 
-def shard(model, reshard_after_forward=True, gather_once_per_step=False, reduce_dtype="float32"):
+def shard(model, reshard_after_forward=True, gather_once_per_step=False):
     """Wrap a causal LM (fp32 parameters on this rank's GPU) for sharded training; returns the
     TokenLogProbs root to train and score with.
     reshard_after_forward=False keeps each layer's gathered bf16 weights from its forward to its
@@ -29,9 +29,9 @@ def shard(model, reshard_after_forward=True, gather_once_per_step=False, reduce_
     gather_once_per_step additionally keeps them across the step's micro-batches (see step_boundary):
     one all-gather per step however many micro-batches, gradients still reduce-scattered in fp32
     after every micro-batch, so the summed gradient is unchanged. Implies reshard_after_forward=False."""
-    # reduce_dtype "bfloat16" halves the gradient reduce-scatter bytes (sums of a few ranks' bf16
-    # gradients; the optimizer and master weights stay fp32)
-    policy = MixedPrecisionPolicy(param_dtype=torch.bfloat16, reduce_dtype=getattr(torch, reduce_dtype))
+    # reduce in fp32: bf16 cannot be used with the SUM divide factor below (NCCL PreMulSum supports
+    # only half/float/double -- measured 2026-10-24)
+    policy = MixedPrecisionPolicy(param_dtype=torch.bfloat16, reduce_dtype=torch.float32)
     scorer = TokenLogProbs(model)
     units = [
         fully_shard(layer, mp_policy=policy, reshard_after_forward=reshard_after_forward and not gather_once_per_step)

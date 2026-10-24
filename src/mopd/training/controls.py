@@ -9,12 +9,12 @@ CONTROL_KEYS = {
     "student", "student_backend", "student_prompt_format", "seed", "steps", "samples_per_step", "lr",
     "lr_schedule", "save_every",
     # training system (same result, different speed/memory): mopd.training.fsdp, students.registry
-    "fsdp", "gradient_checkpointing", "lora",
+    "fsdp", "gradient_checkpointing", "lora", "micro_batch_tokens",
     # experiment specs
     "micro_batch_size", "sft_max_seq_len", "mopd_max_new_tokens", "mopd_generation_batch_size",
     "mopd_vllm_memory_utilization", "teacher_prompt_format",
 }
-SYSTEM_KEYS = ("fsdp", "gradient_checkpointing", "lora")
+SYSTEM_KEYS = ("fsdp", "gradient_checkpointing", "lora", "micro_batch_tokens")
 
 
 def check(controls, where):

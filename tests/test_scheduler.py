@@ -109,5 +109,21 @@ class SchedulerTest(unittest.TestCase):
         self.assertNotIn("d", dict(order))
 
 
+class AfterTest(unittest.TestCase):
+    def test_after_runs_even_when_its_predecessor_failed_deps_do_not(self):
+        import tempfile
+
+        ran = []
+        sched = Scheduler(
+            [0, 1], tempfile.mkdtemp(), min_free_gib=0, name="t", poll_seconds=0.05, lease_dir=tempfile.mkdtemp()
+        )
+        sched.add({"id": "a", "gpus": 0, "run": lambda g: (_ for _ in ()).throw(RuntimeError("boom"))})
+        sched.add({"id": "b", "after": ["a"], "gpus": 0, "run": lambda g: ran.append("b")})
+        sched.add({"id": "c", "deps": ["a"], "gpus": 0, "run": lambda g: ran.append("c")})
+        state = sched.run()
+        self.assertEqual(ran, ["b"])
+        self.assertEqual(state["c"]["state"], "blocked")
+
+
 if __name__ == "__main__":
     unittest.main()
