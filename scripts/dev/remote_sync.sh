@@ -54,6 +54,11 @@ do_sync() {
   [[ -d "$ROOT/.git" ]] || { echo "[ERROR] not a git worktree: $ROOT" >&2; exit 2; }
   check_drift
   local version manifest
+  # Runs refuse to start on uncommitted source (mopd.runtime.provenance), so a dirty sync makes every
+  # job a queue launches next fail (2026-10-24: code-think-v1 training). Commit first.
+  if [[ "$(local_version)" == *dirty* && "${MOPD_SYNC_DIRTY:-0}" != 1 ]]; then
+    echo "[ERROR] uncommitted changes; commit before syncing (MOPD_SYNC_DIRTY=1 to override for scratch roots)" >&2; exit 2
+  fi
   version="$(local_version)-$(date -u +%Y%m%dT%H%M%SZ)"
   file_list | rsync -rlp --checksum --from0 --files-from=- -e "ssh -F $SSH_CONFIG" "$ROOT/" "$REMOTE_HOST:$REMOTE_ROOT/"
   manifest="$(cd "$ROOT" && file_list | xargs -0 sha256sum)"
