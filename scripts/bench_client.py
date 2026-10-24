@@ -36,9 +36,11 @@ def main():
     s.add_argument("--benchmarks", nargs="+", default=["ifbench", "automationbench"])
     s.add_argument("--ifbench-limit", type=int)
     s.add_argument("--ifbench-max-tokens", type=int, default=4096)
+    s.add_argument("--ifbench-workers", type=int, default=64, help="concurrent requests")
     s.add_argument("--auto-domains", default="simple", help="simple | sales | ... | all")
     s.add_argument("--auto-examples", type=int)
     s.add_argument("--auto-max-steps", type=int, default=50)
+    s.add_argument("--auto-concurrent", type=int, default=32, help="concurrent tasks")
     s.add_argument("--wait", action="store_true")
     st = sub.add_parser("status")
     st.add_argument("job", nargs="?")
@@ -67,8 +69,9 @@ def main():
         "model": model,
         "name": name,
         "benchmarks": a.benchmarks,
-        "ifbench": {"limit": a.ifbench_limit, "max_tokens": a.ifbench_max_tokens},
-        "automationbench": {"domains": a.auto_domains, "num_examples": a.auto_examples, "max_steps": a.auto_max_steps},
+        "ifbench": {"limit": a.ifbench_limit, "max_tokens": a.ifbench_max_tokens, "workers": a.ifbench_workers},
+        "automationbench": {"domains": a.auto_domains, "num_examples": a.auto_examples, "max_steps": a.auto_max_steps,
+                            "max_concurrent": a.auto_concurrent},
     }
     j = api(a.host, "POST", "/jobs", body)
     if "error" in j:
