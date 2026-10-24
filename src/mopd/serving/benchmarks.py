@@ -1,10 +1,8 @@
 """The two benchmarks, run from the mopd-bench docker image (docker/benchmarks) against the job's
-engine with the fixed protocol (serving.protocol). Each returns its score summary."""
+engine with the job's protocol (serving.protocol.settings). Each returns its score summary."""
 
 import json
 import subprocess
-
-from mopd.serving import protocol
 
 IMAGE = "mopd-bench:latest"
 
@@ -22,7 +20,7 @@ def docker(job_dir, args, log):
 
 def ifbench(j, job_dir, api, served):
     """Prompt / instruction accuracy (%), strict and loose."""
-    p = protocol.IFBENCH
+    p = j["protocol"]["ifbench"]
     log = job_dir / "ifbench.log"
     gen = ["ifbench", "generate", "--run-name", "run", "--model", served, "--api-base", api, "--workers", str(p["workers"]),
            "--max-tokens", str(p["max_tokens"]), "--temperature", str(p["temperature"])]
@@ -34,7 +32,7 @@ def ifbench(j, job_dir, api, served):
 
 def automationbench(j, job_dir, api, served):
     """Pass rate (every assertion of a task passes) and mean partial score (%), overall and per domain."""
-    p = protocol.AUTOMATIONBENCH
+    p = j["protocol"]["automationbench"]
     args = ["automationbench", "--model", served, "--base-url", api, "--api", "chat_completions", "--toolset", p["toolset"],
             "--domains", j["auto_domains"], "--max-steps", str(p["max_steps"]), "--max-concurrent", str(p["max_concurrent"]),
             "--export-json", "/out/automationbench/results.json"]

@@ -7,6 +7,7 @@ from pathlib import Path
 ROOT = Path(os.environ.get("MOPD_ROOT", "/ssd/lzx/mopd"))
 TRAIN_PY = ROOT / "mopd_train/bin/python"  # training / grading environment (transformers 5.x)
 INFER_PY = ROOT / "mopd_infer/bin/python"  # vLLM environment (transformers 4.55)
+SERVE_PY = ROOT / "mopd_serve/bin/python"  # bench service's vLLM (0.31: newer architectures, e.g. Qwen3.5)
 MERGEKIT = ROOT / "mopd_merge/bin/mergekit-yaml"
 BASE_MODEL = ROOT / "models/Qwen3-4B-Base"
 PROFILE_CACHE = ROOT / "cache/profile"

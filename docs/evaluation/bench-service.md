@@ -73,8 +73,13 @@ python3 bench_client.py status <任务ID>  # 单个任务和分数
 | IFBench | 300 题；temperature 0，seed 42，最多 4096 输出 token，64 并发请求（上游封装的上限） | strict / loose 下的 prompt 准确率和 instruction 准确率 |
 | AutomationBench | 默认 simple 200 题；每题最多 50 轮，8 个任务并发；工具集 api | pass rate（全部断言通过）和平均部分得分，按领域拆分 |
 
-- 所有 checkpoint 都用同一套设置，分数可以直接比较。每个任务的记录里会带上这套设置（`protocol` 字段）。
+- 所有 checkpoint 都用同一套设置，分数可以直接比较。每个任务的记录里会带上实际用的设置（`protocol` 字段）。
 - vLLM 上下文长度固定为 32768。
+- 以下几项按 checkpoint 自带的 chat template 决定（`protocol.settings`）：
+  - **工具调用格式**：模板里有 `<function=`（Qwen3.5 的 XML 格式）就用 `qwen3_coder` parser，否则用 `hermes`（Qwen3 的 JSON 格式）。
+  - **思考模型**：模板里有 `enable_thinking` 就算思考模型。vLLM 加 `--reasoning-parser qwen3`，把思考内容和最终回答分开，评测只看最终回答；IFBench 的输出上限提到 16384，否则很多回答会在思考阶段被截断。
+  - **思考模型的分数不能和非思考模型直接比较**：两者输出上限不同，报告时要标明。
+- 服务用独立的推理环境 `mopd_serve`（vLLM 0.31），支持 Qwen3.5 等新架构；训练用的 `mopd_infer`（vLLM 0.10.2）不变。多模态 checkpoint 只按纯文本服务，不给图像和视频预留显存。
 - AutomationBench 要求模型会调用工具。没学过工具调用的 base 模型或 plain_qa 学生预计接近 0 分，这反映的是模型能力，不是服务故障。
 - AutomationBench 的 simple 任务和 6 个正式领域要分开报告；公开任务的成绩和官方排行榜（私有留出集）不等价。
 

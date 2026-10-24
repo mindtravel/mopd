@@ -15,26 +15,26 @@ from pathlib import Path
 
 from mopd import paths
 from mopd.runtime import compile_cache
-from mopd.serving import protocol
 
 STATE = paths.ROOT / "runs/bench-service"
 
 
-def serving_signature(model):
-    """What a running server must share with a checkpoint for an in-place weight swap: architecture
-    shape, tokenizer and chat template (the server keeps its own tokenizer), and the LoRA base."""
+def serving_signature(model, settings):
+    """What a running server must share with a checkpoint for an in-place weight swap: the model
+    config (minus bookkeeping fields), tokenizer and chat template (the server keeps its own), the
+    serving settings, and for a LoRA its base."""
     model = Path(model)
     if (model / "adapter_config.json").exists():
         a = json.loads((model / "adapter_config.json").read_text())
-        return {"lora_base": serving_signature(a["base_model_name_or_path"])}
+        return {"lora_base": serving_signature(a["base_model_name_or_path"], settings)}
     c = json.loads((model / "config.json").read_text())
-    shape = {k: c.get(k) for k in ("architectures", "hidden_size", "num_hidden_layers", "num_attention_heads",
-                                   "num_key_value_heads", "intermediate_size", "vocab_size", "tie_word_embeddings")}
-    h = hashlib.sha256()
+    for k in ("_name_or_path", "transformers_version", "torch_dtype", "dtype", "use_cache"):
+        c.pop(k, None)
+    h = hashlib.sha256(json.dumps(c, sort_keys=True).encode())
     for f in ("tokenizer.json", "tokenizer_config.json", "chat_template.jinja", "generation_config.json"):
         if (model / f).exists():
             h.update(f.encode() + (model / f).read_bytes())
-    return {**shape, "tokenizer": h.hexdigest()}
+    return {"model": h.hexdigest(), "settings": json.dumps(settings, sort_keys=True)}
 
 
 class Engine:
@@ -52,7 +52,7 @@ class Engine:
 
     def use(self, j):
         model = Path(j["model"])
-        sig = serving_signature(model)
+        sig = serving_signature(model, j["protocol"])
         lora = (model / "adapter_config.json").exists()
         if self.proc and self.proc.poll() is None and sig == self.signature:
             mark = time.time()
@@ -68,7 +68,8 @@ class Engine:
             return served, {"engine": how, "seconds": round(time.time() - mark, 1)}
         self.stop()
         mark = time.time()
-        cmd = [str(paths.INFER_PY.parent / "vllm"), "serve"]
+        cmd = [str(paths.SERVE_PY.parent / "vllm"), "serve"]
+        p = j["protocol"]
         if lora:
             a = json.loads((model / "adapter_config.json").read_text())
             cmd += [a["base_model_name_or_path"], "--served-model-name", "policy", "--enable-lora",
@@ -77,9 +78,12 @@ class Engine:
         else:
             cmd += [str(model), "--served-model-name", "policy"]
         cmd += ["--host", "127.0.0.1", "--port", str(self.port), "--dtype", "bfloat16",
-                "--max-model-len", str(protocol.MAX_MODEL_LEN), "--gpu-memory-utilization", "0.9",
-                "--max-num-seqs", "256", "--enable-auto-tool-choice", "--tool-call-parser", "hermes", "--seed", "0",
-                "--worker-extension-cls", "mopd.serving.weight_swap.WeightSwap"]
+                "--max-model-len", str(p["max_model_len"]), "--gpu-memory-utilization", "0.9",
+                "--max-num-seqs", "256", "--enable-auto-tool-choice", "--tool-call-parser", p["tool_parser"], "--seed", "0",
+                # text only: a multimodal checkpoint (Qwen3.5) keeps no memory for images or video
+                "--limit-mm-per-prompt", json.dumps({"image": 0, "video": 0}),
+                "--worker-extension-cls", "mopd.serving.weight_swap.WeightSwap",
+                *(["--reasoning-parser", "qwen3"] if p["thinking"] else [])]
         env = {**os.environ, "CUDA_VISIBLE_DEVICES": str(self.gpu),
                "VLLM_SERVER_DEV_MODE": "1",  # /collective_rpc, /reset_prefix_cache (server is on 127.0.0.1 only)
                "VLLM_ALLOW_RUNTIME_LORA_UPDATING": "1",

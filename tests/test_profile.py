@@ -29,6 +29,14 @@ class ProfileTest(unittest.TestCase):
         sh = ModelShape({"num_hidden_layers": 36, "num_attention_heads": 32, "num_key_value_heads": 8, "head_dim": 128}, 4e9)
         self.assertEqual(sh.kv_bytes_per_token, 2 * 36 * 8 * 128 * 2)
 
+    def test_hybrid_multimodal_config(self):
+        # Qwen3.5: text_config nested, 1 in 4 layers full attention
+        cfg = {"text_config": {"num_hidden_layers": 32, "num_attention_heads": 16, "num_key_value_heads": 4, "head_dim": 256,
+                               "layer_types": (["linear_attention"] * 3 + ["full_attention"]) * 8}}
+        sh = ModelShape(cfg, 4e9)
+        self.assertEqual(sh.layers, 8)
+        self.assertEqual(sh.kv_bytes_per_token, 2 * 8 * 4 * 256 * 2)
+
     def test_infer_utilization(self):
         sh = self.shape()
         r = infer_utilization(sh, seconds=10, gpus=1, generated=5000, prefilled=1000, steps=500, context_tokens=10**7, peaks=PEAKS)

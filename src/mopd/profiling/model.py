@@ -20,10 +20,18 @@ class ModelShape:
     """The numbers the FLOP/byte counts need: parameters, layers, attention and KV widths."""
 
     def __init__(self, config, params):
+        if isinstance(config, dict) and "text_config" in config:  # multimodal wrapper (Qwen3.5): the text model
+            config = config["text_config"]
+        elif getattr(config, "text_config", None) is not None:
+            config = config.text_config
         get = (lambda k, d=None: config.get(k, d)) if isinstance(config, dict) else (lambda k, d=None: getattr(config, k, d))
         heads = get("num_attention_heads")
         head_dim = get("head_dim") or get("hidden_size") // heads
-        self.params, self.layers = params, get("num_hidden_layers")
+        types = get("layer_types")
+        self.params = params
+        # attention FLOPs and KV cache come from full-attention layers only; linear-attention layers
+        # (Qwen3.5's gated delta net) keep a fixed-size state instead
+        self.layers = sum(t == "full_attention" for t in types) if types else get("num_hidden_layers")
         self.attn_dim = heads * head_dim
         self.kv_bytes_per_token = 2 * self.layers * get("num_key_value_heads", heads) * head_dim * 2  # K and V, bf16
 
@@ -36,7 +44,8 @@ class ModelShape:
 
     @classmethod
     def of_checkpoint(cls, path):
-        """From config.json and the safetensors headers only (no weights read); a LoRA adapter uses its base."""
+        """From config.json and the safetensors headers only (no weights read); a LoRA adapter uses its
+        base; a vision tower is not counted (the service serves text)."""
         path = Path(path)
         if (path / "adapter_config.json").exists():
             path = Path(json.loads((path / "adapter_config.json").read_text())["base_model_name_or_path"])
@@ -45,7 +54,7 @@ class ModelShape:
             with f.open("rb") as h:
                 header = json.loads(h.read(int.from_bytes(h.read(8), "little")))
             for k, v in header.items():
-                if k != "__metadata__":
+                if k != "__metadata__" and "visual" not in k and "vision" not in k:  # text model only
                     n = 1
                     for d in v["shape"]:
                         n *= d
