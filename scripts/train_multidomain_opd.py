@@ -17,7 +17,7 @@ from mopd.rollout.processes import ProcessRollouts
 from mopd.rollout.replicas import RolloutReplicas
 from mopd.runtime.artifacts import dump, fingerprint
 from mopd.runtime.provenance import record as record_provenance
-from mopd.runtime.profile import ModelShape, opd_utilization
+from mopd.runtime.profile import ModelShape, maybe_torch_profile, opd_utilization
 from mopd.training.batching import generation_eos_ids
 from mopd.training.opd_step import OPDStepScorer, DomainBlockContribution, NO_CONTRIBUTION
 from mopd.training.run import TrainRun
@@ -177,6 +177,7 @@ def run(c, resume=None):
                     ),
                 )
                 planned = {d: sum(r["domain"] == d for r in rows) for d in c["domains"]}
+                trace = {}  # filled by maybe_torch_profile on the profiled step
                 if not sharded:
                     # rollouts -> per-domain micro-batches (arrival order) -> teacher score + student backward
                     if replicas:
@@ -216,15 +217,18 @@ def run(c, resume=None):
                         payload = [(by_domain, lps, stream.seconds, stream.stats or {}, scorer.teacher_seconds)]
                     dist.broadcast_object_list(payload, src=0)
                     by_domain, lps, gen_seconds, rollout_stats, scorer.teacher_seconds = payload[0]
-                    scorer.sharded_step(
-                        by_domain,
-                        lps,
-                        rank,
-                        world_size,
-                        c["micro_batch_size"],
-                        c.get("micro_batch_tokens"),
-                        per_domain=c.get("per_domain_grad_norm", False),
-                    )
+                    # profile_step: torch.profiler kernel breakdown (comm / matmul / attention / idle) of
+                    # that step's student phase on rank 0 (runtime.profile.maybe_torch_profile)
+                    with maybe_torch_profile(main and c.get("profile_step") == step, out, step) as trace:
+                        scorer.sharded_step(
+                            by_domain,
+                            lps,
+                            rank,
+                            world_size,
+                            c["micro_batch_size"],
+                            c.get("micro_batch_tokens"),
+                            per_domain=c.get("per_domain_grad_norm", False),
+                        )
                     scorer.gather(world_size)
                 stats = scorer.domain_stats() if main else None
                 grad = run.optimize()
@@ -260,6 +264,7 @@ def run(c, resume=None):
                         "student_peak_gib": torch.cuda.max_memory_allocated(c["student_device"]) / 2**30,
                         "world_size": world_size,
                         "utilization": util,
+                        **({"kernels": trace} if trace else {}),
                     }
                     run.log(step, report)
                 run.checkpoint(step)
