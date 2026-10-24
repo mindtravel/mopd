@@ -115,26 +115,93 @@ class Jobs:
             self.save(j)
 
 
-def vllm_command(j, port):
-    model = Path(j["model"])
-    cmd = [str(paths.INFER_PY.parent / "vllm"), "serve"]
+def serving_signature(model):
+    """What a running server must share with a checkpoint for an in-place weight swap: architecture
+    shape, tokenizer and chat template (the server keeps its own tokenizer), and the LoRA base."""
+    import hashlib
+
+    model = Path(model)
     if (model / "adapter_config.json").exists():
         a = json.loads((model / "adapter_config.json").read_text())
-        cmd += [a["base_model_name_or_path"], "--enable-lora", "--max-lora-rank", str(max(16, a.get("r", 16)))]
-        cmd += ["--lora-modules", f"{j['name']}={model}"]
-    else:
-        cmd += [str(model), "--served-model-name", j["name"]]
-    return cmd + [
-        "--host", "127.0.0.1",
-        "--port", str(port),
-        "--dtype", "bfloat16",
-        "--max-model-len", str(j["max_model_len"]),
-        "--gpu-memory-utilization", "0.9",
-        "--max-num-seqs", "256",
-        "--enable-auto-tool-choice",
-        "--tool-call-parser", "hermes",
-        "--seed", "0",
-    ]
+        return {"lora_base": serving_signature(a["base_model_name_or_path"])}
+    c = json.loads((model / "config.json").read_text())
+    shape = {k: c.get(k) for k in ("architectures", "hidden_size", "num_hidden_layers", "num_attention_heads",
+                                   "num_key_value_heads", "intermediate_size", "vocab_size", "tie_word_embeddings")}
+    h = hashlib.sha256()
+    for f in ("tokenizer.json", "tokenizer_config.json", "chat_template.jinja", "generation_config.json"):
+        if (model / f).exists():
+            h.update(f.encode() + (model / f).read_bytes())
+    return {**shape, "tokenizer": h.hexdigest()}
+
+
+class Engine:
+    """The resident vLLM OpenAI server on one service GPU. use(job) makes it serve the job's
+    checkpoint and returns the model name to request: same signature -> weights loaded in place
+    (WeightSwap, ~seconds) or a LoRA adapter added at runtime; otherwise a restart."""
+
+    def __init__(self, gpu):
+        self.gpu, self.port = gpu, 18100 + gpu
+        self.proc = self.signature = None
+        self.lora = set()
+
+    def call(self, path, body, timeout=600):
+        req = urllib.request.Request(f"http://127.0.0.1:{self.port}{path}", json.dumps(body).encode(),
+                                     {"Content-Type": "application/json"})
+        return urllib.request.urlopen(req, timeout=timeout).read().decode()
+
+    def use(self, j, log):
+        model = Path(j["model"])
+        sig = {**serving_signature(model), "max_model_len": j["max_model_len"]}
+        lora = (model / "adapter_config.json").exists()
+        if self.proc and self.proc.poll() is None and sig == self.signature:
+            mark = time.time()
+            if lora:
+                if j["name"] not in self.lora:
+                    self.call("/v1/load_lora_adapter", {"lora_name": j["name"], "lora_path": str(model)})
+                    self.lora.add(j["name"])
+                how, served = "lora_added", j["name"]
+            else:
+                self.call("/collective_rpc", {"method": "load_checkpoint", "args": [str(model)]})
+                self.call("/reset_prefix_cache", {})
+                how, served = "weights_swapped", "policy"
+            return served, {"engine": how, "seconds": round(time.time() - mark, 1)}
+        self.stop()
+        mark = time.time()
+        cmd = [str(paths.INFER_PY.parent / "vllm"), "serve"]
+        if lora:
+            a = json.loads((model / "adapter_config.json").read_text())
+            cmd += [a["base_model_name_or_path"], "--served-model-name", "policy", "--enable-lora",
+                    "--max-lora-rank", str(max(64, a.get("r", 16))), "--max-loras", "4",
+                    "--lora-modules", f"{j['name']}={model}"]
+        else:
+            cmd += [str(model), "--served-model-name", "policy"]
+        cmd += ["--host", "127.0.0.1", "--port", str(self.port), "--dtype", "bfloat16",
+                "--max-model-len", str(j["max_model_len"]), "--gpu-memory-utilization", "0.9",
+                "--max-num-seqs", "256", "--enable-auto-tool-choice", "--tool-call-parser", "hermes", "--seed", "0",
+                "--worker-extension-cls", "mopd.serving.weight_swap.WeightSwap"]
+        env = {**os.environ, "CUDA_VISIBLE_DEVICES": str(self.gpu),
+               "VLLM_SERVER_DEV_MODE": "1",  # /collective_rpc, /reset_prefix_cache (server is on 127.0.0.1 only)
+               "VLLM_ALLOW_RUNTIME_LORA_UPDATING": "1",
+               "PYTHONPATH": str(paths.ROOT / "src"),
+               # this GPU's compiler caches (mopd.runtime.compile_cache), reused across restarts
+               **compile_cache.isolated(paths.ROOT / "cache/compile" / f"bench-gpu{self.gpu}")}
+        self.vlog = STATE / f"vllm-gpu{self.gpu}.log"
+        with self.vlog.open("a") as f:
+            f.write(f"\n==== {time.strftime('%F %T')} {' '.join(cmd)}\n")
+            f.flush()
+            self.proc = subprocess.Popen(cmd, env=env, stdout=f, stderr=subprocess.STDOUT, start_new_session=True)
+        wait_ready(self.proc, self.port, self.vlog)
+        self.signature, self.lora = sig, ({j["name"]} if lora else set())
+        return (j["name"] if lora else "policy"), {"engine": "started", "seconds": round(time.time() - mark, 1)}
+
+    def stop(self):
+        if self.proc and self.proc.poll() is None:
+            os.killpg(self.proc.pid, signal.SIGTERM)
+            try:
+                self.proc.wait(60)
+            except subprocess.TimeoutExpired:
+                os.killpg(self.proc.pid, signal.SIGKILL)
+        self.proc = self.signature = None
 
 
 def wait_ready(proc, port, log, timeout=900):
@@ -160,9 +227,9 @@ def docker(job_dir, args, log):
         return subprocess.run(cmd, stdout=f, stderr=subprocess.STDOUT).returncode
 
 
-def run_ifbench(j, job_dir, api, log):
+def run_ifbench(j, job_dir, api, log, served):
     o = j["ifbench"]
-    gen = ["ifbench", "generate", "--run-name", "run", "--model", j["name"], "--api-base", api,
+    gen = ["ifbench", "generate", "--run-name", "run", "--model", served, "--api-base", api,
            "--workers", str(o["workers"]), "--max-tokens", str(o["max_tokens"]), "--temperature", "0"]
     if o.get("limit"):
         gen += ["--limit", str(o["limit"])]
@@ -174,9 +241,9 @@ def run_ifbench(j, job_dir, api, log):
     return {mode: {k: round(100 * v, 2) for k, v in m[mode].items() if "accuracy" in k} for mode in ("strict", "loose") if mode in m} or m
 
 
-def run_automationbench(j, job_dir, api, log):
+def run_automationbench(j, job_dir, api, log, served):
     o = j["automationbench"]
-    args = ["automationbench", "--model", j["name"], "--base-url", api, "--api", "chat_completions",
+    args = ["automationbench", "--model", served, "--base-url", api, "--api", "chat_completions",
             "--domains", o["domains"], "--max-steps", str(o["max_steps"]), "--max-concurrent", str(o["max_concurrent"]),
             "--export-json", "/out/automationbench/results.json"]
     if o.get("num_examples"):
@@ -187,57 +254,44 @@ def run_automationbench(j, job_dir, api, log):
 
 
 def summarize_automation(r):
-    """Pass rate (every assertion of a task passes) and mean partial score, overall and per domain."""
-    rows = r.get("results") or r.get("rollouts") or r.get("samples") or []
-    if not rows:
-        return {"raw_keys": sorted(r)[:20]}
+    """Pass rate (every assertion of a task passes) and mean partial score, overall and per domain
+    (the task name's prefix: simple.*, sales.*, ...)."""
+    def pct(v):
+        return round(100 * float(v), 2)
+
     by = {}
-    for x in rows:
-        d = x.get("domain") or x.get("task", {}).get("domain") or "all"
-        by.setdefault(d, []).append(x)
-
-    def agg(xs):
-        rewards = [float(x.get("reward", x.get("score", 0)) or 0) for x in xs]
-        return {"tasks": len(xs), "pass_rate": round(100 * sum(v >= 1 for v in rewards) / len(xs), 2),
-                "mean_score": round(100 * sum(rewards) / len(xs), 2)}
-
-    return {"all": agg(rows), **({d: agg(xs) for d, xs in by.items()} if len(by) > 1 else {})}
+    for t in r["tasks"]:
+        by.setdefault(str(t["name"]).split(".")[0], []).append(t)
+    out = {"all": {"tasks": len(r["tasks"]), "pass_rate": pct(r["summary"]["pass_rate"]), "mean_score": pct(r["summary"]["avg_score"]),
+                   "tool_calls": r["summary"].get("total_tool_calls"), "errors": r["summary"].get("tasks_with_errors"),
+                   "aborted": len(r["summary"].get("aborted_tasks") or [])}}
+    if len(by) > 1:
+        for d, ts in by.items():
+            out[d] = {"tasks": len(ts), "pass_rate": pct(sum(str(t["passed"]) == "True" for t in ts) / len(ts)),
+                      "mean_score": pct(sum(float(t["score"]) for t in ts) / len(ts))}
+    return out
 
 
 RUNNERS = {"ifbench": run_ifbench, "automationbench": run_automationbench}
 
 
-def execute(jobs, j, bench):
-    """One benchmark of one job on that benchmark's GPU: serve the model, run, record, stop vLLM."""
-    gpu = paths.SERVICE_GPUS[bench]
-    port = 18100 + gpu
+def execute(jobs, j, bench, engine):
+    """One benchmark of one job on that benchmark's GPU, on its resident engine."""
     job_dir = STATE / "runs" / j["id"]
     job_dir.mkdir(parents=True, exist_ok=True)
     log = job_dir / f"{bench}.log"
-    proc = None
     try:
-        jobs.update(j, bench, state="running", note="starting vLLM", started=time.strftime("%Y-%m-%dT%H:%M:%S"))
-        vlog = job_dir / f"vllm-{bench}.log"
-        # the GPU's own compiler caches (mopd.runtime.compile_cache): torch.compile / CUDA graphs are
-        # reused by every later job on this GPU instead of being rebuilt per checkpoint
-        env = {**os.environ, "CUDA_VISIBLE_DEVICES": str(gpu),
-               **compile_cache.isolated(paths.ROOT / "cache/compile" / f"bench-gpu{gpu}")}
-        with vlog.open("w") as f:
-            proc = subprocess.Popen(vllm_command(j, port), env=env, stdout=f, stderr=subprocess.STDOUT, start_new_session=True)
-        wait_ready(proc, port, vlog)
-        jobs.update(j, bench, note="benchmark running")
-        scores = RUNNERS[bench](j, job_dir, f"http://127.0.0.1:{port}/v1", log)
-        jobs.update(j, bench, state="complete", scores=scores, note=None, finished=time.strftime("%Y-%m-%dT%H:%M:%S"))
+        jobs.update(j, bench, state="running", note="loading model", started=time.strftime("%Y-%m-%dT%H:%M:%S"))
+        served, how = engine.use(j, log)
+        jobs.update(j, bench, note="benchmark running", engine=how)
+        mark = time.time()
+        scores = RUNNERS[bench](j, job_dir, f"http://127.0.0.1:{engine.port}/v1", log, served)
+        jobs.update(j, bench, state="complete", scores=scores, note=None, bench_seconds=round(time.time() - mark),
+                    finished=time.strftime("%Y-%m-%dT%H:%M:%S"))
     except Exception:
+        engine.stop()  # unknown state after a failure: the next job starts clean
         jobs.update(j, bench, state="failed", error=traceback.format_exc()[-3000:], note=None,
                     finished=time.strftime("%Y-%m-%dT%H:%M:%S"))
-    finally:
-        if proc and proc.poll() is None:
-            os.killpg(proc.pid, signal.SIGTERM)
-            try:
-                proc.wait(60)
-            except subprocess.TimeoutExpired:
-                os.killpg(proc.pid, signal.SIGKILL)
 
 
 def worker(jobs, bench, lease):
@@ -251,12 +305,13 @@ def worker(jobs, bench, lease):
         jobs.waiting[bench] = f"GPU {gpu} still has memory in use"
         time.sleep(30)
     jobs.waiting.pop(bench, None)
+    engine = Engine(gpu)
     while True:
         j = jobs.take(bench)
         if j is None:
             time.sleep(5)
             continue
-        execute(jobs, j, bench)
+        execute(jobs, j, bench, engine)
 
 
 def handler(jobs):

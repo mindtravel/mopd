@@ -15,7 +15,7 @@
 
 ## 架构
 
-- 两个评测都是 OpenAI 兼容 API 的客户端，只用 CPU，打包在镜像 `mopd-bench:latest` 里，源码和依赖锁与 `/ssd/ifbench`、`/ssd/automationbench` 的原生部署一致：
+- 两个评测都是 OpenAI 兼容 API 的客户端，只用 CPU，打包在镜像 `mopd-bench:latest` 里，源码和依赖锁与 `/srv/ifbench`、`/srv/automationbench` 的原生部署一致：
   - IFBench：allenai/IFBench @ `1c40f0c`；
   - AutomationBench：zapier/AutomationBench @ `4a8e106`。
 - 本机 Docker 没有 GPU runtime，vLLM 跑在宿主机（`mopd_infer` 环境的 `vllm serve`），容器用 `--network host` 访问。本机 Docker 的 bridge 网络是坏的，所以只能用 host 网络。

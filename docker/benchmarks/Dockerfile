@@ -1,10 +1,12 @@
 # IFBench + AutomationBench clients (CPU only): both talk to an OpenAI-compatible model endpoint,
 # which mopd's bench service starts on the host (scripts/bench_service.py; this server's Docker has
-# no GPU runtime). Pinned sources are copied from the native deployments under /ssd by build.sh.
+# no GPU runtime). Pinned sources are copied from the native deployments under /srv by build.sh.
 FROM python:3.13-slim-bookworm
 ENV PYTHONUNBUFFERED=1 OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 TOKENIZERS_PARALLELISM=false \
     UV_LINK_MODE=copy UV_PYTHON_DOWNLOADS=never UV_INDEX_URL=https://pypi.tuna.tsinghua.edu.cn/simple
 COPY uv /usr/local/bin/uv
+RUN apt-get update && apt-get install -y --no-install-recommends git && rm -rf /var/lib/apt/lists/* \
+    && git config --system --add safe.directory '*'
 
 # IFBench (allenai/IFBench @ 1c40f0c), its wrapper (generate/score with completeness checks), NLTK data
 COPY ifbench/repo /opt/ifbench/repo
