@@ -20,7 +20,7 @@
  "eval": {
   "protocol_id": "lcbdev-think-greedy8192",
   "data": "/ssd/lzx/mopd/data/full_eval/lcb-dev-v2-think/lcbdev.jsonl",
-  "data_sha256": "TBD",
+  "data_sha256": "aabba67681919f7b9bc172c959742797ff9e2ef84f095c32df470e413df167b4",
   "max_new_tokens": 8192,
   "checkpoints": [
    128,

@@ -17,6 +17,12 @@ def pack(sequences, starts, pad, device):
         attention[i,:n]=1;response[i,start:n]=True
     return ids,attention,response
 
+# Response tokens per lm_head call. The chunk bounds the fp32 logits kept alive (2048 x 151936 x 4 B
+# = 1.2 GB) while keeping the vocabulary matmul large: at 128 the projection ran as dozens of small,
+# checkpointed matmuls per micro-batch and showed up as a visible share of step time.
+HEAD_CHUNK = 2048
+
+
 class TokenLogProbs(torch.nn.Module):
     """Per-token log-probs of the response tokens, as one module forward. The chunked lm_head (never
     materializes [batch, seq, vocab] logits) goes through the inner decoder and lm_head directly;
@@ -39,8 +45,8 @@ class TokenLogProbs(torch.nn.Module):
         def head(h, y):
             return -torch.nn.functional.cross_entropy(base.lm_head(h).float(), y, reduction="none")
         values = []
-        for i in range(0, len(targets), 128):
-            h = hs[i:i + 128]; y = targets[i:i + 128]
+        for i in range(0, len(targets), HEAD_CHUNK):
+            h = hs[i:i + HEAD_CHUNK]; y = targets[i:i + HEAD_CHUNK]
             values.append(checkpoint(head, h, y, use_reentrant=False) if torch.is_grad_enabled() else head(h, y))
         return torch.cat(values)
 

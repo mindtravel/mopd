@@ -1,6 +1,6 @@
 {
  "name": "rstar-code-instr11-think",
- "description": "think 协议下的无思考对照：与 rstar-code-instr11 同数据，prompt 用 lcb_think、响应立即 </think> 后给代码；指令数据同样 </think> 后作答",
+ "description": "think 协议下的无思考对照：与 rstar-code-instr11 同数据，prompt 用 lcb_think，响应立即 </think> 后给代码（指令数据同样 </think> 后作答）",
  "parts": [
   {
    "subset": "rstar-seed",
@@ -24,7 +24,7 @@
   }
  ],
  "prompt": "lcb_think",
- "response": "think",
+ "response": "nothink",
  "per_problem": 1,
  "rows": 8192,
  "dev_rows": 64,

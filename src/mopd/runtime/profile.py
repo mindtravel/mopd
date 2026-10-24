@@ -126,3 +126,44 @@ if __name__ == "__main__":
     ap = argparse.ArgumentParser(); ap.add_argument("--measure-peak", action="store_true"); a = ap.parse_args()
     if a.measure_peak:
         print(f"{torch.cuda.get_device_name()}: {measure_peak_tflops():.1f} bf16 TFLOPS (cached in {CACHE})")
+
+
+# ---------------------------------------------------------------- one-step kernel breakdown
+KERNEL_CLASSES = (("communication", ("nccl", "ncclKernel", "AllGather", "ReduceScatter", "AllReduce")),
+                  ("matmul", ("gemm", "cutlass", "matmul", "Gemm", "cublas")),
+                  ("attention", ("attention", "flash", "fmha", "sdp")))
+
+
+def trace_summary(prof, wall_seconds):
+    """Classify a torch.profiler trace's CUDA kernel time: communication / matmul / attention / other,
+    plus the share of wall time with no kernel running (launch gaps, CPU work, host-side waits).
+    Kernels overlap across streams, so classes can sum past 100% of wall time."""
+    totals = {name: 0.0 for name, _ in KERNEL_CLASSES}; totals["other"] = 0.0
+    for e in prof.key_averages():
+        if getattr(e, "device_time_total", 0) <= 0 or e.device_type.name != "CUDA":
+            continue
+        cls = next((name for name, keys in KERNEL_CLASSES if any(k.lower() in e.key.lower() for k in keys)), "other")
+        totals[cls] += e.device_time_total / 1e6
+    busy = sum(totals.values())
+    return {"wall_seconds": round(wall_seconds, 3), "kernel_seconds": {k: round(v, 3) for k, v in totals.items()},
+            "kernel_share_of_wall": {k: round(v / wall_seconds, 3) for k, v in totals.items()},
+            "idle_share_of_wall": round(max(0.0, 1 - busy / wall_seconds), 3)}
+
+
+@contextmanager
+def maybe_torch_profile(enabled, out_dir, step):
+    """Wrap one training step in torch.profiler when enabled; writes profile-step-<N>.json (summary)
+    and profile-step-<N>.trace.json.gz (chrome trace) under out_dir. Yields a dict filled on exit."""
+    result = {}
+    if not enabled:
+        yield result
+        return
+    from torch.profiler import ProfilerActivity, profile
+    start = time.perf_counter()
+    with profile(activities=[ProfilerActivity.CPU, ProfilerActivity.CUDA]) as prof:
+        yield result
+        torch.cuda.synchronize()
+    result.update(trace_summary(prof, time.perf_counter() - start))
+    out = Path(out_dir)
+    (out / f"profile-step-{step:04d}.json").write_text(json.dumps(result, indent=1))
+    prof.export_chrome_trace(str(out / f"profile-step-{step:04d}.trace.json.gz"))

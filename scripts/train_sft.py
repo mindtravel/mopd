@@ -45,12 +45,13 @@ from mopd.protocol import student_prompt
 from mopd.students.registry import build_student,save_student,is_sharded
 from mopd.training import fsdp
 from mopd.training.distributed import dist_info
+from mopd.training.microbatch import by_budget
 from mopd.training.batching import pack,logps
 from mopd.training.schedule import build_scheduler,describe
 from mopd.evaluation.versioning import write_manifest
 from mopd.runtime.artifacts import dump
 from mopd.runtime.provenance import record as record_provenance
-from mopd.runtime.profile import ModelShape,StepProfile
+from mopd.runtime.profile import ModelShape,StepProfile,maybe_torch_profile
 
 def encode(tok,row,prompt_format,eos,max_len):
     prefix=tok(student_prompt(tok,row,prompt_format),add_special_tokens=False).input_ids
@@ -110,71 +111,77 @@ def main():
         shape=ModelShape.of(scorer);recompute=c.get("gradient_checkpointing",True)
         try:
             for step,rows in enumerate(plan,1):
-                prof=StepProfile(shape,world_size,recompute=recompute,device=device)
-                opt.zero_grad(set_to_none=True);started=time.perf_counter();lr=sched.get_last_lr()[0]
-                stats={d:{"samples":0,"loss_sum":0.,"tokens":0,"truncated":0} for d in weights}
-                # Per-sample weight = domain weight / that domain's samples this step: per-sample token
-                # mean, then domain mean, then domain weights (MOPD's domain_scale when counts are fixed).
-                # Computed from the full step (all ranks' rows), not the local shard below, so summed
-                # per-rank gradients reproduce the single-GPU gradient exactly (see module docstring).
-                counts={d:sum(r["domain"]==d for r in rows) for d in weights}
-                scales={d:weights[d]/counts[d] for d in weights}
-                local_rows=rows[rank::world_size]  # disjoint, deterministic shard of this step's batch
-                # Encode the shard once and micro-batch it by length: each micro batch pads to its longest
-                # sequence, and in arrival order half the step's tokens were padding (profile: 0.50). The
-                # gradient does not depend on the grouping (fixed per-sample scales, summed), only the work.
-                encoded=sorted((encode(tok,row,c["student_prompt_format"],eos,max_len)+(row,) for row in local_rows),
-                               key=lambda e:len(e[0])+len(e[1]),reverse=True)
-                for offset in range(0,len(encoded),micro):
-                    chunk=encoded[offset:offset+micro];items=[e[3] for e in chunk];seqs=[];starts=[];truncated=[]
-                    for prefix,response,cut,row in chunk:
-                        if not response:raise ValueError(f"prompt alone exceeds max_seq_len: {row['id']}")
-                        seqs.append(prefix+response);starts.append(len(prefix));truncated.append(cut)
-                    ids,attention,response_mask=pack(seqs,starts,pad,device)
-                    prof.add_batch([len(q) for q in seqs],ids.shape[1])
-                    with prof.phase("forward_backward"):
-                        per_sample=[-v.mean() for v in logps(scorer,ids,attention,response_mask)]
-                        loss=sum(scales[r["domain"]]*l for r,l in zip(items,per_sample))
-                        loss.backward()
-                    for r,l,s,start,cut in zip(items,per_sample,seqs,starts,truncated):
-                        d=stats[r["domain"]];d["samples"]+=1;d["loss_sum"]+=float(l.detach())
-                        d["tokens"]+=len(s)-start;d["truncated"]+=int(cut)
-                peak=torch.tensor(torch.cuda.max_memory_allocated(device)/2**30,device=device)
-                # whole-step token accounting for MFU: every rank's real tokens, padded widths and squared lengths
-                lengths=torch.tensor([sum(prof.lengths),prof.padded,sum(q*q for q in prof.lengths)],device=device,dtype=torch.float64)
-                with prof.phase("gradient_sync"):
-                    if world_size>1:
-                        dist.all_reduce(peak,op=dist.ReduceOp.MAX)  # the rank closest to OOM, not rank 0
-                        dist.all_reduce(lengths)
-                        if not sharded:  # FSDP already reduce-scattered sharded gradients (as a SUM, see fsdp.py)
-                            for p in params:dist.all_reduce(p.grad,op=dist.ReduceOp.SUM)
-                        stats=sync_stats(stats,device)
-                with prof.phase("optimizer"):
-                    grad=torch.nn.utils.clip_grad_norm_(params,1.)
-                    grad=grad.full_tensor() if hasattr(grad,"full_tensor") else grad
-                    if not torch.isfinite(grad) or grad<=0:raise ValueError("Invalid student gradient")
-                    opt.step();sched.step()
-                if main_rank:
-                    domains={d:{"loss":s["loss_sum"]/s["samples"],"samples":s["samples"],"tokens":s["tokens"],
-                                "truncated":s["truncated"]} for d,s in stats.items()}
-                    report={"step":step,"lr":lr,"loss":sum(weights[d]*v["loss"] for d,v in domains.items()),
-                        "grad_norm":float(grad),"domains":domains,
-                        "tokens":sum(v["tokens"] for v in domains.values()),
-                        "truncated":sum(v["truncated"] for v in domains.values()),
-                        "seconds":time.perf_counter()-started,"world_size":world_size,
-                        "max_memory_gib":round(float(peak),2),
-                        "profile":prof.finish(total_tokens=int(lengths[0]),padded=int(lengths[1]),sum_sq=float(lengths[2]))}
-                    mf.write(json.dumps(report)+"\n");print(json.dumps(report),flush=True)
-                    dump(out/"status.json",{"state":"training",**report})
-                if step%c["save_every"]==0 or step==c["steps"]:
-                    ckpt=out/f"checkpoint-{step:04d}"
-                    if sharded or main_rank:save_student(scorer if sharded else model,c,ckpt,step,main_rank)
-                    if main_rank:
-                        if not sharded:  # a sharded optimizer's rank-0 state is a fragment; runs never resume anyway
-                            torch.save({"step":step,"optimizer":opt.state_dict(),"scheduler":sched.state_dict(),
-                                "rng":torch.get_rng_state(),"cuda_rng":torch.cuda.get_rng_state_all()},ckpt/"training_state.pt")
-                        write_manifest(c,out,{"state":"training","step":step})
-                if world_size>1:dist.barrier()
+              # profile_step: dump a torch.profiler kernel breakdown (comm / matmul / attention / idle) of
+              # that one step on rank 0 -- the per-step StepProfile cannot see inside FSDP's hooks.
+              with maybe_torch_profile(main_rank and c.get("profile_step")==step,out,step) as trace:
+                  prof=StepProfile(shape,world_size,recompute=recompute,device=device)
+                  opt.zero_grad(set_to_none=True);started=time.perf_counter();lr=sched.get_last_lr()[0]
+                  stats={d:{"samples":0,"loss_sum":0.,"tokens":0,"truncated":0} for d in weights}
+                  # Per-sample weight = domain weight / that domain's samples this step: per-sample token
+                  # mean, then domain mean, then domain weights (MOPD's domain_scale when counts are fixed).
+                  # Computed from the full step (all ranks' rows), not the local shard below, so summed
+                  # per-rank gradients reproduce the single-GPU gradient exactly (see module docstring).
+                  counts={d:sum(r["domain"]==d for r in rows) for d in weights}
+                  scales={d:weights[d]/counts[d] for d in weights}
+                  local_rows=rows[rank::world_size]  # disjoint, deterministic shard of this step's batch
+                  # Encode the shard once and micro-batch it longest-first, by count (micro_batch_size) and
+                  # optionally by padded-token budget (micro_batch_tokens, mopd.training.microbatch): in arrival
+                  # order half the step's tokens were padding (profile: 0.50). The gradient does not depend on
+                  # the grouping (fixed per-sample scales, summed), only the work and the peak memory.
+                  encoded=[encode(tok,row,c["student_prompt_format"],eos,max_len)+(row,) for row in local_rows]
+                  chunks=list(by_budget(encoded,lambda e:len(e[0])+len(e[1]),micro,c.get("micro_batch_tokens")))
+                  for n,chunk in enumerate(chunks):
+                      fsdp.before_micro_batch(scorer,last=n==len(chunks)-1)
+                      items=[e[3] for e in chunk];seqs=[];starts=[];truncated=[]
+                      for prefix,response,cut,row in chunk:
+                          if not response:raise ValueError(f"prompt alone exceeds max_seq_len: {row['id']}")
+                          seqs.append(prefix+response);starts.append(len(prefix));truncated.append(cut)
+                      ids,attention,response_mask=pack(seqs,starts,pad,device)
+                      prof.add_batch([len(q) for q in seqs],ids.shape[1])
+                      with prof.phase("forward_backward"):
+                          per_sample=[-v.mean() for v in logps(scorer,ids,attention,response_mask)]
+                          loss=sum(scales[r["domain"]]*l for r,l in zip(items,per_sample))
+                          loss.backward()
+                      for r,l,s,start,cut in zip(items,per_sample,seqs,starts,truncated):
+                          d=stats[r["domain"]];d["samples"]+=1;d["loss_sum"]+=float(l.detach())
+                          d["tokens"]+=len(s)-start;d["truncated"]+=int(cut)
+                  peak=torch.tensor(torch.cuda.max_memory_allocated(device)/2**30,device=device)
+                  # whole-step token accounting for MFU: every rank's real tokens, padded widths and squared lengths
+                  lengths=torch.tensor([sum(prof.lengths),prof.padded,sum(q*q for q in prof.lengths)],device=device,dtype=torch.float64)
+                  with prof.phase("gradient_sync"):
+                      if world_size>1:
+                          dist.all_reduce(peak,op=dist.ReduceOp.MAX)  # the rank closest to OOM, not rank 0
+                          dist.all_reduce(lengths)
+                          if not sharded:  # FSDP already reduce-scattered sharded gradients (as a SUM, see fsdp.py)
+                              for p in params:dist.all_reduce(p.grad,op=dist.ReduceOp.SUM)
+                          stats=sync_stats(stats,device)
+                  with prof.phase("optimizer"):
+                      grad=torch.nn.utils.clip_grad_norm_(params,1.)
+                      grad=grad.full_tensor() if hasattr(grad,"full_tensor") else grad
+                      if not torch.isfinite(grad) or grad<=0:raise ValueError("Invalid student gradient")
+                      opt.step();sched.step()
+                  if main_rank:
+                      domains={d:{"loss":s["loss_sum"]/s["samples"],"samples":s["samples"],"tokens":s["tokens"],
+                                  "truncated":s["truncated"]} for d,s in stats.items()}
+                      report={"step":step,"lr":lr,"loss":sum(weights[d]*v["loss"] for d,v in domains.items()),
+                          "grad_norm":float(grad),"domains":domains,
+                          "tokens":sum(v["tokens"] for v in domains.values()),
+                          "truncated":sum(v["truncated"] for v in domains.values()),
+                          "seconds":time.perf_counter()-started,"world_size":world_size,
+                          "max_memory_gib":round(float(peak),2),
+                          "profile":prof.finish(total_tokens=int(lengths[0]),padded=int(lengths[1]),sum_sq=float(lengths[2])),
+                          **({"kernels":trace} if trace else {})}
+                      mf.write(json.dumps(report)+"\n");print(json.dumps(report),flush=True)
+                      dump(out/"status.json",{"state":"training",**report})
+                  if step%c["save_every"]==0 or step==c["steps"]:
+                      ckpt=out/f"checkpoint-{step:04d}"
+                      if sharded or main_rank:save_student(scorer if sharded else model,c,ckpt,step,main_rank)
+                      if main_rank:
+                          if not sharded:  # a sharded optimizer's rank-0 state is a fragment; runs never resume anyway
+                              torch.save({"step":step,"optimizer":opt.state_dict(),"scheduler":sched.state_dict(),
+                                  "rng":torch.get_rng_state(),"cuda_rng":torch.cuda.get_rng_state_all()},ckpt/"training_state.pt")
+                          write_manifest(c,out,{"state":"training","step":step})
+              if world_size>1:dist.barrier()
         finally:
             if mf:mf.close()
         if main_rank or sharded:

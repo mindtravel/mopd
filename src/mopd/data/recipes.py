@@ -9,8 +9,9 @@
                                           # `per_problem` with the lowest value of this field first
                                           # (e.g. subsets.hedge_count), not a random pick
    "prompt": "lcb" | "lcb_think" | "plain",      # lcb: LiveCodeBench v1 wording; lcb_think: lcb-dev-v2-think
-   "response": "full" | "final" | "code" | "think",  # full reply / reply without <think> / code only /
-                                          # reasoning + </think> + code (for plain_qa_think_v1 students)
+   "response": "full" | "final" | "code" | "think" | "nothink",  # full reply / reply without <think> /
+                                          # code only / reasoning + </think> + answer / </think> + answer
+                                          # (think, nothink: for plain_qa_think_v1 students)
    "max_total_tokens": 20480,            # prompt + response + EOS above this is skipped (student
                                           # tokenizer); benchmark_seq_len.py found real data tops
                                           # out at ~19.7k, and the cost is in micro-batching two
@@ -77,6 +78,10 @@ def format_response(row, style):
         return subsets.THINK.sub("", row["response"]) if "</think>" in row["response"] else row["response"]
     if style == "code":
         return f"```python\n{row['code'].strip()}\n```" if row["code"].strip() else ""
+    if style == "nothink":  # the think protocol's no-reasoning control: close the block, then answer
+        code = row["code"].strip()
+        answer = f"```python\n{code}\n```" if code else row["response"].replace("<think>", "").split("</think>", 1)[-1].strip()
+        return "</think>\n\n" + answer
     if style == "think":
         # Continues the prompt's open <think>: reasoning, then </think>, then the answer -- the code
         # block for code rows, the reply itself for rows without code (instruction data mixed in).

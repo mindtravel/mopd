@@ -52,17 +52,27 @@ def prompt(question, kind, starter=""):
 THINK_TAIL = ("Think through the problem first. Then give the complete {what} in a single ```python code block "
               "after your reasoning.")
 THINK_STDIN = "Read the inputs from stdin, solve the problem and write the answer to stdout (do not test on the sample inputs). "
-THINK_FUNCTIONAL = "Your solution must define `class Solution` with the method `{signature}`. "
+THINK_CLASS = "Your solution must define `{cls}` with the method `{signature}`. "
+THINK_FUNCTION = "Your solution must define the function `{signature}`. "
 
 
 def signature_of(starter):
-    """`def name(self, ...) -> T` lines of a LeetCode starter, joined; the whole starter if none."""
+    """`def name(self, ...) -> T` lines of a starter, joined; the whole starter if none."""
     defs = [l.strip().rstrip(":") for l in starter.splitlines() if l.strip().startswith("def ")]
     return "; ".join(defs) if defs else starter.strip()
 
 
+def requirement_of(starter):
+    """The prose requirement for a functional problem: its class (LeetCode `class Solution`) and
+    method signature, or just the function signature for a bare-function starter (training data)."""
+    cls = next((l.strip().rstrip(":") for l in starter.splitlines() if l.strip().startswith("class ")), None)
+    if cls:
+        return THINK_CLASS.format(cls=cls, signature=signature_of(starter))
+    return THINK_FUNCTION.format(signature=signature_of(starter))
+
+
 def prompt_think(question, kind, starter=""):
-    lead = THINK_FUNCTIONAL.format(signature=signature_of(starter)) if kind == "functional" else THINK_STDIN
+    lead = requirement_of(starter) if kind == "functional" else THINK_STDIN
     return INSTRUCTION.format(question=question) + lead + THINK_TAIL.format(what="solution" if kind == "functional" else "program")
 
 

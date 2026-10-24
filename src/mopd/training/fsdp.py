@@ -18,18 +18,31 @@ from torch.distributed.fsdp import MixedPrecisionPolicy, fully_shard
 from mopd.runtime.model_files import copy_base_files
 from mopd.training.batching import TokenLogProbs
 
-def shard(model, reshard_after_forward=True):
+def shard(model, reshard_after_forward=True, gather_once_per_step=False):
     """Wrap a causal LM (fp32 parameters on this rank's GPU) for sharded training; returns the
-    TokenLogProbs root to train and score with. reshard_after_forward=False keeps each layer's
-    gathered bf16 weights until its backward (ZeRO-2-like): more memory, one all-gather fewer."""
+    TokenLogProbs root to train and score with.
+    reshard_after_forward=False keeps each layer's gathered bf16 weights from its forward to its
+    backward (ZeRO-2-like): one all-gather fewer per micro-batch, +8 GB resident.
+    gather_once_per_step additionally keeps them across the step's micro-batches (see step_boundary):
+    one all-gather per step however many micro-batches, gradients still reduce-scattered in fp32
+    after every micro-batch, so the summed gradient is unchanged. Implies reshard_after_forward=False."""
     policy = MixedPrecisionPolicy(param_dtype=torch.bfloat16, reduce_dtype=torch.float32)
     scorer = TokenLogProbs(model)
-    units = [fully_shard(layer, mp_policy=policy, reshard_after_forward=reshard_after_forward)
+    units = [fully_shard(layer, mp_policy=policy, reshard_after_forward=reshard_after_forward and not gather_once_per_step)
              for layer in scorer.base.model.layers]
     units.append(fully_shard(scorer, mp_policy=policy))
     for unit in units:
         unit.set_reduce_scatter_divide_factor(1.0)
+    scorer.gather_once_per_step = gather_once_per_step
     return scorer
+
+
+def before_micro_batch(scorer, last):
+    """gather_once_per_step: keep parameters unsharded after every backward but the step's last, so
+    the next micro-batch's forward needs no all-gather; the last backward reshards them for the
+    optimizer step. No-op otherwise."""
+    if getattr(scorer, "gather_once_per_step", False):
+        scorer.set_reshard_after_backward(last)
 
 
 def local(tensor):
