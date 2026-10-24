@@ -77,6 +77,10 @@ class DomainBlockContribution:
         return self.norms.get(domain, 0.0)
 
 
+# sharded students without per_domain_grad_norm: no per-domain gradient norms (domain_stats reports None)
+NO_CONTRIBUTION = object()
+
+
 class OPDStepScorer:
     """One training step's scoring/backward state: timings, per-sample entries, contributions."""
 
@@ -85,7 +89,9 @@ class OPDStepScorer:
     ):
         self.c, self.student, self.stok, self.teachers = config, student, student_tokenizer, teachers
         self.scales, self.eos_ids, self.sync, self.step = scales, eos_ids, sync, step
-        self.contrib = contribution or GradContribution(params, config["domains"])
+        self.contrib = (
+            None if contribution is NO_CONTRIBUTION else contribution or GradContribution(params, config["domains"])
+        )
         self.entries = {d: [] for d in config["domains"]}
         self.records = []  # rollout-log lines, written by the trainer
         self.seq_lengths = []  # prompt + answer tokens of every trained trajectory (for MFU)
@@ -116,33 +122,37 @@ class OPDStepScorer:
         self.teacher_seconds += time.perf_counter() - mark
         return tp
 
-    def student_backward(self, domain, chunk, tp, weight=1.0):
-        """weight=0 runs the forward/backward without contributing (keeps sharded ranks in step)."""
-        spec = self.c["domains"][domain]
+    def student_backward(self, domain, chunk, tp, weight=1.0, domains=None):
+        """weight=0 runs the forward/backward without contributing (keeps sharded ranks in step).
+        domains: per-sample domain when one micro-batch mixes domains (sharded_step's single pass);
+        each sample's loss then carries its own domain scale."""
+        domains = domains or [domain] * len(chunk)
         seqs = [r["prefix"] + r["answer"] for r in chunk]
         starts = [len(r["prefix"]) for r in chunk]
         sid, sa, sm = pack(seqs, starts, self.stok.pad_token_id, self.c["student_device"])
         self.student.train()
         mark = time.perf_counter()
         sp = logps(self.student, sid, sa, sm)
-        losses = []
-        for sv, tv, r in zip(sp, tp, chunk):
+        total = 0.0
+        for sv, tv, r, d in zip(sp, tp, chunk, domains):
             loss, info = policy_loss(sv, tv.to(sv.device))
             if not torch.isfinite(loss):
                 raise ValueError("Nonfinite loss")
-            losses.append(loss)
+            scaled = loss * self.scales[d] * weight
+            total = total + scaled
             if weight:
+                self.weighted_loss[d] += scaled.item()
                 self.seq_lengths.append(len(r["prefix"]) + len(r["answer"]))
                 info.update(
                     loss=loss.item(), tokens=len(r["answer"]), truncated=not is_eos_token(r["answer"][-1], self.eos_ids)
                 )
-                self.entries[domain].append(info)
+                self.entries[d].append(info)
                 self.records.append(
                     {
                         "step": self.step,
                         "student_version": self.step - 1,
-                        "domain": domain,
-                        "teacher": spec["teacher"],
+                        "domain": d,
+                        "teacher": self.c["domains"][d]["teacher"],
                         "id": r["row"]["id"],
                         "prompt": r["row"]["prompt"],
                         "response": self.stok.decode(r["answer"]),
@@ -150,29 +160,31 @@ class OPDStepScorer:
                         **info,
                     }
                 )
-        domain_loss = torch.stack(losses).sum() * self.scales[domain] * weight
-        self.weighted_loss[domain] += domain_loss.item()
         if isinstance(self.contrib, GradContribution):
             self.contrib.before()
-            domain_loss.backward()
+            total.backward()
             self.contrib.after(domain)
         else:
-            domain_loss.backward()
+            total.backward()
         self.sync()
         self.student_seconds += time.perf_counter() - mark
 
-    def sharded_step(self, trajectories, teacher_lps, rank, world_size, micro, micro_tokens=None):
-        """Every rank: backpropagate this rank's share of each domain, domain by domain, in lockstep.
+    def sharded_step(self, trajectories, teacher_lps, rank, world_size, micro, micro_tokens=None, per_domain=False):
+        """Every rank: backpropagate this rank's share of the step, in lockstep.
         trajectories/teacher_lps: {domain: [...]}, identical on every rank.
 
-        Work is balanced by tokens, not by count: rollout lengths range from a few dozen to 8k tokens,
-        so trajectories go longest-first to whichever rank has the fewest tokens so far, and each rank
-        micro-batches its share by padded-token budget (micro_batch_tokens; micro caps the count, see
-        mopd.training.microbatch). FSDP reduces inside every backward, so all ranks run the same number
-        of backward calls per domain; a rank with fewer re-runs one at zero weight."""
-        length = lambda it: len(it[0]["prefix"]) + len(it[0]["answer"])
-        for domain in self.c["domains"]:
-            items = sorted(zip(trajectories[domain], teacher_lps[domain]), key=length, reverse=True)
+        Every backward call of a sharded student all-gathers the model (twice under ZeRO-3) and
+        reduce-scatters fp32 gradients, ~2 s on this machine, so the step is planned for few calls:
+        one pass over all domains, micro-batched by padded-token budget (micro_batch_tokens; micro caps
+        the count, mopd.training.microbatch), trajectories assigned longest-first to the rank with the
+        fewest tokens. per_domain (config per_domain_grad_norm) instead runs each domain's calls as a
+        block to report its gradient norm -- a diagnostic that triples the calls. All ranks run the
+        same number of calls; a rank with fewer re-runs one at zero weight."""
+        length = lambda it: len(it[1]["prefix"]) + len(it[1]["answer"])
+        tagged = {d: [(d, t, lp) for t, lp in zip(trajectories[d], teacher_lps[d])] for d in self.c["domains"]}
+        blocks = list(tagged.values()) if per_domain else [[it for d in tagged for it in tagged[d]]]
+        for block in blocks:
+            items = sorted(block, key=length, reverse=True)
             shares, load = [[] for _ in range(world_size)], [0] * world_size
             for it in items:  # identical on every rank: deterministic greedy (LPT) balance
                 r = min(range(world_size), key=lambda k: (load[k], k))
@@ -180,14 +192,22 @@ class OPDStepScorer:
                 load[r] += length(it)
             chunks = [list(by_budget(sh, length, micro, micro_tokens)) for sh in shares]
             calls = max(len(c) for c in chunks)
-            self.contrib.before()
+            if per_domain:
+                self.contrib.before()
             for i in range(calls):
                 chunk = chunks[rank][i] if i < len(chunks[rank]) else None
                 if chunk:
-                    self.student_backward(domain, [t for t, _ in chunk], [lp for _, lp in chunk])
+                    self.student_backward(
+                        chunk[0][0],
+                        [t for _, t, _ in chunk],
+                        [lp for _, _, lp in chunk],
+                        domains=[d for d, _, _ in chunk],
+                    )
                 else:  # this rank ran out: same collectives, no contribution
-                    self.student_backward(domain, [items[-1][0]], [items[-1][1]], weight=0.0)
-            self.contrib.after(domain)
+                    d, t, lp = items[-1]
+                    self.student_backward(d, [t], [lp], weight=0.0)
+            if per_domain:
+                self.contrib.after(block[0][0])
 
     def gather(self, world_size):
         """Sharded runs: merge every rank's entries, records and losses onto rank 0's scorer."""
@@ -206,8 +226,8 @@ class OPDStepScorer:
     def domain_stats(self):
         stats = {}
         for domain, entries in self.entries.items():
-            contribution = self.contrib.l2(domain)
-            if not contribution > 0:
+            contribution = self.contrib.l2(domain) if self.contrib is not None else None
+            if contribution is not None and not contribution > 0:
                 raise ValueError("Zero domain gradient: " + domain)
             n = len(entries)
             stats[domain] = {

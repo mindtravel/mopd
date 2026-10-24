@@ -19,7 +19,7 @@ from mopd.runtime.artifacts import dump, fingerprint
 from mopd.runtime.provenance import record as record_provenance
 from mopd.runtime.profile import ModelShape, opd_utilization
 from mopd.training.batching import generation_eos_ids
-from mopd.training.opd_step import OPDStepScorer, DomainBlockContribution
+from mopd.training.opd_step import OPDStepScorer, DomainBlockContribution, NO_CONTRIBUTION
 from mopd.training.run import TrainRun
 from mopd.training.streaming import DomainBatcher
 
@@ -166,7 +166,15 @@ def run(c, resume=None):
                     eos_ids=eos_ids,
                     sync=lambda: sync(c, main),
                     step=step,
-                    contribution=DomainBlockContribution(params, c["student_device"]) if sharded else None,
+                    contribution=(
+                        (
+                            DomainBlockContribution(params, c["student_device"])
+                            if c.get("per_domain_grad_norm")
+                            else NO_CONTRIBUTION
+                        )
+                        if sharded
+                        else None
+                    ),
                 )
                 planned = {d: sum(r["domain"] == d for r in rows) for d in c["domains"]}
                 if not sharded:
@@ -209,7 +217,13 @@ def run(c, resume=None):
                     dist.broadcast_object_list(payload, src=0)
                     by_domain, lps, gen_seconds, rollout_stats, scorer.teacher_seconds = payload[0]
                     scorer.sharded_step(
-                        by_domain, lps, rank, world_size, c["micro_batch_size"], c.get("micro_batch_tokens")
+                        by_domain,
+                        lps,
+                        rank,
+                        world_size,
+                        c["micro_batch_size"],
+                        c.get("micro_batch_tokens"),
+                        per_domain=c.get("per_domain_grad_norm", False),
                     )
                     scorer.gather(world_size)
                 stats = scorer.domain_stats() if main else None
