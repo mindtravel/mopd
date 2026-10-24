@@ -43,8 +43,9 @@ class GpuLease:
     scheduler still owns it (2026-10-24: a training was handed such a GPU). try_take is all-or-none;
     the kernel drops the locks if the process dies."""
 
-    def __init__(self):
-        LEASE_DIR.mkdir(parents=True, exist_ok=True)
+    def __init__(self, root=None):
+        self.root = Path(root) if root else LEASE_DIR
+        self.root.mkdir(parents=True, exist_ok=True)
         self.files = {}
 
     def try_take(self, gpus):
@@ -52,7 +53,7 @@ class GpuLease:
 
         taken = {}
         for g in gpus:
-            f = open(LEASE_DIR / f"gpu{g}", "w")
+            f = open(self.root / f"gpu{g}", "w")
             try:
                 fcntl.flock(f, fcntl.LOCK_EX | fcntl.LOCK_NB)
             except BlockingIOError:
@@ -145,9 +146,10 @@ def collectives_ok(gpus, max_seconds=3.0):
 
 
 class Scheduler:
-    def __init__(self, gpus, logdir, min_free_gib=100.0, name="scheduler", poll_seconds=5.0):
+    def __init__(self, gpus, logdir, min_free_gib=100.0, name="scheduler", poll_seconds=5.0, lease_dir=None):
         self.gpus, self.logdir, self.min_free, self.name = list(gpus), Path(logdir), min_free_gib, name
         self.poll_seconds = poll_seconds
+        self.lease_dir = lease_dir  # None: the machine-wide GPU leases (tests pass a private directory)
         self.logdir.mkdir(parents=True, exist_ok=True)
         self.jobs, self.state = {}, {}
         self.lock = threading.Lock()
@@ -233,7 +235,7 @@ class Scheduler:
                 self.state[j["id"]] = {"state": "complete", "skipped": True}
         self.save()
         self.pool = GPUPool(self.gpus)
-        self.lease = GpuLease()
+        self.lease = GpuLease(self.lease_dir)
         threads = []
         while True:
             pending = [j for j in self.jobs.values() if j["id"] not in self.state]

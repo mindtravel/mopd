@@ -19,12 +19,9 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 from mopd.runtime.provenance import _source, _data, sha256
-from mopd.evaluation.eval_commands import (
-    eval_commands,
-    PY,
-    SCHEDULING as EVAL_SCHEDULING,
-)  # re-exported: run_eval_suite.py imports these
+from mopd.evaluation.eval_commands import PY
 from mopd.runtime.scheduler import Scheduler
+from mopd.evaluation import jobs
 
 
 def free_gib():
@@ -137,15 +134,8 @@ class Runner:
         if k in ("train_sft", "train_mopd"):
             status = Path(json.loads((ROOT / j["config"]).read_text())["output"]) / "status.json"
             return status.exists() and json.loads(status.read_text()).get("state") == "complete"
-        if k == "eval_checkpoint":
-            run = Path(j["model_version"]).parent
-            return (
-                run / "evaluations" / j["checkpoint"] / self.plan["evaluation"]["protocol_id"] / "summary.json"
-            ).exists()
         if k in ("export_expert", "merge"):
             return (Path(j["out"]) / ".finalized").exists()
-        if k == "eval_model":
-            return (ROOT / j["out"] / "summary.json").exists()
         raise ValueError(k)
 
     def commands(self, j, gpus):
@@ -186,15 +176,6 @@ class Runner:
                     )
                 ]
             return [([PY, "-u", "scripts/train_multidomain_opd.py", "--config", j["config"]], {})]
-        if k == "eval_checkpoint":
-            return eval_commands(
-                data=ev["data"],
-                protocol_id=ev["protocol_id"],
-                max_new_tokens=ev["max_new_tokens"],
-                device=gpus[0],
-                model_version=j["model_version"],
-                checkpoint=j["checkpoint"],
-            )
         if k == "export_expert":
             return [
                 (
@@ -211,16 +192,6 @@ class Runner:
                 ),
                 ([PY, "scripts/finalize_merged_model.py", "--base", base, j["out"]], {}),
             ]
-        if k == "eval_model":
-            return eval_commands(
-                data=ev["data"],
-                protocol_id=ev["protocol_id"],
-                max_new_tokens=ev["max_new_tokens"],
-                device=gpus[0],
-                out=ROOT / j["out"],
-                model=j["model"],
-                model_version_id=f"merge:{Path(j['model']).name}",
-            )
         raise ValueError(k)
 
     def finish_artifact(self, j):
@@ -270,7 +241,29 @@ class Runner:
     def loop(self):
         order = {"train_mopd": 0, "train_sft": 1, "merge": 2, "export_expert": 3, "eval_model": 4, "eval_checkpoint": 5}
         sched = Scheduler(self.plan["gpus"], self.logdir, min_free_gib=self.min_free, name="experiment")
+        ev = self.plan["evaluation"]
         for j in self.jobs.values():
+            if j["kind"] in ("eval_checkpoint", "eval_model"):  # GPU generation + CPU grading (evaluation.jobs)
+                if j["kind"] == "eval_checkpoint":
+                    out = jobs.checkpoint_eval_dir(j["model_version"], j["checkpoint"], ev["protocol_id"])
+                    model = dict(model_version=j["model_version"], checkpoint=j["checkpoint"])
+                else:
+                    out = ROOT / j["out"]
+                    model = dict(model=j["model"], model_version_id=f"merge:{Path(j['model']).name}")
+                log = self.logdir / (j["id"].replace(":", "__") + ".log")
+                for job in jobs.eval_jobs(
+                    j["id"],
+                    out=out,
+                    data=ev["data"],
+                    protocol_id=ev["protocol_id"],
+                    max_new_tokens=ev["max_new_tokens"],
+                    log=log,
+                    deps=j["deps"],
+                    order=order[j["kind"]],
+                    **model,
+                ):
+                    sched.add(job)
+                continue
             sharded = (
                 j["kind"] == "train_mopd" and "nproc" in j or j["kind"] == "train_sft" and isinstance(j["gpus"], list)
             )

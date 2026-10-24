@@ -1,5 +1,5 @@
 """One place that builds "generate then grade" commands, used by every eval orchestrator
-(run_experiment.py, run_sweep.py, run_eval_suite.py, run_eval.py). Before this, each
+(run_experiment.py, run_sweep.py, run_eval_suite.py via mopd.evaluation.jobs; run_eval.py). Before this, each
 callsite hand-built the same two-branch logic (a trained checkpoint goes through
 evaluate_model_version.py, which generates and grades in one call; a raw model directory -- base
 or a merged model -- has no model-version.json, so it chains generate_benchmark_vllm.py and

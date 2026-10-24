@@ -24,7 +24,7 @@ Runs: runs/sweeps/<sweep>/<variant>/; leaderboard: results/sweeps/<sweep>/leader
   python scripts/run_sweep.py configs/sweeps/code-data-v1.json [--only a b] [--final a b] [--collect]
 """
 
-import argparse, json, os, shutil, subprocess, sys, time
+import argparse, json, shutil, sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -33,8 +33,8 @@ from mopd.data import recipes
 from mopd.runtime.provenance import sha256
 from mopd.runtime.gpus import idle_gpus
 from mopd.runtime.scheduler import Scheduler
-from mopd.students.registry import is_sharded
-from mopd.evaluation.eval_commands import eval_commands, grade_command, PY
+from mopd.evaluation import jobs
+from mopd.evaluation.eval_commands import PY
 
 BASE_WEIGHTS = [
     "model-00001-of-00003.safetensors",
@@ -118,55 +118,18 @@ class Sweep:
             return self.results / "base" / protocol
         return self.runs / v["name"] / "evaluations" / f"checkpoint-{ckpt:04d}" / protocol
 
-    def shell(self, cmds, log):
-        with log.open("a") as f:
-            for cmd, extra in cmds:
-                f.write(f"\n$ {' '.join(map(str, cmd))}\n")
-                f.flush()
-                subprocess.run(
-                    cmd, cwd=ROOT, env={**os.environ, **extra}, stdout=f, stderr=subprocess.STDOUT, check=True
-                )
-
-    def generated(self, v, ckpt, kind="eval"):
-        """Generation finished (every row written), whether or not it is graded yet."""
-        p = self.eval_dir(v, ckpt, kind) / "generation-progress.json"
-        if (self.eval_dir(v, ckpt, kind) / "summary.json").exists():
-            return True
-        if not p.exists():
-            return False
-        g = json.loads(p.read_text())
-        return g.get("done") == g.get("total") and g.get("total")
-
-    def grade(self, v, ckpt, log, kind="eval"):
-        ev = {**self.spec["eval"], **self.spec.get(kind, {})}
-        self.shell([grade_command(ev["data"], self.eval_dir(v, ckpt, kind))], log)
-
-    def evaluate(self, v, ckpt, gpus, log, kind="eval"):
-        """On the granted GPUs; generate_benchmark_vllm.py hands rows to whichever of them has room."""
-        ev = {**self.spec["eval"], **self.spec.get(kind, {})}
-        out = self.eval_dir(v, ckpt, kind)
-        common = dict(
-            data=ev["data"],
-            protocol_id=ev["protocol_id"],
-            max_new_tokens=ev["max_new_tokens"],
-            device=gpus,
-            grade=False,
-        )
+    def model_args(self, v, ckpt):
+        """eval_commands' model arguments: the base model, or a run's checkpoint."""
         if v.get("base"):
-            cmds = eval_commands(
-                **common,
-                out=out,
-                model=self.spec["controls"]["student"],
+            c = self.spec["controls"]
+            return dict(
+                model=c["student"],
                 model_version_id="base:Qwen3-4B-Base",
-                student_prompt_format=self.spec["controls"].get("student_prompt_format", "plain_qa_v1"),
+                student_prompt_format=c.get("student_prompt_format", "plain_qa_v1"),
             )
-        else:
-            cmds = eval_commands(
-                **common,
-                model_version=str(self.runs / v["name"] / "model-version.json"),
-                checkpoint=f"checkpoint-{ckpt:04d}",
-            )
-        self.shell(cmds, log)
+        return dict(
+            model_version=str(self.runs / v["name"] / "model-version.json"), checkpoint=f"checkpoint-{ckpt:04d}"
+        )
 
     def train(self, v, manifest, gpus, log):
         """scripts/train_sft.py across the granted GPUs via torchrun (nproc_per_node=1 is a plain run)."""
@@ -186,73 +149,43 @@ class Sweep:
             "--config",
             str(cfg_path),
         ]
-        self.shell([(cmd, {"CUDA_VISIBLE_DEVICES": ",".join(map(str, gpus))})], log)
+        jobs.shell([(cmd, {"CUDA_VISIBLE_DEVICES": ",".join(map(str, gpus))})], log)
 
     # ------------------------------------------------------------ run
-    def jobs(self, scheduler, todo, final):
+    def add_jobs(self, scheduler, todo, final):
         logdir = self.results / "logs"
         logdir.mkdir(exist_ok=True)
         for v in todo:
             log = logdir / f"{v['name']}.log"
             ckpts = self.checkpoints(v)
             deps = []
-            if not v.get("base") and not self.trained(v):
+            if not v.get("base") and not self.trained(v):  # already-trained variants: evaluation only
                 manifest = recipes.build(ROOT / v["recipe"])  # cached: built once up front in run()
-                sharded = is_sharded(self.config(v, manifest))
                 scheduler.add(
                     {
                         "id": f"train:{v['name']}",
                         "order": 1,
                         "done": lambda v=v: self.trained(v),
-                        "gpus": {"min": 4 if sharded else 1},
-                        "gate": "collectives" if sharded else None,
                         "run": lambda gpus, v=v, m=manifest, log=log: self.train(v, m, gpus, log),
+                        **jobs.training_resources(self.config(v, manifest)),
                     }
                 )
-                deps = [f"train:{v['name']}"]  # already-trained variants: evaluation only, no pool rebuild
-            for ck in ckpts:
-                scheduler.add(
-                    {
-                        "id": f"eval:{v['name']}:{ck}",
-                        "deps": deps,
-                        "order": 5,
-                        "gpus": {"min": 1},
-                        "done": lambda v=v, ck=ck: self.generated(v, ck),
-                        "run": lambda gpus, v=v, ck=ck, log=log: self.evaluate(v, ck, gpus, log),
-                    }
-                )
-                # grading runs code on the CPU for minutes; as its own job it no longer holds the GPUs
-                scheduler.add(
-                    {
-                        "id": f"grade:{v['name']}:{ck}",
-                        "deps": [f"eval:{v['name']}:{ck}"],
-                        "order": 7,
-                        "gpus": 0,
-                        "done": lambda v=v, ck=ck: (self.eval_dir(v, ck) / "summary.json").exists(),
-                        "run": lambda gpus, v=v, ck=ck, log=log: self.grade(v, ck, log),
-                    }
-                )
-            if final:
-                scheduler.add(
-                    {
-                        "id": f"test:{v['name']}",
-                        "deps": deps,
-                        "order": 6,
-                        "gpus": {"min": 1},
-                        "done": lambda v=v, ck=ckpts[-1]: self.generated(v, ck, "test"),
-                        "run": lambda gpus, v=v, ck=ckpts[-1], log=log: self.evaluate(v, ck, gpus, log, kind="test"),
-                    }
-                )
-                scheduler.add(
-                    {
-                        "id": f"grade-test:{v['name']}",
-                        "deps": [f"test:{v['name']}"],
-                        "order": 7,
-                        "gpus": 0,
-                        "done": lambda v=v, ck=ckpts[-1]: (self.eval_dir(v, ck, "test") / "summary.json").exists(),
-                        "run": lambda gpus, v=v, ck=ckpts[-1], log=log: self.grade(v, ck, log, kind="test"),
-                    }
-                )
+                deps = [f"train:{v['name']}"]
+            for kind, cks in (("eval", ckpts), ("test", ckpts[-1:] if final else [])):
+                ev = {**self.spec["eval"], **self.spec.get(kind, {})}
+                for ck in cks:
+                    for job in jobs.eval_jobs(
+                        f"{kind}:{v['name']}:{ck}",
+                        out=self.eval_dir(v, ck, kind),
+                        data=ev["data"],
+                        protocol_id=ev["protocol_id"],
+                        max_new_tokens=ev["max_new_tokens"],
+                        log=log,
+                        deps=deps,
+                        order=5 if kind == "eval" else 6,
+                        **self.model_args(v, ck),
+                    ):
+                        scheduler.add(job)
 
     def run(self, only, final):
         if sha256(self.spec["eval"]["data"]) != self.spec["eval"]["data_sha256"]:
@@ -276,7 +209,7 @@ class Sweep:
         busy = [g for g in self.spec["gpus"] if g not in idle]
         if busy:
             scheduler.log("gpus_excluded", busy=busy, reason="in use by another process")
-        self.jobs(scheduler, todo, final)
+        self.add_jobs(scheduler, todo, final)
         state = scheduler.run()
         self.collect()
         failed = sorted({k.split(":")[1] for k, s in state.items() if s["state"] in ("failed", "blocked")})

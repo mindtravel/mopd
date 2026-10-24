@@ -3,44 +3,27 @@
 Suite json (configs/eval_suites/*.json):
   {"name", "protocol_id", "data", "data_sha256", "max_new_tokens", "gpus": [...], "repeats": {name: k},
    "models": [{"name", "model_version" + "checkpoint"} | {"name", "model"}]}
-A model_version entry is a LoRA checkpoint (scripts/evaluate_model_version.py); a "model" entry is a
-full model directory (base or merged), generated directly with vLLM. Repeats re-run the identical
-setting; the spread across them is the evaluation noise (vLLM batching is not bit-deterministic).
-Outputs: results/eval-suites/<name>/<model>/rep<k>/ (generated.jsonl, cases.jsonl, summary.json);
-for checkpoints that path is a symlink to <run>/evaluations/<checkpoint>/<protocol>/rep<k>, since
-evaluation output must stay inside its model-version run. Finished repetitions are skipped, so
-the suite can be re-run after an interruption.
+A model_version entry is a training run's checkpoint (scripts/evaluate_model_version.py); a "model"
+entry is a full model directory (base or merged), generated directly with vLLM. Repeats re-run the
+identical setting; the spread across them is the evaluation noise (vLLM batching is not
+bit-deterministic). Outputs: results/eval-suites/<name>/<model>/rep<k>/ (generated.jsonl, cases.jsonl,
+summary.json); for checkpoints that path is a symlink to <run>/evaluations/<checkpoint>/<protocol>/rep<k>,
+since evaluation output must stay inside its model-version run. Jobs run through
+mopd.runtime.scheduler (generation on a fair share of the GPUs, grading on the CPU); finished
+repetitions are skipped, so the suite can be re-run after an interruption.
 
   python scripts/run_eval_suite.py configs/eval_suites/v2-scale256.json
 """
 
-import json, os, queue, subprocess, sys, threading, time
+import json, sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
+from mopd.evaluation import jobs
+from mopd.runtime.gpus import idle_gpus
 from mopd.runtime.provenance import sha256
-from mopd.evaluation.eval_commands import eval_commands
-
-
-def target(suite, m, out):
-    """Where the evaluation really writes: inside the run for checkpoints, else the suite path."""
-    if "model_version" in m:
-        return Path(m["model_version"]).parent / "evaluations" / m["checkpoint"] / suite["protocol_id"] / out.name
-    return out
-
-
-def commands(suite, m, out, gpu):
-    common = dict(
-        data=suite["data"],
-        protocol_id=suite["protocol_id"],
-        max_new_tokens=suite["max_new_tokens"],
-        device=gpu,
-        out=out,
-    )
-    if "model_version" in m:
-        return eval_commands(**common, model_version=m["model_version"], checkpoint=m["checkpoint"])
-    return eval_commands(**common, model=m["model"], model_version_id=m.get("model_version_id"))
+from mopd.runtime.scheduler import Scheduler
 
 
 def main():
@@ -48,51 +31,32 @@ def main():
     if sha256(suite["data"]) != suite["data_sha256"]:
         raise SystemExit("benchmark file digest differs from the suite pin")
     root = ROOT / "results/eval-suites" / suite["name"]
-    jobs = queue.Queue()
+    sched = Scheduler(idle_gpus(suite["gpus"]), root, name="eval_suite")
     for m in suite["models"]:
         for k in range(1, suite.get("repeats", {}).get(m["name"], 1) + 1):
-            out = root / m["name"] / f"rep{k}"
-            if not (out / "summary.json").exists():
-                jobs.put((m, out))
-    print(f"{jobs.qsize()} evaluations to run on GPUs {suite['gpus']}", flush=True)
-    failed = []
-
-    def worker(gpu):
-        while True:
-            try:
-                m, out = jobs.get_nowait()
-            except queue.Empty:
-                return
-            out.parent.mkdir(parents=True, exist_ok=True)
-            real = target(suite, m, out)
-            if real != out and not out.is_symlink():
-                real.parent.mkdir(parents=True, exist_ok=True)
-                out.symlink_to(real, target_is_directory=True)
-            start = time.time()
-            with open(str(out) + ".log", "a") as log:
-                for cmd, extra in commands(suite, m, real, gpu):
-                    if subprocess.run(
-                        cmd, cwd=ROOT, env={**os.environ, **extra}, stdout=log, stderr=subprocess.STDOUT
-                    ).returncode:
-                        failed.append(str(out))
-                        break
-            print(
-                json.dumps(
-                    {
-                        "done": str(out.relative_to(root)),
-                        "gpu": gpu,
-                        "seconds": round(time.time() - start),
-                        "ok": str(out) not in failed,
-                    }
-                ),
-                flush=True,
-            )
-
-    threads = [threading.Thread(target=worker, args=(g,)) for g in suite["gpus"]]
-    for t in threads:
-        t.start()
-    for t in threads:
-        t.join()
+            link = root / m["name"] / f"rep{k}"
+            if "model_version" in m:  # results live inside the run; the suite path links there
+                out = jobs.checkpoint_eval_dir(m["model_version"], m["checkpoint"], suite["protocol_id"]) / link.name
+                model = dict(model_version=m["model_version"], checkpoint=m["checkpoint"])
+                link.parent.mkdir(parents=True, exist_ok=True)
+                if not link.is_symlink():
+                    out.parent.mkdir(parents=True, exist_ok=True)
+                    link.symlink_to(out, target_is_directory=True)
+            else:
+                out = link
+                model = dict(model=m["model"], model_version_id=m.get("model_version_id"))
+            for job in jobs.eval_jobs(
+                f"{m['name']}:rep{k}",
+                out=out,
+                data=suite["data"],
+                protocol_id=suite["protocol_id"],
+                max_new_tokens=suite["max_new_tokens"],
+                log=str(link) + ".log",
+                **model,
+            ):
+                sched.add(job)
+    state = sched.run()
+    failed = sorted(k for k, s in state.items() if s["state"] in ("failed", "blocked"))
     if failed:
         raise SystemExit(f"failed: {failed}")
 

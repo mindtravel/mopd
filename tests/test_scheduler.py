@@ -77,7 +77,7 @@ class SchedulerTest(unittest.TestCase):
         import tempfile
 
         order, log = [], tempfile.mkdtemp()
-        sched = Scheduler([0, 1, 2, 3], log, min_free_gib=0, name="t", poll_seconds=0.05)
+        sched = Scheduler([0, 1, 2, 3], log, min_free_gib=0, name="t", poll_seconds=0.05, lease_dir=tempfile.mkdtemp())
         sched.add({"id": "a", "gpus": {"min": 1}, "run": lambda g: order.append(("a", len(g)))})
         sched.add({"id": "b", "deps": ["a"], "gpus": 0, "run": lambda g: order.append(("b", len(g)))})
         sched.add(
