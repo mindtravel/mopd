@@ -32,6 +32,42 @@ from pathlib import Path
 from mopd.evaluation.eval_commands import PY, ROOT
 
 GATE_RETRY_SECONDS = 600
+LEASE_DIR = Path("/dev/shm/mopd-gpu-leases")
+
+
+class GpuLease:
+    """Cross-process claim on GPUs: one flock'd file per GPU under LEASE_DIR, held while a job runs.
+    Schedulers in different processes (two sweeps, a sweep and an experiment) otherwise only see
+    memory use, and a GPU between an eval's generation and its CPU grading looks idle while another
+    scheduler still owns it (2026-10-24: a training was handed such a GPU). try_take is all-or-none;
+    the kernel drops the locks if the process dies."""
+
+    def __init__(self):
+        LEASE_DIR.mkdir(parents=True, exist_ok=True)
+        self.files = {}
+
+    def try_take(self, gpus):
+        import fcntl
+
+        taken = {}
+        for g in gpus:
+            f = open(LEASE_DIR / f"gpu{g}", "w")
+            try:
+                fcntl.flock(f, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            except BlockingIOError:
+                f.close()
+                for h in taken.values():
+                    h.close()
+                return False
+            taken[g] = f
+        self.files.update(taken)
+        return True
+
+    def release(self, gpus):
+        for g in gpus:
+            f = self.files.pop(g, None)
+            if f:
+                f.close()
 
 
 class GPUPool:
@@ -155,9 +191,14 @@ class Scheduler:
     def _worker(self, job):
         while True:
             gpus = self._acquire(job)
+            if gpus and not self.lease.try_take(gpus):  # another process's scheduler holds one of them
+                self.pool.give_back(gpus)
+                time.sleep(self.poll_seconds * 6)
+                continue
             if job["gate"] == "collectives" and len(gpus) > 1:
                 ok, seconds = collectives_ok(gpus)
                 if not ok:
+                    self.lease.release(gpus)
                     self.pool.give_back(gpus)
                     self.log(
                         "bandwidth_hold",
@@ -178,6 +219,7 @@ class Scheduler:
         except Exception as error:
             self.state[job["id"]].update(state="failed", error=str(error)[-500:])
         finally:
+            self.lease.release(gpus)
             self.pool.give_back(gpus)
         self.state[job["id"]]["finished"] = time.strftime("%H:%M:%S")
         self.save()
@@ -190,6 +232,7 @@ class Scheduler:
                 self.state[j["id"]] = {"state": "complete", "skipped": True}
         self.save()
         self.pool = GPUPool(self.gpus)
+        self.lease = GpuLease()
         threads = []
         while True:
             pending = [j for j in self.jobs.values() if j["id"] not in self.state]
