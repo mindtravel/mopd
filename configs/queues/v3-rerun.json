@@ -1,0 +1,102 @@
+{
+ "name": "v3-rerun",
+ "description": "lcb-dev-v3 re-evaluation and MOPD infra benchmarks, after the lower-lr round 2 sweep",
+ "steps": [
+  {
+   "id": "wait-lr-round2",
+   "kind": "wait",
+   "match": "scripts/run_sweep.py configs/sweeps/code-full-v1.json"
+  },
+  {
+   "id": "interp-a0.5",
+   "kind": "eval",
+   "model": "/ssd/lzx/mopd/models/interp/instr11-lr2e-6-ck128-a0.5",
+   "model_version_id": "interp:instr11-lr2e-6-ck128-a0.5",
+   "data": "/ssd/lzx/mopd/data/full_eval/lcb-dev-v3/lcbdev.jsonl",
+   "out": "/ssd/lzx/mopd/results/sweeps/code-full-v1/interp/instr11-lr2e-6-ck128-a0.5/lcbdev-v3-greedy8192",
+   "protocol_id": "lcbdev-v3-greedy8192",
+   "max_new_tokens": 8192
+  },
+  {
+   "id": "interp-a0.7",
+   "kind": "eval",
+   "model": "/ssd/lzx/mopd/models/interp/instr11-lr2e-6-ck128-a0.7",
+   "model_version_id": "interp:instr11-lr2e-6-ck128-a0.7",
+   "data": "/ssd/lzx/mopd/data/full_eval/lcb-dev-v3/lcbdev.jsonl",
+   "out": "/ssd/lzx/mopd/results/sweeps/code-full-v1/interp/instr11-lr2e-6-ck128-a0.7/lcbdev-v3-greedy8192",
+   "protocol_id": "lcbdev-v3-greedy8192",
+   "max_new_tokens": 8192
+  },
+  {
+   "id": "full256-expert-evals",
+   "kind": "experiment",
+   "plan": "configs/experiments/full256/plan.json",
+   "jobs": [
+    "eval:expert-m:",
+    "eval:expert-i:"
+   ]
+  },
+  {
+   "id": "bench-keepgather",
+   "kind": "command",
+   "gpus": [
+    0,
+    1,
+    2,
+    3,
+    4,
+    5,
+    6,
+    7
+   ],
+   "argv": [
+    "mopd_train/bin/python",
+    "scripts/bench_mopd.py",
+    "--name",
+    "keepgather",
+    "--set",
+    "fsdp={\"reshard_after_forward\": false}",
+    "--set",
+    "micro_batch_tokens=16384",
+    "--set",
+    "profile_step=3"
+   ]
+  },
+  {
+   "id": "bench-keepgather-bf16",
+   "kind": "command",
+   "gpus": [
+    0,
+    1,
+    2,
+    3,
+    4,
+    5,
+    6,
+    7
+   ],
+   "argv": [
+    "mopd_train/bin/python",
+    "scripts/bench_mopd.py",
+    "--name",
+    "keepgather-bf16",
+    "--set",
+    "fsdp={\"reshard_after_forward\": false, \"reduce_dtype\": \"bfloat16\"}",
+    "--set",
+    "micro_batch_tokens=16384",
+    "--set",
+    "profile_step=3"
+   ]
+  },
+  {
+   "id": "code-think-v1",
+   "kind": "sweep",
+   "spec": "configs/sweeps/code-think-v1.json"
+  },
+  {
+   "id": "code-data-v1",
+   "kind": "sweep",
+   "spec": "configs/sweeps/code-data-v1.json"
+  }
+ ]
+}

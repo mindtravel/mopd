@@ -13,7 +13,6 @@ from pathlib import Path
 
 from mopd import paths
 from mopd.evaluation.eval_commands import eval_commands, grade_command
-from mopd.students.registry import is_sharded
 
 
 def shell(cmds, log):
@@ -71,6 +70,8 @@ def eval_jobs(job_id, *, out, data, protocol_id, max_new_tokens, log, deps=(), o
 def training_resources(config):
     """GPU request and gate for a training job: a sharded (full-parameter) student needs at least
     4 GPUs and a collective-bandwidth check first; a LoRA student runs on any GPU count."""
+    from mopd.students.registry import is_sharded  # deferred: orchestrators should not import torch
+
     if is_sharded(config):
         return {"gpus": {"min": 4}, "gate": "collectives"}
     return {"gpus": {"min": 1}, "gate": None}
