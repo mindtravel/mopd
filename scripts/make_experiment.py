@@ -24,6 +24,7 @@ plan batches with mopd.data.mixture.plan_domains, so they see the same prompts a
 """
 
 from mopd import paths
+from mopd.training import controls as training_controls
 import argparse, hashlib, json, sys
 from pathlib import Path
 
@@ -47,6 +48,7 @@ def ordered(spec, domains):
 def generate(spec_path):
     spec_bytes = Path(spec_path).read_bytes()
     spec = json.loads(spec_bytes)
+    training_controls.check(spec["controls"], spec_path)
     c = spec["controls"]
     rel = Path(spec_path).resolve().relative_to(ROOT)
     experiment = lambda arm: {
@@ -87,19 +89,11 @@ def generate(spec_path):
 
     for name, arm in arms.items():
         common = {
-            "student": c["student"],
-            "student_backend": c["student_backend"],
-            "student_prompt_format": c["student_prompt_format"],
-            "seed": c["seed"],
-            "steps": c["steps"],
-            "lr": c["lr"],
-            "lr_schedule": c["lr_schedule"],
-            "micro_batch_size": c["micro_batch_size"],
-            "save_every": c["save_every"],
+            **training_controls.training_fields(c, micro_batch_size=c["micro_batch_size"]),
             "output": run_dir(name),
             "data_pins": spec["data_pins"],
             "experiment": experiment(name),
-            **({"fsdp": c["fsdp"]} if "fsdp" in c else {}),
+            **training_controls.system_fields(c),
         }
         if arm["method"] == "sft":
             cfg = {

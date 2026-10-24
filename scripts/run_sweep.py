@@ -34,6 +34,7 @@ from mopd.runtime.provenance import sha256
 from mopd.runtime.gpus import idle_gpus
 from mopd.runtime.scheduler import Scheduler
 from mopd.evaluation import jobs, report
+from mopd.training import controls as training_controls
 from mopd.evaluation.eval_commands import PY
 
 BASE_WEIGHTS = [
@@ -50,6 +51,9 @@ class Sweep:
         self.runs = ROOT / "runs/sweeps" / self.name
         self.results = ROOT / "results/sweeps" / self.name
         self.results.mkdir(parents=True, exist_ok=True)
+        training_controls.check(self.spec["controls"], path)
+        for v in self.spec["variants"]:
+            training_controls.check(v.get("controls", {}), f"{path}: variant {v['name']}")
 
     # ------------------------------------------------------------ stages
     def config(self, v, manifest):
@@ -69,25 +73,16 @@ class Sweep:
         # student_device is cuda:0 regardless of GPU count: CUDA_VISIBLE_DEVICES always remaps the
         # assigned GPU(s) to start at index 0. Under torchrun with world_size > 1, train_sft.py derives
         # the real per-rank device from LOCAL_RANK instead and ignores this field.
-        system = {k: c[k] for k in ("fsdp", "gradient_checkpointing") if k in c}  # same for every variant
         return {
-            "student": c["student"],
-            "student_backend": c.get("student_backend", "hf_lora"),
-            **system,
-            "student_prompt_format": c.get("student_prompt_format", "plain_qa_v1"),
-            "seed": c["seed"],
-            "steps": c["steps"],
-            "lr": c["lr"],
-            "lr_schedule": c["lr_schedule"],
-            "micro_batch_size": micro,
+            **training_controls.training_fields(c, micro_batch_size=micro),
             **({"micro_batch_tokens": budget} if budget else {}),
-            "save_every": c["save_every"],
+            **training_controls.system_fields(c),
+            **({"lora": v["lora"]} if "lora" in v else {}),  # e.g. {"rank": 64, "alpha": 128, "targets": [...]}
             "max_seq_len": manifest["recipe"]["max_total_tokens"],
             "output": str(self.runs / v["name"]),
             "data_pins": pins,
             "training_method": "sft",
             "student_device": "cuda:0",
-            **({"lora": v["lora"]} if "lora" in v else {}),  # e.g. {"rank": 64, "alpha": 128, "targets": [...]}
             "sweep": {
                 "name": self.name,
                 "variant": v["name"],
