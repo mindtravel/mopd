@@ -1,0 +1,28 @@
+{
+ "name": "rstar-code",
+ "description": "rStar-Coder seed 真实竞赛题（AtCoder/Codeforces/LeetCode），多解互验通过的答案只取最终代码；函数题带原生 LeetCode 起始代码；丢弃引用未定义名字的代码",
+ "parts": [
+  {
+   "subset": "rstar-seed",
+   "where": {
+    "meta.verified": [
+     true
+    ],
+    "meta.is_passed": [
+     true
+    ],
+    "meta.self_contained": [
+     true
+    ]
+   }
+  }
+ ],
+ "response": "code",
+ "per_problem": 1,
+ "prompt": "lcb",
+ "rows": 8192,
+ "dev_rows": 64,
+ "seed": 20261022,
+ "max_total_tokens": 10240,
+ "micro_batch_size": 4
+}

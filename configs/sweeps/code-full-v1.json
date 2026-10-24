@@ -13,7 +13,7 @@
   "save_every": 64,
   "student_backend": "hf_full",
   "fsdp": {
-   "reshard_after_forward": false
+   "reshard_after_forward": true
   }
  },
  "eval": {
@@ -53,6 +53,22 @@
   {
    "name": "oci-final",
    "recipe": "configs/recipes/code/oci-final.json"
+  },
+  {
+   "name": "oci-v2",
+   "recipe": "configs/recipes/code/oci-v2.json"
+  },
+  {
+   "name": "rstar-code",
+   "recipe": "configs/recipes/code/rstar-code.json"
+  },
+  {
+   "name": "rstar-code-instr31",
+   "recipe": "configs/recipes/code/rstar-code-instr31.json"
+  },
+  {
+   "name": "rstar-code-instr11",
+   "recipe": "configs/recipes/code/rstar-code-instr11.json"
   }
  ]
 }

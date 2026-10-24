@@ -1,0 +1,25 @@
+{
+ "name": "oci-v2",
+ "description": "OCI 只学最终代码，修两类失败：函数题 prompt 带由答案签名生成的起始代码（与 LCB functional 题同句式，修 'Solution' 未定义）；丢弃引用未定义名字的答案（修 divisors() 这类凭空调用）",
+ "parts": [
+  {
+   "subset": "opencodeinstruct",
+   "where": {
+    "meta.has_code": [
+     true
+    ],
+    "meta.self_contained": [
+     true
+    ]
+   }
+  }
+ ],
+ "response": "final",
+ "per_problem": 1,
+ "prompt": "lcb",
+ "rows": 8192,
+ "dev_rows": 64,
+ "seed": 20261022,
+ "max_total_tokens": 10240,
+ "micro_batch_size": 4
+}

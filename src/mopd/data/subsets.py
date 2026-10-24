@@ -44,6 +44,71 @@ def hedge_count(text):
     return len(HEDGE.findall(text or ""))
 
 
+def _header_names():
+    """Names the LiveCodeBench harness makes available before running a solution (its HEADER does
+    `from math import *` etc.), so code may use them without importing."""
+    from mopd.evaluation.livecodebench import HEADER
+    ns = {}
+    exec(HEADER, ns)  # imports only
+    return set(ns)
+
+
+_KNOWN = None
+
+
+def undefined_names(code):
+    """Names a program reads but never binds, imports or gets from builtins / the eval header, e.g. a
+    call to a helper it forgot to write (`divisors(n)` in a full-FT OpenCodeInstruct student, which
+    learned it from training answers like it). Flow-insensitive: a name bound anywhere counts as
+    bound. Unparseable code returns {"<syntax error>"}."""
+    import ast, builtins
+    global _KNOWN
+    if _KNOWN is None:
+        _KNOWN = set(dir(builtins)) | _header_names()
+    try:
+        tree = ast.parse(code)
+    except SyntaxError:
+        return {"<syntax error>"}
+    bound, used = set(), set()
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Name):
+            (used if isinstance(node.ctx, ast.Load) else bound).add(node.id)
+        elif isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+            bound.add(node.name)
+        elif isinstance(node, ast.arg):
+            bound.add(node.arg)
+        elif isinstance(node, (ast.Import, ast.ImportFrom)):
+            bound.update((a.asname or a.name).split(".")[0] for a in node.names)
+        elif isinstance(node, ast.ExceptHandler) and node.name:
+            bound.add(node.name)
+        elif isinstance(node, (ast.Global, ast.Nonlocal)):
+            bound.update(node.names)
+        elif isinstance(node, ast.MatchAs) and node.name:
+            bound.add(node.name)
+    return used - bound - _KNOWN
+
+
+def starter_from(code):
+    """LeetCode-style starter code (signatures, empty bodies) derived from a solution: the top-level
+    functions and classes except main(), with each class's method signatures -- what a functional
+    LiveCodeBench prompt shows, so training prompts can say "use the following starter code" too."""
+    import ast
+    try:
+        tree = ast.parse(code)
+    except SyntaxError:
+        return ""
+    lines = code.splitlines()
+    head = lambda n: "\n".join(lines[n.lineno - 1:n.body[0].lineno - 1]).rstrip()
+    parts = []
+    for node in tree.body:
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) and node.name != "main":
+            parts.append(head(node) + "\n    ")
+        elif isinstance(node, ast.ClassDef):
+            methods = [head(m) + "\n        " for m in node.body if isinstance(m, (ast.FunctionDef, ast.AsyncFunctionDef))]
+            parts.append(head(node) + "\n" + "\n".join(methods))
+    return "\n".join(parts)
+
+
 def parquet_rows(pattern, columns=None):
     import pyarrow.parquet as pq
     for f in sorted(glob.glob(str(ROOT / pattern))):
@@ -194,7 +259,9 @@ def _rstar_row(r):
             "kind": kind,
             "meta": {"verified": bool(r["verified"]), "is_passed": bool(r["is_passed"]),
                      "clean_language": not bool(NONLATIN.search(r["response"])),
-                     "hedge_markers": hedge_count(r["response"])}}
+                     "hedge_markers": hedge_count(r["response"]),
+                     "starter": r["starter_code"].strip() if kind == "function" else "",
+                     "self_contained": not undefined_names(r["code"] or last_code(r["response"]))}}
 
 
 OCI_FILE = "data/raw/opencodeinstruct-clean-low/opencodeinstruct-clean-low-753623-20261015/train.jsonl"
@@ -221,7 +288,18 @@ def _oci_row(r):
     return {"id": f"oci/{r['id'][:20]}", "problem_id": text_hash(problem)[:16], "source": "opencodeinstruct",
             "problem": problem, "response": response, "code": code, "kind": kind,
             "meta": {"revision": r["revision"], "upstream_targets": r["targets"],
-                     "think_chars": len(response) - len(final), "has_code": bool(code)}}
+                     "think_chars": len(response) - len(final), "has_code": bool(code),
+                     "starter": starter_from(code) if kind == "function" else "",
+                     "self_contained": bool(code) and not undefined_names(code)}}
+
+
+def read_smol_constraints():
+    """smol-constraints instruction-following SFT pool (the full256 instruction expert's data):
+    for mixing into code recipes. No code; kind "instruction" (recipes render it with prompt "plain")."""
+    for line in (ROOT / "data/sft/smol_constraints/train.jsonl").open():
+        r = json.loads(line)
+        yield {"id": f"smol/{r['id']}", "problem_id": text_hash(r["prompt"])[:16], "source": "smol-constraints",
+               "problem": r["prompt"], "response": r["response"], "code": "", "kind": "instruction", "meta": {}}
 
 
 def read_opencoder_clean():
@@ -239,6 +317,7 @@ SUBSETS = {
     "opencoder-clean": {"reader": read_opencoder_clean, "raw": "data/sft/opencoder_stage2_clean"},
     "rstar-seed": {"reader": read_rstar_seed, "transform": _rstar_row, "raw": "data/raw/rstar-coder"},
     "opencodeinstruct": {"reader": read_opencodeinstruct, "transform": _oci_row, "raw": "data/raw/opencodeinstruct-clean-low"},
+    "smol-constraints": {"reader": read_smol_constraints, "raw": "data/sft/smol_constraints"},
 }
 
 
@@ -250,7 +329,7 @@ def builder_version(name):
     steps, the decontamination code and the raw download manifest: changing any of them yields a new
     version; other subsets are unaffected."""
     h = hashlib.sha256()
-    for part in (SUBSETS[name]["reader"], SUBSETS[name].get("transform"), build, last_code):
+    for part in (SUBSETS[name]["reader"], SUBSETS[name].get("transform"), build, last_code, undefined_names, starter_from):
         if part is not None:
             h.update(inspect.getsource(part).encode())
     h.update(Path(decontam.__file__).read_bytes() + json.dumps(EVAL_FILES).encode())

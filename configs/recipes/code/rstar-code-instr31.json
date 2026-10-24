@@ -1,0 +1,35 @@
+{
+ "name": "rstar-code-instr31",
+ "description": "rstar-code 与 smol-constraints 指令数据 3:1 混合（全参指令专家 LCB 15.5→19.0，看能否保住通用能力）",
+ "parts": [
+  {
+   "subset": "rstar-seed",
+   "where": {
+    "meta.verified": [
+     true
+    ],
+    "meta.is_passed": [
+     true
+    ],
+    "meta.self_contained": [
+     true
+    ]
+   },
+   "weight": 3
+  },
+  {
+   "subset": "smol-constraints",
+   "prompt": "plain",
+   "response": "full",
+   "weight": 1
+  }
+ ],
+ "response": "code",
+ "per_problem": 1,
+ "prompt": "lcb",
+ "rows": 8192,
+ "dev_rows": 64,
+ "seed": 20261022,
+ "max_total_tokens": 10240,
+ "micro_batch_size": 4
+}

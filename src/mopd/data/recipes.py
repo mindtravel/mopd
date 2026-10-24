@@ -59,6 +59,8 @@ def format_prompt(row, style):
     if style == "lcb":
         if row["kind"] == "stdin":
             return lcb.prompt(row["problem"], "stdin")
+        if row["meta"].get("starter"):  # exactly how a functional LiveCodeBench problem is asked
+            return lcb.prompt(row["problem"], "functional", row["meta"]["starter"])
         return lcb.INSTRUCTION.format(question=row["problem"]) + FUNCTION_FORMAT
     raise ValueError(f"unknown prompt style {style!r}")
 
