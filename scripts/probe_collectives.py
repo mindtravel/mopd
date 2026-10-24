@@ -16,7 +16,6 @@ import torch.distributed as dist
 ap = argparse.ArgumentParser()
 ap.add_argument("--max-seconds", type=float, default=3.0, help="pass if 36 Qwen3-4B layers gather within this")
 a = ap.parse_args()
-os.environ.setdefault("NCCL_PROTO", "LL")  # as in training (mopd.training.distributed)
 dist.init_process_group("nccl")
 rank = int(os.environ["LOCAL_RANK"])
 torch.cuda.set_device(rank)

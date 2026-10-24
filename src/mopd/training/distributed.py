@@ -15,10 +15,9 @@ def dist_info():
         return 0, 1, None
     local_rank = int(os.environ["LOCAL_RANK"])
     torch.cuda.set_device(local_rank)
-    # On para5090 (8x RTX 5090, no P2P) NCCL's shared-memory transport with the Simple/LL128
-    # protocols hits "illegal memory access" once a gradient tensor passes ~1 MB (LoRA on the MLP
-    # layers); LL is unaffected and costs ~0.08 s per step for 132M gradient values.
-    os.environ.setdefault("NCCL_PROTO", "LL")
+    # NCCL 2.26.2 (torch 2.7.1's pin) hit "illegal memory access" on para5090's shared-memory
+    # transport with the Simple/LL128 protocols; 2.28.3 (requirements.lock.txt) fixes it, and its
+    # default protocol gathers/reduces 2.4-2.7x faster than the LL-only workaround did.
     dist.init_process_group(backend="nccl")
     return int(os.environ["RANK"]), world_size, f"cuda:{local_rank}"
 
