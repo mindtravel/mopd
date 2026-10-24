@@ -84,7 +84,7 @@ class Jobs:
                 "num_examples": None,
                 "max_steps": 50,
                 "max_concurrent": 8,  # per client process
-                "shards": 4,  # client processes over disjoint task ranges
+                "shards": 1,  # client processes over disjoint task ranges (4 hit server errors in profiling)
                 **req.get("automationbench", {}),
             },
             "max_model_len": req.get("max_model_len", 32768),
