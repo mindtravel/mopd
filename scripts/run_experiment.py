@@ -3,8 +3,9 @@
 Before anything starts: the deployed source must be a clean, unmodified commit, the spec
 sha256 must match plan.json, every data pin must verify (mopd.runtime.provenance), and the
 experiment's GPUs must be idle. Then jobs start as soon as their dependencies finish:
-  eval_* / merge use one free GPU; train_mopd and full-parameter train_sft need a fixed GPU set, which is
-  reserved as soon as it is ready so single-GPU jobs cannot starve it; export runs on CPU.
+  Jobs run through mopd.runtime.scheduler: train_mopd and full-parameter train_sft take their fixed
+  GPU set (after a collective-bandwidth probe), evals take a fair share of the idle GPUs, merges one
+  GPU, exports the CPU.
 A job already finished (run complete, summary.json present, .finalized marker) is skipped,
 so the same command resumes after an interruption; a half-written training run fails the
 job instead of being overwritten. Every job start/finish is logged with free disk space.
@@ -17,6 +18,7 @@ ROOT=Path(__file__).resolve().parents[1]
 sys.path.insert(0,str(ROOT/"src"))
 from mopd.runtime.provenance import _source,_data,sha256
 from mopd.evaluation.eval_commands import eval_commands,PY,SCHEDULING as EVAL_SCHEDULING  # re-exported: run_eval_suite.py imports these
+from mopd.runtime.scheduler import Scheduler
 def free_gib():
     s=os.statvfs(ROOT);return s.f_bfree*s.f_frsize/2**30
 def expert_run_config(expert):
@@ -44,8 +46,6 @@ class Runner:
         record={"time":time.strftime("%Y-%m-%dT%H:%M:%S"),"event":event,"ssd_free_gib":round(free_gib(),1),**fields}
         with self.lock,(self.logdir/"events.jsonl").open("a") as f:f.write(json.dumps(record)+"\n")
         print(json.dumps(record),flush=True)
-    def save(self):
-        with self.lock:(self.logdir/"status.json").write_text(json.dumps(self.state,indent=2))
     def preflight(self):
         exp=self.plan["experiment"]
         if sha256(exp["spec_path"])!=exp["spec_sha256"]:raise SystemExit("spec changed since plan.json was generated")
@@ -110,59 +110,31 @@ class Runner:
             (out/"merge-source.json").write_text(json.dumps({"yaml":j["yaml"],"yaml_sha256":sha256(ROOT/j["yaml"]),
                 "experts":{e:expert_identity(Path(e)) for e in experts}},indent=2))
         (out/".finalized").write_text(time.strftime("%Y-%m-%dT%H:%M:%S"))
+    def gpu_spec(self,j):
+        """Fixed sets (MOPD layouts, sharded SFT) as given; single-GPU jobs become a fair share of the
+        idle GPUs (evaluation hands rows to every GPU it gets); merges stay on one GPU."""
+        if isinstance(j["gpus"],list):return j["gpus"]
+        if j["gpus"]==0:return 0
+        return {"min":1,"max":1} if j["kind"]=="merge" else {"min":1}
     def run_job(self,j,gpus):
         log=self.logdir/(j["id"].replace(":","__")+".log")
-        self.state[j["id"]]={"state":"running","gpus":gpus,"started":time.strftime("%H:%M:%S")};self.save()
-        self.log("start",job=j["id"],gpus=gpus)
-        try:
-            if j["kind"] in("train_sft","train_mopd"):
-                output=Path(json.loads((ROOT/j["config"]).read_text())["output"])
-                if output.exists():raise RuntimeError(f"incomplete run directory exists: {output}; inspect before rerunning")
-            for cmd,extra in self.commands(j,gpus):
-                with log.open("a") as f:
-                    f.write(f"\n$ {' '.join(cmd)}\n");f.flush()
-                    subprocess.run(cmd,cwd=ROOT,env={**os.environ,**extra},stdout=f,stderr=subprocess.STDOUT,check=True)
-            if j["kind"] in("export_expert","merge"):self.finish_artifact(j)
-            self.state[j["id"]]["state"]="complete"
-        except Exception as error:
-            self.state[j["id"]].update(state="failed",error=str(error)[-500:],log=str(log))
-        self.state[j["id"]]["finished"]=time.strftime("%H:%M:%S");self.save()
-        self.log("finish",job=j["id"],state=self.state[j["id"]]["state"])
-        with self.lock:self.busy-=set(gpus)
+        if j["kind"] in("train_sft","train_mopd"):
+            output=Path(json.loads((ROOT/j["config"]).read_text())["output"])
+            if output.exists():raise RuntimeError(f"incomplete run directory exists: {output}; inspect before rerunning")
+        for cmd,extra in self.commands(j,gpus):
+            with log.open("a") as f:
+                f.write(f"\n$ {' '.join(cmd)}\n");f.flush()
+                subprocess.run(cmd,cwd=ROOT,env={**os.environ,**extra},stdout=f,stderr=subprocess.STDOUT,check=True)
+        if j["kind"] in("export_expert","merge"):self.finish_artifact(j)
     def loop(self):
-        for j in self.jobs.values():
-            if self.done(j):self.state[j["id"]]={"state":"complete","skipped":True}
-        self.save();threads=[]
         order={"train_mopd":0,"train_sft":1,"merge":2,"export_expert":3,"eval_model":4,"eval_checkpoint":5}
-        while True:
-            pending=[j for j in self.jobs.values() if j["id"] not in self.state]
-            if not pending and all(s["state"]!="running" for s in self.state.values()):break
-            blocked=[j for j in pending if any(self.state.get(d,{}).get("state")=="failed" for d in j["deps"])]
-            for j in blocked:self.state[j["id"]]={"state":"blocked","by":[d for d in j["deps"] if self.state.get(d,{}).get("state")=="failed"]}
-            if blocked:self.save();continue
-            ready=sorted((j for j in pending if all(self.state.get(d,{}).get("state")=="complete" for d in j["deps"])),key=lambda j:order[j["kind"]])
-            with self.lock:
-                free=[g for g in self.plan["gpus"] if g not in self.busy]
-                reserved={g for j in ready if isinstance(j["gpus"],list) for g in j["gpus"]}
-            for j in ready:
-                if free_gib()<self.min_free:self.log("low_disk_hold",job=j["id"]);break
-                if isinstance(j["gpus"],list):
-                    if not set(j["gpus"])<=set(free):continue
-                    gpus=j["gpus"]
-                elif j["gpus"]==0:gpus=[]
-                else:
-                    pool=[g for g in free if g not in reserved]
-                    if not pool:continue
-                    gpus=[pool[0]]
-                with self.lock:self.busy|=set(gpus)
-                free=[g for g in free if g not in gpus]
-                self.state[j["id"]]={"state":"starting"}
-                t=threading.Thread(target=self.run_job,args=(j,gpus),daemon=False);t.start();threads.append(t)
-            time.sleep(10)
-        for t in threads:t.join()
-        counts={}
-        for s in self.state.values():counts[s["state"]]=counts.get(s["state"],0)+1
-        self.log("experiment_done",**counts)
+        sched=Scheduler(self.plan["gpus"],self.logdir,min_free_gib=self.min_free,name="experiment")
+        for j in self.jobs.values():
+            sharded=j["kind"]=="train_mopd" and "nproc" in j or j["kind"]=="train_sft" and isinstance(j["gpus"],list)
+            sched.add({"id":j["id"],"deps":j["deps"],"gpus":self.gpu_spec(j),"order":order[j["kind"]],
+                       "gate":"collectives" if sharded else None,"done":lambda j=j:self.done(j),
+                       "run":lambda gpus,j=j:self.run_job(j,gpus)})
+        self.state=sched.run()
 def main():
     p=argparse.ArgumentParser();p.add_argument("plan");p.add_argument("--min-free-gib",type=float,default=100);a=p.parse_args()
     r=Runner(a.plan,a.min_free_gib);r.preflight();r.loop()
