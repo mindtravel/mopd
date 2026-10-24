@@ -11,7 +11,9 @@
    "test": {"protocol_id", "data", "data_sha256"},       # only with --final
    "gpus": [0, 2, ...],
    "variants": [{"name": "base", "base": true}, {"name": "...", "recipe": "configs/recipes/code/<x>.json",
-                 "lora": {"rank": 64, "alpha": 128, "targets": [...]}}]}   # lora optional, default r16 q/k/v/o
+                 "lora": {"rank": 64, "alpha": 128, "targets": [...]},   # optional, default r16 q/k/v/o
+                 "controls": {"lr": 5e-06},                               # optional per-variant control overrides
+                 "checkpoints": [64, 128, 256]}]}                         # optional, default eval.checkpoints
 
 Per variant: build the recipe pool (mopd.data.recipes) -> scripts/train_sft.py -> evaluate the listed
 checkpoints on the dev data. Jobs run through mopd.runtime.scheduler (one DAG over the idle GPUs,
@@ -51,7 +53,7 @@ class Sweep:
 
     # ------------------------------------------------------------ stages
     def config(self, v, manifest):
-        c, ev = self.spec["controls"], self.spec["eval"]
+        c, ev = {**self.spec["controls"], **v.get("controls", {})}, self.spec["eval"]  # per-variant overrides, e.g. lr
         pool = ROOT / "data/recipes" / manifest["name"]
         student = Path(c["student"])
         pins = {
@@ -101,6 +103,10 @@ class Sweep:
                 }
             },
         }
+
+    def checkpoints(self, v):
+        """Checkpoints to evaluate: the variant's own list ("checkpoints") or the sweep's."""
+        return [0] if v.get("base") else v.get("checkpoints", self.spec["eval"]["checkpoints"])
 
     def trained(self, v):
         status = self.runs / v["name"] / "status.json"
@@ -168,7 +174,7 @@ class Sweep:
         logdir.mkdir(exist_ok=True)
         for v in todo:
             log = logdir / f"{v['name']}.log"
-            ckpts = [0] if v.get("base") else self.spec["eval"]["checkpoints"]
+            ckpts = self.checkpoints(v)
             deps = []
             if not v.get("base") and not self.trained(v):
                 manifest = recipes.build(ROOT / v["recipe"])  # cached: built once up front in run()
@@ -259,7 +265,7 @@ class Sweep:
                 continue
             data = {json.loads(l)["id"]: json.loads(l) for l in Path(self.spec[kind]["data"]).read_text().splitlines()}
             for v in self.spec["variants"]:
-                for ck in ([0] if v.get("base") else self.spec["eval"]["checkpoints"]):
+                for ck in self.checkpoints(v):
                     out = self.eval_dir(v, ck, kind)
                     if (out / "cases.jsonl").exists():
                         m = (

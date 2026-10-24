@@ -77,6 +77,42 @@
   {
    "name": "rstar-code-instr13",
    "recipe": "configs/recipes/code/rstar-code-instr13.json"
+  },
+  {
+   "name": "rstar-code-instr11-lr5e-6",
+   "recipe": "configs/recipes/code/rstar-code-instr11.json",
+   "controls": {
+    "lr": 5e-06
+   },
+   "checkpoints": [
+    64,
+    128,
+    256
+   ]
+  },
+  {
+   "name": "rstar-code-instr11-lr2e-6",
+   "recipe": "configs/recipes/code/rstar-code-instr11.json",
+   "controls": {
+    "lr": 2e-06
+   },
+   "checkpoints": [
+    64,
+    128,
+    256
+   ]
+  },
+  {
+   "name": "rstar-code-instr12-lr5e-6",
+   "recipe": "configs/recipes/code/rstar-code-instr12.json",
+   "controls": {
+    "lr": 5e-06
+   },
+   "checkpoints": [
+    64,
+    128,
+    256
+   ]
   }
  ]
 }
