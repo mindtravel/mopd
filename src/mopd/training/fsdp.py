@@ -86,7 +86,7 @@ def save(scorer, path, base_model, main_rank):
 
 class SharedWeights:
     """The student's bf16 weights in one flat buffer in shared memory (a /dev/shm file), page-locked,
-    rewritten in place every step for rollout engines to map (mopd.rollout.vllm_worker).
+    rewritten in place every step for rollout engines to map (mopd.rollout.engine_worker).
 
     Measured on this server while another job saturated host memory bandwidth: gathering the 8 GB
     of bf16 weights to rank 0's GPU takes 0.5 s, but copying them to ordinary (pageable) host memory

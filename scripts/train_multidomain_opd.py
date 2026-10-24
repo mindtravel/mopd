@@ -12,14 +12,14 @@ from mopd.data.mixture import plan_domains
 from mopd.data.multidomain import domain_scale
 from mopd.rollout.base import RolloutStream, open_stream
 from mopd.rollout.hf_batch import generate
-from mopd.rollout.policy import publish, cleanup as policy_cleanup
+from mopd.rollout.policy import Publisher
 from mopd.rollout.processes import ProcessRollouts
 from mopd.rollout.replicas import RolloutReplicas
 from mopd.runtime.artifacts import dump, fingerprint
 from mopd.runtime.provenance import record as record_provenance
 from mopd.runtime.profile import ModelShape, maybe_torch_profile, opd_utilization
 from mopd.training.batching import generation_eos_ids
-from mopd.training.opd_step import OPDStepScorer, DomainBlockContribution, NO_CONTRIBUTION
+from mopd.training.opd_step import OPDStepScorer, BlockContribution
 from mopd.training.run import TrainRun
 from mopd.training.streaming import DomainBatcher
 
@@ -126,6 +126,25 @@ def run(c, resume=None):
                 raise ValueError("Unknown rollout_backend: " + str(backend))
             if main and backend != "hf" and c.get("rollout_devices"):
                 replicas = factories[backend](c, student)
+            publisher = Publisher(c, out / "vllm_runtime", stok, main) if backend == "vllm" else None
+
+            def rollouts(policy, rows, step):
+                """One step's trajectories as a stream (vLLM/replica workers, or the student itself)."""
+                if replicas:
+                    return open_stream(replicas, policy, rows, step - 1, streaming=bool(c.get("rollout_streaming")))
+                trajectories, seconds = generate(
+                    student,
+                    stok,
+                    rows,
+                    c["student_device"],
+                    c["max_new_tokens"],
+                    c["generation_batch_size"],
+                    prompt_format=c["student_prompt_format"],
+                )
+                stream = RolloutStream(trajectories)
+                stream._started -= seconds
+                return stream
+
             params = run.params
             shape = ModelShape.of(student)
             hashes = {d: fingerprint(t) for d, (_, t) in teachers.items()}
@@ -152,10 +171,9 @@ def run(c, resume=None):
                     dump(out / "status.json", {"state": "training", "step": step, "phase": "generating"})
                 mark = time.perf_counter()
                 # vLLM workers run a published copy of the weights; publishing a sharded student is a collective
-                policy = (
-                    publish(student, c, out / "vllm_runtime", step - 1, stok, main) if backend == "vllm" else student
-                )
+                policy = publisher.publish(student, step - 1) if publisher else student
                 publish_seconds = time.perf_counter() - mark
+                per_domain = c.get("per_domain_grad_norm", world_size == 1)  # free without collectives
                 scorer = OPDStepScorer(
                     config=c,
                     student=student,
@@ -166,70 +184,36 @@ def run(c, resume=None):
                     eos_ids=eos_ids,
                     sync=lambda: sync(c, main),
                     step=step,
-                    contribution=(
-                        (
-                            DomainBlockContribution(params, c["student_device"])
-                            if c.get("per_domain_grad_norm")
-                            else NO_CONTRIBUTION
-                        )
-                        if sharded
-                        else None
-                    ),
+                    contribution=BlockContribution(params, c["student_device"]) if per_domain else None,
                 )
-                planned = {d: sum(r["domain"] == d for r in rows) for d in c["domains"]}
-                trace = {}  # filled by maybe_torch_profile on the profiled step
-                if not sharded:
-                    # rollouts -> per-domain micro-batches (arrival order) -> teacher score + student backward
-                    if replicas:
-                        stream = open_stream(
-                            replicas, policy, rows, step - 1, streaming=bool(c.get("rollout_streaming"))
-                        )
-                    else:
-                        trajectories, gen_seconds = generate(
-                            student,
-                            stok,
-                            rows,
-                            c["student_device"],
-                            c["max_new_tokens"],
-                            c["generation_batch_size"],
-                            prompt_format=c["student_prompt_format"],
-                        )
-                        stream = RolloutStream(trajectories)
-                        stream._started -= gen_seconds
+                # rank 0: rollouts, scored by the teachers as they arrive (streamed per domain micro-batch)
+                # -> every rank: its share of the student backward (one rank: all of it)
+                payload = [None]
+                if main:
+                    stream = rollouts(policy, rows, step)
+                    by_domain = {d: [] for d in c["domains"]}
+                    lps = {d: [] for d in c["domains"]}
+                    planned = {d: sum(r["domain"] == d for r in rows) for d in c["domains"]}
                     for domain, chunk in DomainBatcher(c["micro_batch_size"], planned).consume(stream):
-                        scorer.process(domain, chunk)
-                    gen_seconds = stream.seconds
-                    rollout_stats = stream.stats or {}
-                else:
-                    # rank 0: whole-step rollouts and teacher scores -> every rank: its share of the backward
-                    payload = [None]
-                    if main:
-                        stream = open_stream(replicas, policy, rows, step - 1, streaming=False)
-                        by_domain = {d: [] for d in c["domains"]}
-                        for t in stream:
-                            by_domain[t["row"]["domain"]].append(t)
-                        lps = {d: [] for d in c["domains"]}
-                        for d, items in by_domain.items():
-                            for i in range(0, len(items), c["micro_batch_size"]):
-                                lps[d] += [
-                                    v.cpu() for v in scorer.teacher_logps(d, items[i : i + c["micro_batch_size"]])
-                                ]
-                        payload = [(by_domain, lps, stream.seconds, stream.stats or {}, scorer.teacher_seconds)]
+                        by_domain[domain] += chunk
+                        lps[domain] += [v.cpu() for v in scorer.teacher_logps(domain, chunk)]
+                    payload = [(by_domain, lps, stream.seconds, stream.stats or {}, scorer.teacher_seconds)]
+                if world_size > 1:
                     dist.broadcast_object_list(payload, src=0)
-                    by_domain, lps, gen_seconds, rollout_stats, scorer.teacher_seconds = payload[0]
-                    # profile_step: torch.profiler kernel breakdown (comm / matmul / attention / idle) of
-                    # that step's student phase on rank 0 (runtime.profile.maybe_torch_profile)
-                    with maybe_torch_profile(main and c.get("profile_step") == step, out, step) as trace:
-                        scorer.sharded_step(
-                            by_domain,
-                            lps,
-                            rank,
-                            world_size,
-                            c["micro_batch_size"],
-                            c.get("micro_batch_tokens"),
-                            per_domain=c.get("per_domain_grad_norm", False),
-                        )
-                    scorer.gather(world_size)
+                by_domain, lps, gen_seconds, rollout_stats, scorer.teacher_seconds = payload[0]
+                # profile_step: torch.profiler kernel breakdown (comm / matmul / attention / idle) of that
+                # step's student phase on rank 0 (runtime.profile.maybe_torch_profile)
+                with maybe_torch_profile(main and c.get("profile_step") == step, out, step) as trace:
+                    scorer.sharded_step(
+                        by_domain,
+                        lps,
+                        rank,
+                        world_size,
+                        c["micro_batch_size"],
+                        c.get("micro_batch_tokens"),
+                        per_domain=per_domain,
+                    )
+                scorer.gather(world_size)
                 stats = scorer.domain_stats() if main else None
                 grad = run.optimize()
                 sync(c, main)
@@ -282,8 +266,8 @@ def run(c, resume=None):
         finally:
             if hasattr(replicas, "close"):
                 replicas.close()
-            if main:
-                policy_cleanup(c)
+            if publisher:
+                publisher.close()
 
 
 if __name__ == "__main__":

@@ -1,56 +1,25 @@
-"""Regression checks for token identity and policy-version boundaries."""
-
 import sys
 from pathlib import Path
 
 _ROOT = Path(__file__).resolve().parents[1]
 sys.path[:0] = [str(_ROOT / "src"), str(_ROOT / "scripts")]
 import unittest
-from copy import deepcopy
-from mopd.rollout.vllm_protocol import validate_reply
+
+from mopd.rollout.vllm_protocol import validate_item
 
 
-class ProtocolTests(unittest.TestCase):
+class ValidateItemTest(unittest.TestCase):
     def setUp(self):
-        self.inputs = [
-            {"index": 4, "prefix": [10, 11], "row": {"id": "a"}},
-            {"index": 8, "prefix": [12], "row": {"id": "b"}},
-        ]
-        self.reply = {
-            "version": 7,
-            "policy_id": "abc",
-            "output": [{"index": 8, "answer": [21, 99]}, {"index": 4, "answer": [20, 99]}],
-        }
+        self.source = {"index": 3, "prefix": [1, 2], "row": {"id": "x"}}
 
-    def check(self, r):
-        return validate_reply(r, self.inputs, 7, "abc", 4, 99)
+    def test_valid_answer_becomes_a_trajectory(self):
+        t = validate_item({"answer": [5, 6, 99]}, self.source, 7, 4, 99)
+        self.assertEqual((t["index"], t["answer"], t["student_version"]), (3, [5, 6, 99], 7))
 
-    def test_reorders_without_reencoding(self):
-        rows = self.check(self.reply)
-        self.assertEqual([r["index"] for r in rows], [4, 8])
-        self.assertEqual(rows[0]["answer"], [20, 99])
-        self.assertEqual(rows[0]["prefix"], [10, 11])
-
-    def test_rejects_stale_policy_and_wrong_file(self):
-        for key, value in [("version", 6), ("policy_id", "old")]:
-            r = deepcopy(self.reply)
-            r[key] = value
+    def test_rejects_empty_too_long_bad_tokens_and_tokens_after_eos(self):
+        for answer in ([], [1, 2, 3, 4, 5], [1, -2], [1, 2.0], [99, 5]):
             with self.assertRaises(ValueError):
-                self.check(r)
-
-    def test_rejects_duplicate_or_missing(self):
-        for outputs in [[self.reply["output"][0]] * 2, self.reply["output"][:1]]:
-            r = deepcopy(self.reply)
-            r["output"] = outputs
-            with self.assertRaises(ValueError):
-                self.check(r)
-
-    def test_rejects_empty_long_and_post_eos(self):
-        for answer in [[], [1] * 5, [99, 20], [True]]:
-            r = deepcopy(self.reply)
-            r["output"][0]["answer"] = answer
-            with self.assertRaises(ValueError):
-                self.check(r)
+                validate_item({"answer": answer}, self.source, 7, 4, 99)
 
 
 if __name__ == "__main__":

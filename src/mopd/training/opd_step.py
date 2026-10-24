@@ -1,14 +1,11 @@
-"""Score one micro-batch with its domain teacher and backpropagate the student loss.
+"""Teacher scoring and student backward of one on-policy distillation step, for any rank count.
 
-Shared by streaming and whole-step rollouts: the trainer hands over (domain, micro-batch)
-pairs in whatever order they become available; per-sample loss weights (domain weight /
-domain count) are fixed by the step plan, so the accumulated gradient is order-independent.
-
-A sharded student (several ranks, mopd.training.fsdp) splits the two halves: rank 0 scores every
-trajectory with the teachers (teacher_logps), then every rank backpropagates its share of each
-domain (sharded_step). FSDP reduces gradients inside each backward call, so ranks must issue the
-same number of backward calls in the same domain order; a rank with fewer micro-batches in a domain
-runs a zero-weight one instead.
+Rank 0 scores trajectories with the domain teachers as they arrive (teacher_logps, per domain
+micro-batch); then every rank backpropagates its share of the step (sharded_step) -- one rank does
+all of it. Per-sample loss weights (domain weight / domain count) are fixed by the step plan, so the
+summed gradient does not depend on arrival order or grouping. A sharded student (mopd.training.fsdp)
+reduces gradients inside every backward call, so all ranks issue the same number of calls; a rank
+with fewer runs a zero-weight one.
 """
 
 import time
@@ -23,36 +20,11 @@ from mopd.training.fsdp import local
 from mopd.training.microbatch import by_budget
 
 
-class GradContribution:
-    """Per-domain gradient contribution when domains' micro-batches interleave.
-
-    Snapshot gradients before each backward and add the difference to that domain's
-    accumulator; the norm equals the old "grad after domain minus grad before domain"."""
-
-    def __init__(self, params, domains):
-        self.params = params
-        self.acc = {d: None for d in domains}
-        self._before = None
-
-    def before(self):
-        self._before = [p.grad.detach().clone() if p.grad is not None else torch.zeros_like(p) for p in self.params]
-
-    def after(self, domain):
-        delta = [p.grad.detach() - b for p, b in zip(self.params, self._before)]
-        acc = self.acc[domain]
-        self.acc[domain] = delta if acc is None else [a + d for a, d in zip(acc, delta)]
-        self._before = None
-
-    def l2(self, domain):
-        acc = self.acc[domain]
-        return 0.0 if acc is None else sum(a.float().square().sum().item() for a in acc) ** 0.5
-
-
-class DomainBlockContribution:
-    """Per-domain contribution when each domain's backward calls are contiguous (sharded_step):
-    one snapshot at a time instead of an accumulator per domain -- for a full-parameter student,
-    each extra copy of the gradient is the size of the rank's whole parameter shard. Norms are
-    summed over ranks, each holding a disjoint shard."""
+class BlockContribution:
+    """Per-domain gradient norm when each domain's backward calls run as one block (sharded_step with
+    per_domain): one snapshot of the gradient at a time -- for a full-parameter student every extra
+    copy is the size of the rank's whole parameter shard. With several ranks each holds a disjoint
+    shard and the squared norms are summed."""
 
     def __init__(self, params, device):
         self.params, self.device, self.norms, self._before = params, device, {}, None
@@ -69,16 +41,13 @@ class DomainBlockContribution:
             if p.grad is not None
         )
         total = torch.as_tensor(sq, device=self.device, dtype=torch.float64)
-        dist.all_reduce(total)
+        if dist.is_available() and dist.is_initialized():
+            dist.all_reduce(total)
         self.norms[domain] = float(total) ** 0.5
         self._before = None
 
     def l2(self, domain):
         return self.norms.get(domain, 0.0)
-
-
-# sharded students without per_domain_grad_norm: no per-domain gradient norms (domain_stats reports None)
-NO_CONTRIBUTION = object()
 
 
 class OPDStepScorer:
@@ -89,18 +58,13 @@ class OPDStepScorer:
     ):
         self.c, self.student, self.stok, self.teachers = config, student, student_tokenizer, teachers
         self.scales, self.eos_ids, self.sync, self.step = scales, eos_ids, sync, step
-        self.contrib = (
-            None if contribution is NO_CONTRIBUTION else contribution or GradContribution(params, config["domains"])
-        )
+        self.contrib = contribution  # BlockContribution, or None: no per-domain gradient norms
         self.entries = {d: [] for d in config["domains"]}
         self.records = []  # rollout-log lines, written by the trainer
         self.seq_lengths = []  # prompt + answer tokens of every trained trajectory (for MFU)
         self.weighted_loss = {d: 0.0 for d in config["domains"]}
         self.teacher_seconds = 0.0
         self.student_seconds = 0.0
-
-    def process(self, domain, chunk):
-        self.student_backward(domain, chunk, self.teacher_logps(domain, chunk))
 
     def teacher_logps(self, domain, chunk):
         spec = self.c["domains"][domain]
@@ -160,12 +124,7 @@ class OPDStepScorer:
                         **info,
                     }
                 )
-        if isinstance(self.contrib, GradContribution):
-            self.contrib.before()
-            total.backward()
-            self.contrib.after(domain)
-        else:
-            total.backward()
+        total.backward()
         self.sync()
         self.student_seconds += time.perf_counter() - mark
 

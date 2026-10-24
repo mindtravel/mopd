@@ -5,18 +5,17 @@ it completes (mopd.rollout.engine_stream), not after the whole submitted set fin
 technique MOPD's training rollout uses, so a long run (long outputs, large benchmarks) is visibly
 making progress instead of looking stuck until it writes everything at once.
 
-Several GPUs (--device 0 1 2 ...): one resident engine per GPU (mopd.evaluation.gen_worker) pulls
-rows from this process whenever its scheduler has room, so no GPU idles while another still holds a
-backlog; this process alone writes generated.jsonl, so output and resume are the same for any GPU
-count."""
+Several GPUs (--device 0 1 2 ...): one resident engine per GPU (mopd.rollout.engine_pool) pulls rows
+whenever its scheduler has room, so no GPU idles while another still holds a backlog; this process
+alone writes generated.jsonl, so output and resume are the same for any GPU count."""
 
 from mopd import paths
-import argparse, collections, contextlib, fcntl, hashlib, json, os, signal, subprocess, sys, threading, time
+import argparse, collections, fcntl, hashlib, json, os, signal, time
 from pathlib import Path
 from mopd.evaluation.generation_manifest import build_generation_manifest
 from mopd.data.templates import STUDENT_PROMPT_MODES
-from mopd.runtime import compile_cache, progress
-from mopd.training.distributed import engine_env
+from mopd.runtime import progress
+from mopd.rollout.engine_pool import EnginePool
 
 
 def main():
@@ -163,126 +162,65 @@ def main():
         if len(ids) + a.max_new_tokens > a.max_model_len:
             raise ValueError("Prompt exceeds configured context: " + str(r["id"]))
         work.append((i, ids))
-    worker_config = json.dumps(
-        {
-            "model": a.model,
-            "adapter": a.adapter,
-            "max_model_len": a.max_model_len,
-            "max_seqs": a.max_seqs,
-            "max_num_batched_tokens": a.max_num_batched_tokens,
-            "max_new_tokens": a.max_new_tokens,
-            "temperature": a.temperature,
-            "top_p": a.top_p,
-        }
-    )
-    lock = threading.Lock()
-    failures = []
+    lora_rank = None
+    policy = None
+    if a.adapter:
+        r = json.loads((Path(a.adapter) / "adapter_config.json").read_text())["r"]
+        lora_rank = next(size for size in (8, 16, 32, 64, 128, 256, 320, 512) if size >= r)
+        policy = {"kind": "lora", "path": str(Path(a.adapter).resolve()), "id": adapter_sha256, "version": 0}
+    engine = {
+        "model": a.model,
+        "max_model_len": a.max_model_len,
+        "max_seqs": a.max_seqs,
+        "max_num_batched_tokens": a.max_num_batched_tokens,
+        "memory": 0.85,
+        "prefix_caching": True,
+        "max_lora_rank": lora_rank,
+        "seed": 20261013,
+    }
+    session = {"max_tokens": a.max_new_tokens, "temperature": a.temperature, "top_p": a.top_p, "seed": 20261013}
     started = time.monotonic()
     written = 0
-    workers = []
     per_gpu = collections.Counter()
-    held = collections.Counter()
-    with records.open("a", buffering=1) as f:
 
-        def record(row, m, device):
-            nonlocal written
-            per_gpu[str(device)] += 1
-            rec = {
-                "id": row["id"],
-                "domain": row["domain"],
-                "prompt": row["prompt"],
-                "response": m["text"],
-                "response_ids": m["token_ids"],
-                "tokens": len(m["token_ids"]),
-                "truncated": m["finish_reason"] == "length",
-                "finish_reason": m["finish_reason"],
-            }
-            f.write(json.dumps(rec, ensure_ascii=False) + "\n")
-            f.flush()
-            done.add((row["domain"], str(row["id"])))
-            written += 1
-            fields = dict(
-                done=len(done),
-                total=len(rows),
-                seconds_this_session=time.monotonic() - started,
-                backend="vllm",
-                queued=len(work),
-                per_gpu=dict(per_gpu),
-            )
-            progress.write(out / "generation-progress.json", **fields)  # every row: cheap, and this is the point
-            if written % 20 == 0 or len(done) == len(rows):
-                os.fsync(f.fileno())  # durability; the flush() above already makes rows visible to readers
-                print(json.dumps(fields), flush=True)
+    def stop(*_):
+        raise SystemExit("terminated")
 
-        def serve(device):
-            # One resident engine per GPU (mopd.evaluation.gen_worker); it asks for rows when it has room.
-            env = engine_env(
-                **compile_cache.isolated(root / "cache/compile" / f"gen-gpu{device}"),
-                CUDA_VISIBLE_DEVICES=str(device),
-                PYTHONPATH=str(root / "src") + (":" + os.environ["PYTHONPATH"] if os.environ.get("PYTHONPATH") else ""),
-            )
-            log = (out / f"worker-gpu{device}.log").open("a")
-            proc = subprocess.Popen(
-                [sys.executable, "-u", "-m", "mopd.evaluation.gen_worker", worker_config],
-                env=env,
-                stdin=subprocess.PIPE,
-                stdout=subprocess.PIPE,
-                stderr=log,
-                text=True,
-                bufsize=1,
-                start_new_session=True,
-            )
-            workers.append(proc)
-            try:
-                for line in proc.stdout:
-                    if not line.startswith("GEN_JSON:"):
-                        continue
-                    m = json.loads(line[9:])
-                    if "error" in m:
-                        raise RuntimeError(f"GPU {device} worker: {m['error']}")
-                    if "want" in m:
-                        with lock:
-                            # A GPU may hold at most its fair share of every unfinished row (queued + held anywhere):
-                            # the first engine to start cannot take everything, and as the benchmark drains the share
-                            # shrinks, so the tail spreads over every GPU. vLLM's own waiting queue is no limit here --
-                            # it admits up to max_seqs requests whatever their eventual length.
-                            cap = -(-(len(work) + sum(held.values())) // len(a.device))
-                            rows_ = [
-                                work.popleft() for _ in range(min(m["want"], max(0, cap - held[device]), len(work)))
-                            ]
-                            held[device] += len(rows_)
-                            reply = {"rows": rows_} if rows_ or work else {"eof": True}
-                        proc.stdin.write(json.dumps(reply) + "\n")
-                        proc.stdin.flush()
-                    elif "key" in m:
-                        with lock:
-                            record(pending[m["key"]], m, device)
-                            held[device] -= 1
-                if proc.wait():
-                    raise RuntimeError(f"GPU {device} worker exited with {proc.returncode}; see {log.name}")
-            except BaseException as e:
-                failures.append(e)
-
-        def stop(*_):
-            raise SystemExit("terminated")
-
-        signal.signal(signal.SIGTERM, stop)
-        threads = [threading.Thread(target=serve, args=(d,), daemon=True) for d in a.device]
-        try:
-            for t in threads:
-                t.start()
-            while any(t.is_alive() for t in threads):
-                if failures:
-                    break
-                time.sleep(1)
-        finally:
-            for proc in workers:
-                if proc.poll() is None:
-                    with contextlib.suppress(ProcessLookupError):
-                        os.killpg(proc.pid, signal.SIGKILL)
-        os.fsync(f.fileno())
-    if failures:
-        raise failures[0]
+    signal.signal(signal.SIGTERM, stop)
+    pool = EnginePool(a.device, engine, out, root / "cache/compile/gen")
+    try:
+        with records.open("a", buffering=1) as f:
+            for key, m, device in pool.run(work, session, policy):
+                row = pending[key]
+                per_gpu[str(device)] += 1
+                rec = {
+                    "id": row["id"],
+                    "domain": row["domain"],
+                    "prompt": row["prompt"],
+                    "response": m["text"],
+                    "response_ids": m["token_ids"],
+                    "tokens": len(m["token_ids"]),
+                    "truncated": m["finish_reason"] == "length",
+                    "finish_reason": m["finish_reason"],
+                }
+                f.write(json.dumps(rec, ensure_ascii=False) + "\n")
+                f.flush()
+                done.add((row["domain"], str(row["id"])))
+                written += 1
+                fields = dict(
+                    done=len(done),
+                    total=len(rows),
+                    seconds_this_session=time.monotonic() - started,
+                    backend="vllm",
+                    per_gpu=dict(per_gpu),
+                )
+                progress.write(out / "generation-progress.json", **fields)  # every row: cheap, and this is the point
+                if written % 20 == 0 or len(done) == len(rows):
+                    os.fsync(f.fileno())  # durability; flush() above already makes rows visible to readers
+                    print(json.dumps(fields), flush=True)
+            os.fsync(f.fileno())
+    finally:
+        pool.close()
     if len(done) != len(rows):
         raise RuntimeError(f"generated {len(done)} of {len(rows)} rows")
 

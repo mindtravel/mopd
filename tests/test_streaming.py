@@ -11,8 +11,7 @@ import unittest
 import torch
 
 from mopd.rollout.base import RolloutStream, open_stream
-from mopd.rollout.vllm_protocol import StreamValidator
-from mopd.training.opd_step import GradContribution
+from mopd.training.opd_step import BlockContribution
 from mopd.training.streaming import DomainBatcher
 
 
@@ -45,53 +44,26 @@ class DomainBatcherTest(unittest.TestCase):
             list(DomainBatcher(2, {"math": 1}).consume([traj(0, "code")]))
 
 
-class GradContributionTest(unittest.TestCase):
-    def test_interleaved_attribution_matches_domain_major(self):
+class BlockContributionTest(unittest.TestCase):
+    def test_block_norms_are_each_domains_gradient(self):
         torch.manual_seed(0)
         w = torch.randn(5, requires_grad=True)
         xs = {"a": [torch.randn(5) for _ in range(3)], "b": [torch.randn(5) for _ in range(2)]}
-        # domain-major reference: grad after domain minus grad before domain
         ref = {}
-        w.grad = None
-        for d in ("a", "b"):
-            before = w.grad.clone() if w.grad is not None else torch.zeros(5)
+        for d in ("a", "b"):  # each domain's own gradient, computed alone
+            w.grad = None
             for x in xs[d]:
                 (w * x).sum().pow(2).backward()
-            ref[d] = (w.grad - before).norm().item()
-        total = w.grad.clone()
-        # interleaved
+            ref[d] = w.grad.norm().item()
         w.grad = None
-        gc = GradContribution([w], ["a", "b"])
-        for d, x in [("a", xs["a"][0]), ("b", xs["b"][0]), ("a", xs["a"][1]), ("b", xs["b"][1]), ("a", xs["a"][2])]:
-            gc.before()
-            (w * x).sum().pow(2).backward()
-            gc.after(d)
-        self.assertTrue(torch.allclose(w.grad, total))
+        bc = BlockContribution([w], "cpu")
+        for d in ("a", "b"):  # domains as consecutive blocks, gradients accumulating
+            bc.before()
+            for x in xs[d]:
+                (w * x).sum().pow(2).backward()
+            bc.after(d)
         for d in ("a", "b"):
-            self.assertAlmostEqual(gc.l2(d), ref[d], places=4)
-
-
-class StreamValidatorTest(unittest.TestCase):
-    def setUp(self):
-        self.inputs = [{"index": 0, "prefix": [1], "row": {}}, {"index": 1, "prefix": [1], "row": {}}]
-        self.v = StreamValidator(self.inputs, version=3, digest="x", max_new_tokens=8, eos=2)
-
-    def msg(self, index, answer):
-        return {"version": 3, "policy_id": "x", "partial": {"index": index, "answer": answer}}
-
-    def test_accepts_complete_stream(self):
-        self.assertEqual(self.v.partial(self.msg(1, [4, 2]))["answer"], [4, 2])
-        self.v.partial(self.msg(0, [5]))
-        self.v.done({"version": 3, "policy_id": "x", "done": True, "count": 2})
-
-    def test_rejects_duplicate_stale_and_incomplete(self):
-        self.v.partial(self.msg(0, [5]))
-        with self.assertRaises(ValueError):
-            self.v.partial(self.msg(0, [5]))
-        with self.assertRaises(ValueError):
-            self.v.partial({**self.msg(1, [5]), "version": 2})
-        with self.assertRaises(ValueError):
-            self.v.done({"version": 3, "policy_id": "x", "done": True, "count": 1})
+            self.assertAlmostEqual(bc.l2(d), ref[d], places=4)
 
 
 class OpenStreamTest(unittest.TestCase):

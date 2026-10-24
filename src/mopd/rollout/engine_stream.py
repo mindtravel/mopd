@@ -2,10 +2,10 @@
 moment it completes, instead of waiting for the whole submitted batch (what LLM.generate() does),
 and so new requests can join the running continuous batch between steps.
 
-Shared by mopd.rollout.vllm_worker (MOPD's training rollout, everything submitted at once) and
-mopd.evaluation.gen_worker (benchmark generation, rows pulled from a coordinator as capacity frees
-up): they differ only in when prompts arrive (`feed`) and what a finished output is used for
-(`on_finish`), so this is the one place that touches vLLM's internal request/step API.
+Used by mopd.rollout.engine_worker (rows pulled from a coordinator as capacity frees up, for both
+benchmark generation and rollouts) and tests/gpu/test_engine_stream.py: callers differ only in when
+prompts arrive (`feed`) and what a finished output is used for (`on_finish`), so this is the one
+place that touches vLLM's internal request/step API.
 """
 
 
