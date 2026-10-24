@@ -31,6 +31,8 @@ def _gpu_key(device=None):
 
 def measure_peak_tflops(device=None, n=8192, iters=50):
     """Achievable dense bf16 matmul throughput of one GPU, in TFLOPS; cached per GPU model."""
+    if device is None:
+        device = torch.cuda.current_device()  # torch.randn(device=None) would allocate on the CPU
     a = torch.randn(n, n, device=device, dtype=torch.bfloat16); b = torch.randn(n, n, device=device, dtype=torch.bfloat16)
     for _ in range(5):
         a @ b
