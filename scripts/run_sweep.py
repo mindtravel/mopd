@@ -33,7 +33,7 @@ from mopd.data import recipes
 from mopd.runtime.provenance import sha256
 from mopd.runtime.gpus import idle_gpus
 from mopd.runtime.scheduler import Scheduler
-from mopd.evaluation import jobs
+from mopd.evaluation import jobs, report
 from mopd.evaluation.eval_commands import PY
 
 BASE_WEIGHTS = [
@@ -217,27 +217,12 @@ class Sweep:
             raise SystemExit(f"failed variants: {failed}")
 
     # ------------------------------------------------------------ leaderboard
-    def scores(self, out, data):
-        cases = [json.loads(l) for l in (out / "cases.jsonl").read_text().splitlines()]
-        res = {}
-        for name, keep in (
-            ("all", lambda m: True),
-            ("easy", lambda m: m["difficulty"] == "easy"),
-            ("medium", lambda m: m["difficulty"] == "medium"),
-            ("hard", lambda m: m["difficulty"] == "hard"),
-        ):
-            rows = [c for c in cases if keep(data[c["id"]]["metadata"])]
-            res[name] = round(100 * sum(c["correct"] for c in rows) / len(rows), 1)
-        res["lenient"] = round(100 * sum(c.get("correct_lenient", c["correct"]) for c in cases) / len(cases), 1)
-        res["truncated"] = sum(c.get("truncated", False) for c in cases)
-        return res
-
     def collect(self):
         board = []
         for kind in ("eval", "test"):
             if kind not in self.spec:
                 continue
-            data = {json.loads(l)["id"]: json.loads(l) for l in Path(self.spec[kind]["data"]).read_text().splitlines()}
+            data = report.load_rows(self.spec[kind]["data"])
             for v in self.spec["variants"]:
                 for ck in self.checkpoints(v):
                     out = self.eval_dir(v, ck, kind)
@@ -259,7 +244,7 @@ class Sweep:
                                 "set": kind,
                                 "variant": v["name"],
                                 "checkpoint": ck,
-                                **self.scores(out, data),
+                                **report.lcb_breakdown(out / "cases.jsonl", data),
                                 "recipe_version": m and m["version"],
                                 "train_rows": m and m["train_rows"],
                             }
@@ -271,13 +256,14 @@ class Sweep:
             "",
             self.spec.get("description", ""),
             "",
-            "| set | variant | ckpt | all | Δbase | easy | medium | hard | lenient | truncated |",
-            "|---|---|---|---|---|---|---|---|---|---|",
+            "| set | variant | ckpt | all | Δbase | functional | stdin | easy | medium | hard | truncated |",
+            "|---|---|---|---|---|---|---|---|---|---|---|",
         ]
         for b in sorted(board, key=lambda b: (b["set"], -b["all"])):
             d = f"{b['all'] - base[b['set']]:+.1f}" if b["set"] in base else ""
             lines.append(
-                f"| {b['set']} | {b['variant']} | {b['checkpoint']} | {b['all']} | {d} | {b['easy']} | {b['medium']} | {b['hard']} | {b['lenient']} | {b['truncated']} |"
+                f"| {b['set']} | {b['variant']} | {b['checkpoint']} | {b['all']} | {d} | {b['functional']} | {b['stdin']}"
+                f" | {b['easy']} | {b['medium']} | {b['hard']} | {b['truncated']} |"
             )
         (self.results / "leaderboard.md").write_text("\n".join(lines) + "\n")
         print("\n".join(lines))
