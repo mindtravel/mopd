@@ -1,4 +1,8 @@
 """LiveCodeBench grading without a GPU: output matching, stdin and functional execution, test decoding."""
+import sys
+from pathlib import Path
+_ROOT = Path(__file__).resolve().parents[1]
+sys.path[:0] = [str(_ROOT / "src"), str(_ROOT / "scripts")]
 import base64, gzip, hashlib, json, pickle, tempfile, unittest, zlib
 from pathlib import Path
 

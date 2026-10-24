@@ -1,4 +1,8 @@
 """Enumerate all actions: sampled PG expectation equals exact reverse-KL gradient."""
+import sys
+from pathlib import Path
+_ROOT = Path(__file__).resolve().parents[1]
+sys.path[:0] = [str(_ROOT / "src"), str(_ROOT / "scripts")]
 import unittest
 import torch
 from mopd.training.losses import sampled_reverse_kl

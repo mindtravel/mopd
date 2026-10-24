@@ -1,7 +1,10 @@
 """model_files.finalize on tiny synthetic directories (needs torch + safetensors)."""
+import sys
+from pathlib import Path
+_ROOT = Path(__file__).resolve().parents[1]
+sys.path[:0] = [str(_ROOT / "src"), str(_ROOT / "scripts")]
 import json, sys, tempfile, unittest
 from pathlib import Path
-sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 import torch
 from safetensors.torch import save_file
 from mopd.runtime.model_files import finalize

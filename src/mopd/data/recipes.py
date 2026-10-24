@@ -17,6 +17,7 @@
                                           # out at ~19.7k, and the cost is in micro-batching two
                                           # long sequences together, not in the cap itself
    "rows": 8192, "dev_rows": 64, "seed": 20261022,
+   "micro_batch_tokens": 16384,          # optional: padded-token cap per micro-batch; long samples run alone
    "micro_batch_size": 2}                # per-recipe override for the sweep's SFT config; use 1
                                           # for recipes with long (e.g. full reasoning-chain) replies
 

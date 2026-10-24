@@ -51,6 +51,7 @@ class Sweep:
         pins = {str(pool / "train.jsonl"): manifest["train_sha256"], str(pool / "dev.jsonl"): manifest["dev_sha256"],
                 ev["data"]: ev["data_sha256"], **{str(student / w): sha256(student / w) for w in BASE_WEIGHTS}}
         micro = manifest["recipe"].get("micro_batch_size", 2)
+        budget = manifest["recipe"].get("micro_batch_tokens")  # padded-token cap per micro-batch (mopd.training.microbatch)
         # student_device is cuda:0 regardless of GPU count: CUDA_VISIBLE_DEVICES always remaps the
         # assigned GPU(s) to start at index 0. Under torchrun with world_size > 1, train_sft.py derives
         # the real per-rank device from LOCAL_RANK instead and ignores this field.
@@ -58,7 +59,8 @@ class Sweep:
         return {"student": c["student"], "student_backend": c.get("student_backend", "hf_lora"), **system,
                 "student_prompt_format": c.get("student_prompt_format", "plain_qa_v1"),
                 "seed": c["seed"], "steps": c["steps"], "lr": c["lr"], "lr_schedule": c["lr_schedule"],
-                "micro_batch_size": micro, "save_every": c["save_every"], "max_seq_len": manifest["recipe"]["max_total_tokens"],
+                "micro_batch_size": micro, **({"micro_batch_tokens": budget} if budget else {}),
+                "save_every": c["save_every"], "max_seq_len": manifest["recipe"]["max_total_tokens"],
                 "output": str(self.runs / v["name"]), "data_pins": pins, "training_method": "sft", "student_device": "cuda:0",
                 **({"lora": v["lora"]} if "lora" in v else {}),  # e.g. {"rank": 64, "alpha": 128, "targets": [...]}
                 "sweep": {"name": self.name, "variant": v["name"], "recipe": v["recipe"], "recipe_version": manifest["version"]},

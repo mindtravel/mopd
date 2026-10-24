@@ -1,3 +1,7 @@
+import sys
+from pathlib import Path
+_ROOT = Path(__file__).resolve().parents[1]
+sys.path[:0] = [str(_ROOT / "src"), str(_ROOT / "scripts")]
 import torch
 from transformers import Qwen3Config,Qwen3ForCausalLM
 from mopd.training.long_context import selected_logps

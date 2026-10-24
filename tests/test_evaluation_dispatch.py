@@ -1,3 +1,7 @@
+import sys
+from pathlib import Path
+_ROOT = Path(__file__).resolve().parents[1]
+sys.path[:0] = [str(_ROOT / "src"), str(_ROOT / "scripts")]
 import json
 import sys
 import tempfile
@@ -6,7 +10,6 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
 import evaluate_model_version as dispatcher
 

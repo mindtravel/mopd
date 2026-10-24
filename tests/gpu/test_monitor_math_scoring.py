@@ -1,7 +1,11 @@
 """Regression: HTTP threads must delegate signal-based grading to a process."""
+import sys
+from pathlib import Path
+_ROOT = Path(__file__).resolve().parents[2]
+sys.path[:0] = [str(_ROOT / "src"), str(_ROOT / "scripts")]
 import concurrent.futures,json,os,subprocess,tempfile
 from pathlib import Path
-ROOT=Path(__file__).resolve().parents[1]
+ROOT=_ROOT
 def test_math_scoring_from_http_thread():
  with tempfile.TemporaryDirectory(dir=ROOT/"monitor") as tmp:
   out=Path(tmp)

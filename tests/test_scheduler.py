@@ -12,13 +12,16 @@ Two real bugs this guards against:
     took 4 and the second was offered 4 // 2 = 2 of the remaining 4 -- too few for a full
     fine-tuning run, which then failed at start-up.
 """
+import sys
+from pathlib import Path
+_ROOT = Path(__file__).resolve().parents[1]
+sys.path[:0] = [str(_ROOT / "src"), str(_ROOT / "scripts")]
 import threading
 import time
 import unittest
 
 import sys
 from pathlib import Path
-sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 from mopd.runtime.scheduler import GPUPool, Scheduler
 
 

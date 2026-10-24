@@ -1,4 +1,8 @@
 """Regression test: an idle worker must claim queued work before a slow peer finishes."""
+import sys
+from pathlib import Path
+_ROOT = Path(__file__).resolve().parents[1]
+sys.path[:0] = [str(_ROOT / "src"), str(_ROOT / "scripts")]
 import threading,unittest
 from mopd.rollout.dispatch import length_bucket_dispatch
 class DispatchTests(unittest.TestCase):

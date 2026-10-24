@@ -5,7 +5,10 @@ torch.distributed.checkpoint full state dict to bf16, tensor for tensor, on a sh
 """
 import sys
 from pathlib import Path
-sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
+_ROOT = Path(__file__).resolve().parents[2]
+sys.path[:0] = [str(_ROOT / "src"), str(_ROOT / "scripts")]
+import sys
+from pathlib import Path
 import torch
 import torch.distributed as dist
 from torch.distributed.checkpoint.state_dict import StateDictOptions, get_model_state_dict

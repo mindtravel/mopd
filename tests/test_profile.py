@@ -1,8 +1,11 @@
 """mopd.runtime.profile: FLOP arithmetic and MFU against hand-computed values (CPU, no model)."""
+import sys
+from pathlib import Path
+_ROOT = Path(__file__).resolve().parents[1]
+sys.path[:0] = [str(_ROOT / "src"), str(_ROOT / "scripts")]
 import sys, unittest
 from pathlib import Path
 from types import SimpleNamespace
-sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 from mopd.runtime.profile import ModelShape, StepProfile
 
 

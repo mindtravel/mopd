@@ -1,3 +1,7 @@
+import sys
+from pathlib import Path
+_ROOT = Path(__file__).resolve().parents[2]
+sys.path[:0] = [str(_ROOT / "src"), str(_ROOT / "scripts")]
 import unittest
 import torch
 from transformers import AutoTokenizer

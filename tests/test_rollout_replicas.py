@@ -1,3 +1,7 @@
+import sys
+from pathlib import Path
+_ROOT = Path(__file__).resolve().parents[1]
+sys.path[:0] = [str(_ROOT / "src"), str(_ROOT / "scripts")]
 import unittest,torch
 from transformers import Qwen3Config,Qwen3ForCausalLM
 from peft import LoraConfig,get_peft_model

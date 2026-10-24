@@ -1,4 +1,8 @@
 """Regression checks for token identity and policy-version boundaries."""
+import sys
+from pathlib import Path
+_ROOT = Path(__file__).resolve().parents[1]
+sys.path[:0] = [str(_ROOT / "src"), str(_ROOT / "scripts")]
 import unittest
 from copy import deepcopy
 from mopd.rollout.vllm_protocol import validate_reply

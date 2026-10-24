@@ -6,7 +6,10 @@ greedy tokens as LLM.generate.
 """
 import sys
 from pathlib import Path
-sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
+_ROOT = Path(__file__).resolve().parents[2]
+sys.path[:0] = [str(_ROOT / "src"), str(_ROOT / "scripts")]
+import sys
+from pathlib import Path
 from vllm import LLM, SamplingParams
 from mopd.rollout.engine_stream import stream_feed, stream_requests
 

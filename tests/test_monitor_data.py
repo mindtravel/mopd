@@ -1,8 +1,12 @@
+import sys
+from pathlib import Path
+_ROOT = Path(__file__).resolve().parents[1]
+sys.path[:0] = [str(_ROOT / "src"), str(_ROOT / "scripts")]
 import tempfile,unittest,json
 from pathlib import Path
 from unittest.mock import patch
 import sys
-sys.path.insert(0,str(Path(__file__).resolve().parents[1]/"monitor"))
+sys.path.insert(0, str(_ROOT / "monitor"))
 import monitor_data as d
 class Tests(unittest.TestCase):
  def test_partial_log_and_case_paging(self):
