@@ -10,7 +10,7 @@ from mopd.backends.multi_teacher import load_teachers
 from mopd.config import load
 from mopd.data.mixture import plan_domains
 from mopd.data.multidomain import domain_scale
-from mopd.rollout.base import RolloutStream, open_stream
+from mopd.rollout.base import Prefetched, RolloutStream, open_stream
 from mopd.rollout.hf_batch import generate
 from mopd.rollout.policy import Publisher
 from mopd.rollout.processes import ProcessRollouts
@@ -108,6 +108,11 @@ def run(c, resume=None):
         raise ValueError("several ranks need a sharded (hf_full) student")
     if sharded and resume:
         raise ValueError("resume is LoRA-only for now")
+    # rollout_async: step k trains on trajectories from policy version k-2 (version 0 for steps 1-2),
+    # generated on the rollout GPUs while step k-1's student update runs; off-policy by one step
+    asynchronous = bool(c.get("rollout_async"))
+    if asynchronous and (resume or c.get("rollout_backend") != "vllm" or not c.get("rollout_devices") or not c.get("rollout_streaming")):
+        raise ValueError("rollout_async needs streaming vLLM rollout GPUs and no resume")
     replicas = publisher = None  # the finally block below closes whichever exists
     with run:
         run.start(batch_plan=batches, resuming=bool(resume))
@@ -162,6 +167,10 @@ def run(c, resume=None):
             mode = "a" if resume else "w"
             run.metrics = run.log_file("metrics.jsonl", mode)
             rollouts = run.log_file("rollouts.jsonl", mode)
+            pending = None  # async: (stream, policy version) of the step about to train, already decoding
+            if asynchronous:
+                policy = publisher.publish(student, 0)
+                pending = (Prefetched(rollout_stream(policy, batches[0], 1)) if main else None, 0)
             for step, rows in enumerate(batches, 1):
                 if step <= start:
                     continue
@@ -171,8 +180,13 @@ def run(c, resume=None):
                     dump(out / "status.json", {"state": "training", "step": step, "phase": "generating"})
                 mark = time.perf_counter()
                 # vLLM workers run a published copy of the weights; publishing a sharded student is a collective
-                policy = publisher.publish(student, step - 1) if publisher else student
-                publish_seconds = time.perf_counter() - mark
+                if asynchronous:
+                    publish_seconds = 0.0  # this step's stream was opened last step; publishing comes after it drains
+                    policy_version = pending[1]
+                else:
+                    policy = publisher.publish(student, step - 1) if publisher else student
+                    publish_seconds = time.perf_counter() - mark
+                    policy_version = step - 1
                 per_domain = c.get("per_domain_grad_norm", world_size == 1)  # free without collectives
                 scorer = OPDStepScorer(
                     config=c,
@@ -191,7 +205,7 @@ def run(c, resume=None):
                 payload = [None]
                 if main:
                     try:
-                        stream = rollout_stream(policy, rows, step)
+                        stream = pending[0] if asynchronous else rollout_stream(policy, rows, step)
                         by_domain = {d: [] for d in c["domains"]}
                         lps = {d: [] for d in c["domains"]}
                         planned = {d: sum(r["domain"] == d for r in rows) for d in c["domains"]}
@@ -199,6 +213,7 @@ def run(c, resume=None):
                             by_domain[domain] += chunk
                             lps[domain] += [v.cpu() for v in scorer.teacher_logps(domain, chunk)]
                         payload = [(by_domain, lps, stream.seconds, stream.stats or {}, scorer.teacher_seconds)]
+                        rollout_wait = time.perf_counter() - mark  # generation the student phase did not hide
                     except Exception:  # other ranks wait in the broadcast: send them the failure, not a hang
                         payload = [{"error": traceback.format_exc()}]
                 if world_size > 1:
@@ -206,6 +221,15 @@ def run(c, resume=None):
                 if isinstance(payload[0], dict):
                     raise RuntimeError("rank 0 rollout/scoring failed:\n" + payload[0]["error"])
                 by_domain, lps, gen_seconds, rollout_stats, scorer.teacher_seconds = payload[0]
+                if asynchronous and step < len(batches):
+                    # every rollout of the previous version has returned: rewrite the policy and start the
+                    # next step decoding before this step's student update
+                    mark = time.perf_counter()
+                    version = max(step - 1, 0)
+                    if version != pending[1]:
+                        policy = publisher.publish(student, version)
+                    publish_seconds = time.perf_counter() - mark
+                    pending = (Prefetched(rollout_stream(policy, batches[step], version + 1)) if main else None, version)
                 # profile_step: torch.profiler kernel breakdown (comm / matmul / attention / idle) of that
                 # step's student phase on rank 0 (runtime.profile.maybe_torch_profile)
                 with maybe_torch_profile(main and c.get("profile_step") == step, out, step) as trace:
@@ -245,6 +269,8 @@ def run(c, resume=None):
                         "grad_norm": grad,
                         "rollout": rollout_stats,
                         "publish_seconds": publish_seconds,
+                        "policy_version": policy_version,
+                        "rollout_wait_seconds": rollout_wait,
                         "generation_seconds": gen_seconds,
                         "teacher_seconds": scorer.teacher_seconds,
                         "student_seconds": scorer.student_seconds,

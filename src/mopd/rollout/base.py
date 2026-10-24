@@ -39,3 +39,44 @@ def open_stream(backend, student, rows, version, *, streaming: bool) -> RolloutS
     stream = RolloutStream(trajectories, lambda: stats)
     stream._started -= seconds  # report the backend's own generation time
     return stream
+
+
+class Prefetched:
+    """Drain a RolloutStream on a background thread from the moment it is created, so generation
+    proceeds while the trainer is busy elsewhere (async rollout: the next step's trajectories decode
+    during this step's student update). Iterating yields what has arrived and blocks for the rest;
+    `seconds`/`stats` are the underlying stream's, and a worker failure re-raises in the consumer."""
+
+    _END = object()
+
+    def __init__(self, stream: RolloutStream):
+        import queue, threading
+
+        self._stream, self._queue = stream, queue.Queue()
+
+        def drain():
+            try:
+                for trajectory in stream:
+                    self._queue.put(trajectory)
+                self._queue.put(self._END)
+            except BaseException as e:
+                self._queue.put(e)
+
+        threading.Thread(target=drain, daemon=True).start()
+
+    @property
+    def seconds(self):
+        return self._stream.seconds
+
+    @property
+    def stats(self):
+        return self._stream.stats
+
+    def __iter__(self) -> Iterator[dict]:
+        while True:
+            item = self._queue.get()
+            if item is self._END:
+                return
+            if isinstance(item, BaseException):
+                raise item
+            yield item

@@ -8,13 +8,14 @@ torchrun, and prints the run's step summary (mopd.evaluation.report.opd_step_sum
       --set 'fsdp={"reshard_after_forward": false}' --set micro_batch_tokens=16384 --set profile_step=3
 """
 
-import argparse, json, os, shutil, subprocess, sys
+import argparse, json, os, shutil, subprocess, sys, time
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 from mopd import paths
 from mopd.evaluation.report import opd_step_summary
+from mopd.runtime.scheduler import GpuLease
 
 TEACHERS = {
     "math": "runs/20261024-full256-expert-m/checkpoint-0256",
@@ -54,7 +55,16 @@ def main():
         "--config",
         str(cfg),
     ]
+    # hold the queues' GPU leases (mopd.runtime.scheduler.GpuLease) for every GPU the run touches, or a
+    # queued eval can start on them mid-launch (2026-10-24: both OOM'd)
+    ids = lambda ds: {int(str(d).split(":")[-1]) for d in ds}
+    gpus = sorted(set(range(n)) | ids(c.get("rollout_devices", [])) | ids(d["device"] for d in c["domains"].values()))
+    lease = GpuLease()
+    while not lease.try_take(gpus):
+        print(f"waiting for GPU leases {gpus}", flush=True)
+        time.sleep(30)
     rc = subprocess.run(cmd, cwd=ROOT, env=os.environ).returncode
+    lease.release(gpus)
     if (out / "metrics.jsonl").exists():
         print(json.dumps({"bench": a.name, **opd_step_summary(out / "metrics.jsonl")}))
     sys.exit(rc)
