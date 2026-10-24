@@ -8,12 +8,13 @@ instead of hand-written shell loops on the server.
      {"id": "...", "kind": "experiment", "plan": "configs/experiments/x/plan.json", "jobs": ["eval:expert-m:"]},
      {"id": "...", "kind": "eval", "model": "...", "adapter": null, "data": "...", "out": "...",
       "protocol_id": "...", "max_new_tokens": 8192, "student_prompt_format": "plain_qa_v1"},
-     {"id": "...", "kind": "command", "argv": [...], "gpus": [0, 1, 2, 3, 4, 5, 6, 7] | 2 | 0}
+     {"id": "...", "kind": "command", "argv": [..., "{gpus}", ...], "gpus": [0, 1, 2, 3, 4, 5, 6, 7] | 2 | 0}
    ]}
 
 Steps run in order unless a step lists "deps" (ids). sweep/experiment steps start their own
 orchestrator (which schedules its GPUs itself, under the machine-wide GPU leases); "command" steps
-get the GPUs they ask for (a fixed set, a count, or none) via CUDA_VISIBLE_DEVICES; "experiment" with
+get the GPUs they ask for (a fixed set, a count, or none) via CUDA_VISIBLE_DEVICES, and an argv
+element "{gpus}" expands to the granted physical ids; "experiment" with
 "jobs" keeps only plan jobs whose id starts with one of the prefixes (plus their dependencies).
 A finished step leaves results/queues/<name>/<id>.done and is skipped on re-run; logs go to
 logs/queues/<name>/<id>.log.
@@ -83,7 +84,7 @@ def step_command(step, state_dir):
             plan = filtered_plan(plan, step["jobs"], state_dir / f"{step['id']}.plan.json")
         return [py, "scripts/run_experiment.py", str(plan)]
     if k == "command":
-        return step["argv"]
+        return step["argv"]  # "{gpus}" is expanded by the caller
     raise ValueError(f"{step['id']}: unknown kind {k!r}")
 
 
@@ -130,7 +131,12 @@ def main():
 
             def run(granted, step=step, log=log, marker=marker):
                 env = {"CUDA_VISIBLE_DEVICES": ",".join(map(str, granted))} if granted else {}
-                jobs.shell([(step_command(step, state_dir), env)], log)
+                argv = [
+                    x
+                    for arg in step_command(step, state_dir)
+                    for x in ([str(g) for g in granted] if arg == "{gpus}" else [arg])
+                ]
+                jobs.shell([(argv, env)], log)
                 marker.write_text(time.strftime("%Y-%m-%dT%H:%M:%S"))
 
             sched.add({"id": sid, "deps": deps, "gpus": spec, "done": marker.exists, "run": run})

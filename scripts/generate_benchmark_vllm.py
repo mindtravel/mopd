@@ -55,7 +55,7 @@ def main():
         a.max_model_len = default_max_model_len(a.max_new_tokens)
     if not a.teacher and not a.student_prompt_format:
         p.error("--student-prompt-format is required for student generation")
-    out = Path(a.out).resolve()
+    out = Path(os.path.abspath(a.out))  # symlinked dirs inside the project count as inside
     root = paths.ROOT
     if not out.is_relative_to(root):
         raise ValueError("Output outside project")
