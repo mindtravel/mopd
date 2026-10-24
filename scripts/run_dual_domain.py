@@ -1,9 +1,10 @@
 """Download-gated smoke, then 64-step multi-domain training and paired pilot eval."""
 
+from mopd import paths
 import json, os, subprocess, time, traceback
 from pathlib import Path
 
-ROOT = Path("/ssd/lzx/mopd")
+ROOT = paths.ROOT
 STATUS = ROOT / "logs/dual-domain-supervisor-status.json"
 
 

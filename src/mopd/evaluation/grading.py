@@ -1,10 +1,11 @@
 """Official scorers, shared by benchmark grading and offline analysis."""
 
+from mopd import paths
 import os
 import sys
 from pathlib import Path
 
-ROOT = Path("/ssd/lzx/mopd")
+ROOT = paths.ROOT
 
 
 def boxed(text):

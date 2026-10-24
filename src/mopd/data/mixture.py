@@ -14,6 +14,7 @@ sizes. A single-source domain is planned exactly as before, so legacy runs re-pl
 to the same batches.
 """
 
+from mopd import paths
 import hashlib
 import json
 import math
@@ -21,7 +22,7 @@ from pathlib import Path
 
 from mopd.data.pool import build_plan, load_pool, text_hash, validate_holdout
 
-PROJECT_ROOT = Path("/ssd/lzx/mopd")
+PROJECT_ROOT = paths.ROOT
 # Source j of domain i is shuffled with seed + i + SOURCE_SEED_STRIDE * j; j=0 keeps the legacy seed.
 SOURCE_SEED_STRIDE = 1000
 

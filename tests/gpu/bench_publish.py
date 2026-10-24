@@ -4,6 +4,7 @@ import sys, time
 from pathlib import Path
 _ROOT = Path(__file__).resolve().parents[2]
 sys.path[:0] = [str(_ROOT / "src")]
+from mopd import paths
 import torch
 import torch.distributed as dist
 from transformers import AutoModelForCausalLM
@@ -11,7 +12,7 @@ from mopd.training import fsdp
 from mopd.training.distributed import dist_info
 
 rank, world, device = dist_info()
-model = AutoModelForCausalLM.from_pretrained("/ssd/lzx/mopd/models/Qwen3-4B-Base", dtype=torch.float32, local_files_only=True).to(device)
+model = AutoModelForCausalLM.from_pretrained(str(paths.BASE_MODEL), dtype=torch.float32, local_files_only=True).to(device)
 scorer = fsdp.shard(model)
 main = rank == 0
 

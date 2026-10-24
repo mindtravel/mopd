@@ -2,6 +2,7 @@
 
 generate() returns a whole step; stream() yields the same trajectories as they finish."""
 
+from mopd import paths
 import atexit, json, os, queue, signal, subprocess, threading, time
 from pathlib import Path
 from concurrent.futures import ThreadPoolExecutor
@@ -34,7 +35,7 @@ class VllmRollouts:
         self.root = Path(c["output"]) / "vllm_runtime"
         self.root.mkdir(parents=True, exist_ok=True)
         self.tokenizer = AutoTokenizer.from_pretrained(c["student"], local_files_only=True)
-        python = c.get("vllm_python", "/ssd/lzx/mopd/mopd_infer/bin/python")
+        python = c.get("vllm_python", str(paths.INFER_PY))
         atexit.register(self.close)
         try:
             for device in c["rollout_devices"]:

@@ -23,11 +23,12 @@ Mixed SFT and MOPD arms use the same domain order, quotas and seed, and both ent
 plan batches with mopd.data.mixture.plan_domains, so they see the same prompts at every step.
 """
 
+from mopd import paths
 import argparse, hashlib, json, sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-REMOTE_ROOT = "/ssd/lzx/mopd"
+REMOTE_ROOT = str(paths.ROOT)
 
 
 def dumps(obj):

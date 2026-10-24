@@ -13,6 +13,7 @@ The result is written to <run>/provenance.json, next to config.json and the mode
 manifest, so any number traces back to code, data and spec.
 """
 
+from mopd import paths
 import hashlib
 import json
 import platform
@@ -20,7 +21,7 @@ import subprocess
 import time
 from pathlib import Path
 
-ROOT = Path("/ssd/lzx/mopd")
+ROOT = paths.ROOT
 
 
 class ProvenanceError(RuntimeError):

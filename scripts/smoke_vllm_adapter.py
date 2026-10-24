@@ -1,5 +1,6 @@
 """GPU smoke for real LoRA swapping, with GPU HF next-token reference."""
 
+from mopd import paths
 import argparse, json, time
 from pathlib import Path
 import torch
@@ -15,7 +16,7 @@ def main():
     p.add_argument("--memory", type=float, default=0.45)
     p.add_argument("--out", required=True)
     a = p.parse_args()
-    root = Path("/ssd/lzx/mopd")
+    root = paths.ROOT
     out = Path(a.out).resolve()
     if not out.is_relative_to(root):
         raise ValueError("Output outside project")

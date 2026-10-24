@@ -1,5 +1,6 @@
 """Generate resumable benchmark outputs with the native Fairy2i QAT forward."""
 
+from mopd import paths
 import argparse
 import fcntl
 import hashlib
@@ -8,7 +9,7 @@ import os
 import time
 from pathlib import Path
 
-ROOT = Path("/ssd/lzx/mopd")
+ROOT = paths.ROOT
 
 
 def sha256_file(path):

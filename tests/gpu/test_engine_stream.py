@@ -10,12 +10,13 @@ from pathlib import Path
 
 _ROOT = Path(__file__).resolve().parents[2]
 sys.path[:0] = [str(_ROOT / "src"), str(_ROOT / "scripts")]
+from mopd import paths
 import sys
 from pathlib import Path
 from vllm import LLM, SamplingParams
 from mopd.rollout.engine_stream import stream_feed, stream_requests
 
-engine = LLM(model="/ssd/lzx/mopd/models/Qwen3-4B-Base", dtype="bfloat16", max_model_len=2048, max_num_seqs=8, seed=1)
+engine = LLM(model=str(paths.BASE_MODEL), dtype="bfloat16", max_model_len=2048, max_num_seqs=8, seed=1)
 tok = engine.get_tokenizer()
 prompts = [{"prompt_token_ids": tok.encode(f"Question: what is {i} + {i * 3}?\nAnswer:")} for i in range(12)]
 params = SamplingParams(temperature=0, max_tokens=24)

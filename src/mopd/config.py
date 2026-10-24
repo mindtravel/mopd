@@ -5,6 +5,7 @@ model-version record. Keeping validation here means a new backend, domain or
 prompt format is added in one file instead of being re-checked at each call site.
 """
 
+from mopd import paths
 import json
 from pathlib import Path
 
@@ -94,7 +95,7 @@ def _check_domains(config, project_root):
         if not isinstance(spec.get("count"), int) or spec["count"] < 1:
             raise ConfigError(f"{where}count must be a positive integer")
         try:
-            resolve_domain(name, spec, project_root or "/ssd/lzx/mopd")
+            resolve_domain(name, spec, project_root or str(paths.ROOT))
         except ValueError as error:
             raise ConfigError(f"{where}{error}") from error
         for source in spec["sources"]:
@@ -110,7 +111,7 @@ def _check_domains(config, project_root):
         raise ConfigError(f"domain weights must sum to 1.0, got {weights!r}")
 
 
-def load(path, project_root="/ssd/lzx/mopd"):
+def load(path, project_root=str(paths.ROOT)):
     """Read and validate a run config; every later stage may assume it is coherent."""
     config = json.loads(Path(path).read_text())
     root = Path(project_root)

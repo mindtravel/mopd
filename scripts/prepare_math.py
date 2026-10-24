@@ -1,12 +1,13 @@
 """Download MATH train/test concurrently; freeze disjoint prompt manifests."""
 
+from mopd import paths
 import concurrent.futures as cf
 import hashlib, json, random, time
 from pathlib import Path
 import requests
 import pyarrow.parquet as pq
 
-ROOT = Path("/ssd/lzx/mopd/data/math")
+ROOT = (paths.ROOT / "data/math")
 REPO = "EleutherAI/hendrycks_math"
 BASE = "https://hf-mirror.com"
 

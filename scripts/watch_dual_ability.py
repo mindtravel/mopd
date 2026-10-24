@@ -1,9 +1,10 @@
 """Evaluate fixed heldout prompts at Base and saved checkpoints during training."""
 
+from mopd import paths
 import json, os, subprocess, time, traceback
 from pathlib import Path
 
-ROOT = Path("/ssd/lzx/mopd")
+ROOT = paths.ROOT
 RUN = ROOT / "runs/20261013-dual-domain-batch32-mgpu-opd"
 OUT = RUN / "validation/ability"
 OUT.mkdir(parents=True, exist_ok=True)

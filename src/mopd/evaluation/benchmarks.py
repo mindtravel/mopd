@@ -1,5 +1,6 @@
 """Benchmark registry: where the data lives and which scorer applies."""
 
+from mopd import paths
 from pathlib import Path
 
 from mopd.evaluation import grading
@@ -26,7 +27,7 @@ BENCHMARKS = {
 }
 
 
-def get(name, project_root="/ssd/lzx/mopd"):
+def get(name, project_root=str(paths.ROOT)):
     if name not in BENCHMARKS:
         raise ValueError(f"Unknown benchmark {name!r}; known: {', '.join(sorted(BENCHMARKS))}")
     spec = dict(BENCHMARKS[name])

@@ -14,13 +14,14 @@ Build steps, recorded in data/subsets/<name>/manifest.json with counts after eac
   benchmark problem (mopd.data.decontam over every evaluation file in EVAL_FILES).
 """
 
+from mopd import paths
 import glob, hashlib, inspect, json, re, textwrap
 from pathlib import Path
 
 from mopd.data import decontam
 from mopd.data.pool import text_hash  # same whitespace normalization as exact dedup below and validate_holdout
 
-ROOT = Path("/ssd/lzx/mopd")
+ROOT = paths.ROOT
 EVAL_FILES = ["data/full_eval/unified-v3/all.jsonl", "data/full_eval/lcb-dev-v3/lcbdev.jsonl"]
 FENCE = re.compile(r"```(?:python|py|Python)?\s*\n(.*?)```", re.DOTALL)
 THINK = re.compile(r"<think>.*?</think>\s*", re.DOTALL)

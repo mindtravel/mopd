@@ -22,6 +22,7 @@ Events go to <logdir>/events.jsonl, the live state to <logdir>/status.json, exac
 run_experiment.py wrote them before.
 """
 
+from mopd import paths
 import json
 import os
 import subprocess
@@ -32,7 +33,7 @@ from pathlib import Path
 from mopd.evaluation.eval_commands import PY, ROOT
 
 GATE_RETRY_SECONDS = 600
-LEASE_DIR = Path("/dev/shm/mopd-gpu-leases")
+LEASE_DIR = paths.GPU_LEASES
 
 
 class GpuLease:

@@ -1,9 +1,10 @@
 """Keep one GPU evaluating: fixed targets first, then checkpoints of watched runs as they appear."""
 
+from mopd import paths
 import argparse, json, subprocess, sys, time
 from pathlib import Path
 
-ROOT = Path("/ssd/lzx/mopd")
+ROOT = paths.ROOT
 FINAL = {"complete", "failed", "stopped"}
 
 

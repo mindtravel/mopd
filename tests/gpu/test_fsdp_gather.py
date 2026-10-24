@@ -9,6 +9,7 @@ from pathlib import Path
 
 _ROOT = Path(__file__).resolve().parents[2]
 sys.path[:0] = [str(_ROOT / "src"), str(_ROOT / "scripts")]
+from mopd import paths
 import sys
 from pathlib import Path
 import torch
@@ -20,7 +21,7 @@ from mopd.training.distributed import dist_info
 
 rank, world, device = dist_info()
 model = AutoModelForCausalLM.from_pretrained(
-    "/ssd/lzx/mopd/models/Qwen3-4B-Base", dtype=torch.float32, local_files_only=True
+    str(paths.BASE_MODEL), dtype=torch.float32, local_files_only=True
 ).to(device)
 scorer = fsdp.shard(model)
 with torch.no_grad():  # make every shard differ from the base so a mis-assembled tensor would show

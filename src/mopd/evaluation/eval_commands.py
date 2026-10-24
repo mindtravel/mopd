@@ -7,10 +7,11 @@ grade_benchmark_outputs.py by hand) independently, and the vLLM scheduling flags
 copy-pasted constant in each file.
 """
 
+from mopd import paths
 import sys
 from pathlib import Path
 
-ROOT = Path("/ssd/lzx/mopd")
+ROOT = paths.ROOT
 PY = sys.executable
 
 # Whole benchmark in one continuous-batching pass. Verified against the earlier 64-row batches on
@@ -75,7 +76,7 @@ def eval_commands(
     if out is None:
         raise ValueError("out is required when evaluating a raw model (no run to default into)")
     gen = [
-        str(mopd_infer_python or ROOT / "mopd_infer/bin/python"),
+        str(mopd_infer_python or paths.INFER_PY),
         "scripts/generate_benchmark_vllm.py",
         "--model",
         str(model),

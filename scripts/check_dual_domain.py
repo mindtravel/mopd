@@ -1,9 +1,10 @@
 """Read-only progress summary for dual-domain training."""
 
+from mopd import paths
 import json
 from pathlib import Path
 
-root = Path("/ssd/lzx/mopd")
+root = paths.ROOT
 for name in [
     "logs/dual-domain-supervisor-status.json",
     "runs/20261013-dual-domain-batch32-mgpu-smoke/status.json",

@@ -1,12 +1,13 @@
 """Normalize Alpaca prompts; reserve IFEval and an independent dev split."""
 
+from mopd import paths
 import json, random, hashlib
 from pathlib import Path
 from mopd.data.pool import text_hash, validate_holdout
 
 
 def main():
-    root = Path("/ssd/lzx/mopd/data/instruction")
+    root = (paths.ROOT / "data/instruction")
     alpaca = json.loads((root / "raw/alpaca_data.json").read_text())
     benchmark = [json.loads(l) for l in (root / "raw/ifeval_input_data.jsonl").read_text().splitlines() if l.strip()]
     evalrows = [

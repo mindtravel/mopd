@@ -1,5 +1,6 @@
 """HF real request comparator. Same Base, prompts, greedy decoding and EOS as vLLM probe."""
 
+from mopd import paths
 import argparse, json, os, time
 from pathlib import Path
 
@@ -19,7 +20,7 @@ def main():
     from mopd.rollout.hf_batch import generate
 
     torch.set_num_threads(2)
-    root = Path("/ssd/lzx/mopd")
+    root = paths.ROOT
     rows = json.loads((root / "runs/20261013-dual-domain-batch32-mgpu-opd/batch_plan.json").read_text())[a.batch_index]
     out = Path(a.out).resolve()
     if not out.is_relative_to(root):

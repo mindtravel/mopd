@@ -1,5 +1,6 @@
 """Fixed held-out trajectories; exact full-vocabulary reverse KL at each response position."""
 
+from mopd import paths
 import json, time, hashlib, re
 from pathlib import Path
 import torch, pyarrow.parquet as pq
@@ -8,7 +9,7 @@ from mopd.training.batching import generation_eos_ids
 from peft import PeftModel
 from mopd.training.dual_template import student_inputs, teacher_inputs
 
-R = Path("/ssd/lzx/mopd")
+R = paths.ROOT
 RUN = R / "runs/20261013-numina-8192-batch2-opd"
 OUT = RUN / "validation"
 

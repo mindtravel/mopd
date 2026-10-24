@@ -16,6 +16,7 @@ cache/profile/; trainers only read the cache, since measuring on a busy GPU woul
   python -m mopd.runtime.profile --measure-peak        # once, on an idle GPU
 """
 
+from mopd import paths
 import json
 import time
 from contextlib import contextmanager
@@ -23,7 +24,7 @@ from pathlib import Path
 
 import torch
 
-CACHE = Path("/ssd/lzx/mopd/cache/profile")
+CACHE = paths.PROFILE_CACHE
 
 
 def _gpu_key(device=None):

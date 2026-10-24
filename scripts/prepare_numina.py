@@ -1,8 +1,9 @@
+from mopd import paths
 import json, re, random, hashlib, collections, difflib
 from pathlib import Path
 import pyarrow.parquet as pq
 
-root = Path("/ssd/lzx/mopd")
+root = paths.ROOT
 norm = lambda x: re.sub(r"[^a-z0-9]", "", x.lower())
 test = []
 for p in (root / "data/math/raw").glob("*/test-*.parquet"):

@@ -1,9 +1,10 @@
 """Held-out math/IFEval/code checks: strict scores plus format-tolerant *_lenient scores."""
 
+from mopd import paths
 import argparse, json, os, random, sys, time
 from pathlib import Path
 
-ROOT = Path("/ssd/lzx/mopd")
+ROOT = paths.ROOT
 os.environ["NLTK_DATA"] = str(ROOT / "cache/nltk")
 sys.path.insert(0, str(ROOT / "vendor"))
 import torch

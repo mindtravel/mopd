@@ -9,6 +9,7 @@ sha256 for LoRA; for full weights the version (hashing 8 GB every step would cos
 load; the trainer only rewrites the buffer after every rollout of the previous version returned).
 """
 
+from mopd import paths
 import hashlib
 import os
 from pathlib import Path
@@ -19,7 +20,7 @@ _shared = None  # fsdp.SharedWeights of this process's run (full-parameter stude
 
 
 def shm_dir(config):
-    return Path("/dev/shm/mopd") / Path(config["output"]).name
+    return paths.SHM / Path(config["output"]).name
 
 
 def cleanup(config):

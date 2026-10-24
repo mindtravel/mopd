@@ -1,5 +1,6 @@
 """Dispatch model-version evaluation to a compatible generation backend and scorer."""
 
+from mopd import paths
 import argparse
 import json
 import os
@@ -7,7 +8,7 @@ import re
 import subprocess
 from pathlib import Path
 
-ROOT = Path("/ssd/lzx/mopd")
+ROOT = paths.ROOT
 
 
 def build_command(args):

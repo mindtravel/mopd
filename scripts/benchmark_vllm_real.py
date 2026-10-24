@@ -1,5 +1,6 @@
 """Real prompt continuous-batching probe. Does not alter live training."""
 
+from mopd import paths
 import argparse, json, os, time
 from pathlib import Path
 
@@ -23,7 +24,7 @@ def main():
     from vllm.lora.request import LoRARequest
     from mopd.data.domains import student_prompt
 
-    root = Path("/ssd/lzx/mopd")
+    root = paths.ROOT
     run = root / "runs/20261013-dual-domain-batch32-mgpu-opd"
     rows = json.loads(Path(a.plan).read_text())[a.batch_index]
     out = Path(a.out).resolve()

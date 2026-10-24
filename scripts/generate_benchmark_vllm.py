@@ -10,6 +10,7 @@ rows from this process whenever its scheduler has room, so no GPU idles while an
 backlog; this process alone writes generated.jsonl, so output and resume are the same for any GPU
 count."""
 
+from mopd import paths
 import argparse, collections, contextlib, fcntl, hashlib, json, os, signal, subprocess, sys, threading, time
 from pathlib import Path
 from mopd.evaluation.generation_manifest import build_generation_manifest
@@ -56,7 +57,7 @@ def main():
     if not a.teacher and not a.student_prompt_format:
         p.error("--student-prompt-format is required for student generation")
     out = Path(a.out).resolve()
-    root = Path("/ssd/lzx/mopd")
+    root = paths.ROOT
     if not out.is_relative_to(root):
         raise ValueError("Output outside project")
     out.mkdir(parents=True, exist_ok=True)
