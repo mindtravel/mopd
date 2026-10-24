@@ -50,6 +50,7 @@ from mopd.training.schedule import build_scheduler,describe
 from mopd.evaluation.versioning import write_manifest
 from mopd.runtime.artifacts import dump
 from mopd.runtime.provenance import record as record_provenance
+from mopd.runtime.profile import ModelShape,StepProfile
 
 def encode(tok,row,prompt_format,eos,max_len):
     prefix=tok(student_prompt(tok,row,prompt_format),add_special_tokens=False).input_ids
@@ -106,8 +107,10 @@ def main():
         opt=torch.optim.AdamW(params,lr=c["lr"]);sched=build_scheduler(opt,c)
         mf=(out/"metrics.jsonl").open("w",buffering=1) if main_rank else None
         ckpt=None
+        shape=ModelShape.of(scorer);recompute=c.get("gradient_checkpointing",True)
         try:
             for step,rows in enumerate(plan,1):
+                prof=StepProfile(shape,world_size,recompute=recompute,device=device)
                 opt.zero_grad(set_to_none=True);started=time.perf_counter();lr=sched.get_last_lr()[0]
                 stats={d:{"samples":0,"loss_sum":0.,"tokens":0,"truncated":0} for d in weights}
                 # Per-sample weight = domain weight / that domain's samples this step: per-sample token
@@ -124,22 +127,29 @@ def main():
                         if not response:raise ValueError(f"prompt alone exceeds max_seq_len: {row['id']}")
                         seqs.append(prefix+response);starts.append(len(prefix));truncated.append(cut)
                     ids,attention,response_mask=pack(seqs,starts,pad,device)
-                    per_sample=[-v.mean() for v in logps(scorer,ids,attention,response_mask)]
-                    loss=sum(scales[r["domain"]]*l for r,l in zip(items,per_sample))
-                    loss.backward()
+                    prof.add_batch([len(q) for q in seqs],ids.shape[1])
+                    with prof.phase("forward_backward"):
+                        per_sample=[-v.mean() for v in logps(scorer,ids,attention,response_mask)]
+                        loss=sum(scales[r["domain"]]*l for r,l in zip(items,per_sample))
+                        loss.backward()
                     for r,l,s,start,cut in zip(items,per_sample,seqs,starts,truncated):
                         d=stats[r["domain"]];d["samples"]+=1;d["loss_sum"]+=float(l.detach())
                         d["tokens"]+=len(s)-start;d["truncated"]+=int(cut)
                 peak=torch.tensor(torch.cuda.max_memory_allocated(device)/2**30,device=device)
-                if world_size>1:
-                    dist.all_reduce(peak,op=dist.ReduceOp.MAX)  # the rank closest to OOM, not rank 0
-                    if not sharded:  # FSDP already reduce-scattered sharded gradients (as a SUM, see fsdp.py)
-                        for p in params:dist.all_reduce(p.grad,op=dist.ReduceOp.SUM)
-                    stats=sync_stats(stats,device)
-                grad=torch.nn.utils.clip_grad_norm_(params,1.)
-                grad=grad.full_tensor() if hasattr(grad,"full_tensor") else grad
-                if not torch.isfinite(grad) or grad<=0:raise ValueError("Invalid student gradient")
-                opt.step();sched.step()
+                # whole-step token accounting for MFU: every rank's real tokens, padded widths and squared lengths
+                lengths=torch.tensor([sum(prof.lengths),prof.padded,sum(q*q for q in prof.lengths)],device=device,dtype=torch.float64)
+                with prof.phase("gradient_sync"):
+                    if world_size>1:
+                        dist.all_reduce(peak,op=dist.ReduceOp.MAX)  # the rank closest to OOM, not rank 0
+                        dist.all_reduce(lengths)
+                        if not sharded:  # FSDP already reduce-scattered sharded gradients (as a SUM, see fsdp.py)
+                            for p in params:dist.all_reduce(p.grad,op=dist.ReduceOp.SUM)
+                        stats=sync_stats(stats,device)
+                with prof.phase("optimizer"):
+                    grad=torch.nn.utils.clip_grad_norm_(params,1.)
+                    grad=grad.full_tensor() if hasattr(grad,"full_tensor") else grad
+                    if not torch.isfinite(grad) or grad<=0:raise ValueError("Invalid student gradient")
+                    opt.step();sched.step()
                 if main_rank:
                     domains={d:{"loss":s["loss_sum"]/s["samples"],"samples":s["samples"],"tokens":s["tokens"],
                                 "truncated":s["truncated"]} for d,s in stats.items()}
@@ -148,7 +158,8 @@ def main():
                         "tokens":sum(v["tokens"] for v in domains.values()),
                         "truncated":sum(v["truncated"] for v in domains.values()),
                         "seconds":time.perf_counter()-started,"world_size":world_size,
-                        "max_memory_gib":round(float(peak),2)}
+                        "max_memory_gib":round(float(peak),2),
+                        "profile":prof.finish(total_tokens=int(lengths[0]),padded=int(lengths[1]),sum_sq=float(lengths[2]))}
                     mf.write(json.dumps(report)+"\n");print(json.dumps(report),flush=True)
                     dump(out/"status.json",{"state":"training",**report})
                 if step%c["save_every"]==0 or step==c["steps"]:
