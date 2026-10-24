@@ -13,6 +13,13 @@ from mopd.rollout.vllm_protocol import StreamValidator, validate_reply
 from mopd.rollout.dispatch import length_bucket_dispatch, length_sorted_batches
 from mopd.students.registry import is_sharded
 from mopd.training.distributed import engine_env
+from mopd.evaluation.context import default_max_model_len
+
+
+def lora_rank(c):
+    """vLLM preallocates LoRA buffers at max_lora_rank and accepts only these sizes."""
+    r = c.get("lora", {}).get("rank", 16)
+    return next(size for size in (8, 16, 32, 64, 128, 256, 320, 512) if size >= r)
 
 
 class VllmRollouts:
@@ -42,7 +49,13 @@ class VllmRollouts:
                     "--device",
                     device,
                     "--max-seqs",
-                    str(c["generation_batch_size"]),
+                    str(c.get("rollout_max_seqs", 256)),
+                    "--max-model-len",
+                    str(c.get("rollout_max_model_len") or default_max_model_len(c["max_new_tokens"])),
+                    "--max-num-batched-tokens",
+                    str(c.get("rollout_max_num_batched_tokens", 8192)),
+                    "--max-lora-rank",
+                    str(lora_rank(c)),
                     "--memory",
                     str(c.get("vllm_memory_utilization", 0.85)),
                     "--student-kind",
@@ -128,8 +141,14 @@ class VllmRollouts:
         proc.stdin.flush()
         return device, proc
 
-    def _batch_size(self):
-        return max(1, int(self.c.get("generation_batch_size", 8)))
+    def _batch_size(self, rows):
+        """Rows per request. A worker serves one request at a time and its engine only batches within
+        a request, so a small request size caps the engine's concurrency: generation_batch_size 8 kept
+        each rollout GPU decoding at most 8 sequences (~75% of a LoRA MOPD step was generation).
+        Default: the whole step at once, split evenly over the workers (rollout_batch_size overrides)."""
+        if self.c.get("rollout_batch_size"):
+            return int(self.c["rollout_batch_size"])
+        return max(1, -(-len(rows) // len(self.workers)))
 
     def generate(self, policy, rows, version, *, sample=True, min_new_tokens=0):
         inputs = self._inputs(policy, rows, version)
@@ -151,7 +170,11 @@ class VllmRollouts:
 
         started = time.perf_counter()
         replies, dispatch = length_bucket_dispatch(
-            inputs, workers=len(self.workers), batch_size=self._batch_size(), length=lambda x: len(x["prefix"]), run=run
+            inputs,
+            workers=len(self.workers),
+            batch_size=self._batch_size(inputs),
+            length=lambda x: len(x["prefix"]),
+            run=run,
         )
         output = sorted([r for batch, _ in replies for r in batch], key=lambda r: r["index"])
         return (
@@ -166,7 +189,7 @@ class VllmRollouts:
         inputs = self._inputs(policy, rows, version)
         digest = policy["id"]
         batches = queue.SimpleQueue()
-        planned = length_sorted_batches(inputs, batch_size=self._batch_size(), length=lambda x: len(x["prefix"]))
+        planned = length_sorted_batches(inputs, batch_size=self._batch_size(inputs), length=lambda x: len(x["prefix"]))
         for b in planned:
             batches.put([row for _, row in b])
         results = queue.SimpleQueue()

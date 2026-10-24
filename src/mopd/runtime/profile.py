@@ -199,3 +199,40 @@ def maybe_torch_profile(enabled, out_dir, step):
     out = Path(out_dir)
     (out / f"profile-step-{step:04d}.json").write_text(json.dumps(result, indent=1))
     prof.export_chrome_trace(str(out / f"profile-step-{step:04d}.trace.json.gz"))
+
+
+def opd_utilization(
+    shape,
+    lengths,
+    *,
+    student_seconds,
+    step_seconds,
+    generation_seconds,
+    student_gpus,
+    rollout_gpus,
+    generated_tokens,
+    recompute=True,
+    peak_tflops=None,
+):
+    """Where an on-policy distillation step's GPU time goes. Student MFU over the student phase
+    (how well the backward runs) and over the whole step (how much the student GPUs are used at all,
+    since they idle during generation); rollout GPUs' busy share of the step and their decode rate."""
+    peak = peak_tflops if peak_tflops is not None else cached_peak_tflops()
+    tokens, sum_sq = sum(lengths), sum(n * n for n in lengths)
+    flops = shape.flops(tokens, sum_sq)
+    out = {
+        "trained_tokens": tokens,
+        "student_tflops_per_gpu": round(flops / max(student_seconds, 1e-9) / student_gpus / 1e12, 2),
+        "rollout_busy_fraction": round(generation_seconds / step_seconds, 3) if step_seconds else None,
+        "decode_tokens_per_second_per_rollout_gpu": round(
+            generated_tokens / max(generation_seconds, 1e-9) / max(rollout_gpus, 1), 1
+        ),
+    }
+    if peak:
+        out["student_mfu_in_phase"] = round(out["student_tflops_per_gpu"] / peak, 4)
+        out["student_mfu_whole_step"] = round(flops / step_seconds / student_gpus / 1e12 / peak, 4)
+        out["student_hfu_in_phase"] = round(
+            shape.flops(tokens, sum_sq, recompute=recompute) / max(student_seconds, 1e-9) / student_gpus / 1e12 / peak,
+            4,
+        )
+    return out

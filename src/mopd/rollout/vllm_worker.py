@@ -104,9 +104,12 @@ def main():
     p = argparse.ArgumentParser()
     p.add_argument("--model", required=True)
     p.add_argument("--device", required=True)
-    p.add_argument("--max-seqs", type=int, default=16)
+    p.add_argument("--max-seqs", type=int, default=256, help="concurrent sequences in the engine's continuous batch")
     p.add_argument("--memory", type=float, default=0.85)
     p.add_argument("--student-kind", choices=("lora", "full"), default="lora")
+    p.add_argument("--max-model-len", type=int, default=9216)
+    p.add_argument("--max-num-batched-tokens", type=int, default=8192, help="prefill token budget per step")
+    p.add_argument("--max-lora-rank", type=int, default=16)
     a = p.parse_args()
     os.environ["CUDA_VISIBLE_DEVICES"] = a.device.split(":")[-1]
     wire = sys.stdout
@@ -122,14 +125,18 @@ def main():
         engine = LLM(
             model=a.model,
             dtype="bfloat16",
-            max_model_len=9216,
+            max_model_len=a.max_model_len,
             generation_config="vllm",
             enable_prefix_caching=False,
             gpu_memory_utilization=a.memory,
             max_num_seqs=a.max_seqs,
-            max_num_batched_tokens=2048,
+            max_num_batched_tokens=a.max_num_batched_tokens,
             enable_chunked_prefill=True,
-            **({"enable_lora": True, "max_lora_rank": 16, "max_loras": 1, "max_cpu_loras": 1} if lora else {}),
+            **(
+                {"enable_lora": True, "max_lora_rank": a.max_lora_rank, "max_loras": 1, "max_cpu_loras": 1}
+                if lora
+                else {}
+            ),
         )
         eos = engine.get_tokenizer().eos_token_id
         emit({"ready": True, "device": a.device, "eos": eos})

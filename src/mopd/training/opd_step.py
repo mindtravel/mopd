@@ -20,6 +20,7 @@ from mopd.protocol import teacher_prefix_ids
 from mopd.training.batching import is_eos_token, logps, pack
 from mopd.training.dual_template import policy_loss
 from mopd.training.fsdp import local
+from mopd.training.microbatch import by_budget
 
 
 class GradContribution:
@@ -87,6 +88,7 @@ class OPDStepScorer:
         self.contrib = contribution or GradContribution(params, config["domains"])
         self.entries = {d: [] for d in config["domains"]}
         self.records = []  # rollout-log lines, written by the trainer
+        self.seq_lengths = []  # prompt + answer tokens of every trained trajectory (for MFU)
         self.weighted_loss = {d: 0.0 for d in config["domains"]}
         self.teacher_seconds = 0.0
         self.student_seconds = 0.0
@@ -130,6 +132,7 @@ class OPDStepScorer:
                 raise ValueError("Nonfinite loss")
             losses.append(loss)
             if weight:
+                self.seq_lengths.append(len(r["prefix"]) + len(r["answer"]))
                 info.update(
                     loss=loss.item(), tokens=len(r["answer"]), truncated=not is_eos_token(r["answer"][-1], self.eos_ids)
                 )
@@ -158,20 +161,32 @@ class OPDStepScorer:
         self.sync()
         self.student_seconds += time.perf_counter() - mark
 
-    def sharded_step(self, trajectories, teacher_lps, rank, world_size, micro):
+    def sharded_step(self, trajectories, teacher_lps, rank, world_size, micro, micro_tokens=None):
         """Every rank: backpropagate this rank's share of each domain, domain by domain, in lockstep.
-        trajectories/teacher_lps: {domain: [...]}, identical on every rank."""
+        trajectories/teacher_lps: {domain: [...]}, identical on every rank.
+
+        Work is balanced by tokens, not by count: rollout lengths range from a few dozen to 8k tokens,
+        so trajectories go longest-first to whichever rank has the fewest tokens so far, and each rank
+        micro-batches its share by padded-token budget (micro_batch_tokens; micro caps the count, see
+        mopd.training.microbatch). FSDP reduces inside every backward, so all ranks run the same number
+        of backward calls per domain; a rank with fewer re-runs one at zero weight."""
+        length = lambda it: len(it[0]["prefix"]) + len(it[0]["answer"])
         for domain in self.c["domains"]:
-            items = list(zip(trajectories[domain], teacher_lps[domain]))
-            mine = items[rank::world_size]
-            calls = -(-max(len(items[r::world_size]) for r in range(world_size)) // micro)
+            items = sorted(zip(trajectories[domain], teacher_lps[domain]), key=length, reverse=True)
+            shares, load = [[] for _ in range(world_size)], [0] * world_size
+            for it in items:  # identical on every rank: deterministic greedy (LPT) balance
+                r = min(range(world_size), key=lambda k: (load[k], k))
+                shares[r].append(it)
+                load[r] += length(it)
+            chunks = [list(by_budget(sh, length, micro, micro_tokens)) for sh in shares]
+            calls = max(len(c) for c in chunks)
             self.contrib.before()
             for i in range(calls):
-                chunk = mine[i * micro : (i + 1) * micro]
+                chunk = chunks[rank][i] if i < len(chunks[rank]) else None
                 if chunk:
                     self.student_backward(domain, [t for t, _ in chunk], [lp for _, lp in chunk])
                 else:  # this rank ran out: same collectives, no contribution
-                    self.student_backward(domain, [items[0][0]], [items[0][1]], weight=0.0)
+                    self.student_backward(domain, [items[-1][0]], [items[-1][1]], weight=0.0)
             self.contrib.after(domain)
 
     def gather(self, world_size):
@@ -179,11 +194,14 @@ class OPDStepScorer:
         if world_size == 1:
             return
         parts = [None] * world_size
-        dist.all_gather_object(parts, (self.entries, self.records, self.weighted_loss, self.student_seconds))
+        dist.all_gather_object(
+            parts, (self.entries, self.records, self.weighted_loss, self.student_seconds, self.seq_lengths)
+        )
         self.entries = {d: [e for p in parts for e in p[0][d]] for d in self.entries}
         self.records = [r for p in parts for r in p[1]]
         self.weighted_loss = {d: sum(p[2][d] for p in parts) for d in self.weighted_loss}
         self.student_seconds = max(p[3] for p in parts)
+        self.seq_lengths = [n for p in parts for n in p[4]]
 
     def domain_stats(self):
         stats = {}

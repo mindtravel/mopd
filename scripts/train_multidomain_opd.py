@@ -17,6 +17,7 @@ from mopd.rollout.processes import ProcessRollouts
 from mopd.rollout.replicas import RolloutReplicas
 from mopd.runtime.artifacts import dump, fingerprint
 from mopd.runtime.provenance import record as record_provenance
+from mopd.runtime.profile import ModelShape, opd_utilization
 from mopd.training.batching import generation_eos_ids
 from mopd.training.opd_step import OPDStepScorer, DomainBlockContribution
 from mopd.training.run import TrainRun
@@ -126,6 +127,7 @@ def run(c, resume=None):
             if main and backend != "hf" and c.get("rollout_devices"):
                 replicas = factories[backend](c, student)
             params = run.params
+            shape = ModelShape.of(student)
             hashes = {d: fingerprint(t) for d, (_, t) in teachers.items()}
             weights = {d: s["weight"] for d, s in c["domains"].items()}
             counts = {d: s["count"] for d, s in c["domains"].items()}
@@ -206,7 +208,9 @@ def run(c, resume=None):
                         payload = [(by_domain, lps, stream.seconds, stream.stats or {}, scorer.teacher_seconds)]
                     dist.broadcast_object_list(payload, src=0)
                     by_domain, lps, gen_seconds, rollout_stats, scorer.teacher_seconds = payload[0]
-                    scorer.sharded_step(by_domain, lps, rank, world_size, c["micro_batch_size"])
+                    scorer.sharded_step(
+                        by_domain, lps, rank, world_size, c["micro_batch_size"], c.get("micro_batch_tokens")
+                    )
                     scorer.gather(world_size)
                 stats = scorer.domain_stats() if main else None
                 grad = run.optimize()
@@ -214,6 +218,18 @@ def run(c, resume=None):
                 if main:
                     for record in scorer.records:
                         rollouts.write(json.dumps(record, ensure_ascii=False) + "\n")
+                    seconds = time.perf_counter() - started
+                    util = opd_utilization(
+                        shape,
+                        scorer.seq_lengths,
+                        student_seconds=scorer.student_seconds,
+                        step_seconds=seconds,
+                        generation_seconds=gen_seconds,
+                        student_gpus=world_size,
+                        rollout_gpus=len(c.get("rollout_devices", [])),
+                        generated_tokens=sum(s["tokens"] for s in stats.values()),
+                        recompute=c.get("gradient_checkpointing", True),
+                    )
                     report = {
                         "step": step,
                         "lr": lr,
@@ -225,10 +241,11 @@ def run(c, resume=None):
                         "generation_seconds": gen_seconds,
                         "teacher_seconds": scorer.teacher_seconds,
                         "student_seconds": scorer.student_seconds,
-                        "seconds": time.perf_counter() - started,
+                        "seconds": seconds,
                         "generated_tokens_per_second": sum(s["tokens"] for s in stats.values()) / gen_seconds,
                         "student_peak_gib": torch.cuda.max_memory_allocated(c["student_device"]) / 2**30,
                         "world_size": world_size,
+                        "utilization": util,
                     }
                     run.log(step, report)
                 run.checkpoint(step)
