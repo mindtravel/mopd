@@ -15,7 +15,7 @@ from pathlib import Path
 import torch
 from torch.distributed.fsdp import MixedPrecisionPolicy, fully_shard
 
-from mopd.runtime.model_files import copy_base_files
+from mopd.runtime.model_files import finalize
 from mopd.training.batching import TokenLogProbs
 
 def shard(model, reshard_after_forward=True, gather_once_per_step=False):
@@ -67,14 +67,14 @@ def gather(scorer, main_rank):
 
 
 def save(scorer, path, base_model, main_rank):
-    """Collective. Rank 0 writes a plain HF model directory (bf16 safetensors; config and tokenizer
-    files copied from the base model) that vLLM and transformers load directly."""
+    """Collective. Rank 0 writes a plain HF model directory (bf16 safetensors, finalized against the
+    base model) that vLLM and transformers load directly."""
     state = gather(scorer, main_rank)
     if not main_rank:
         return
     path = Path(path)
     scorer.base.save_pretrained(path, state_dict=state, safe_serialization=True)
-    copy_base_files(base_model, path)  # config/tokenizer as the inference env reads them (model_files.py)
+    finalize(path, base_model)  # base config/tokenizer, tensor set checked against the base (model_files.py)
 
 
 def write_weights(scorer, path, main_rank):

@@ -9,7 +9,7 @@ from pathlib import Path
 import torch
 from peft import PeftModel
 from transformers import AutoModelForCausalLM
-from mopd.runtime.model_files import copy_base_files
+from mopd.runtime.model_files import finalize
 def main():
     p=argparse.ArgumentParser();p.add_argument("--base",required=True);p.add_argument("--adapter",required=True)
     p.add_argument("--out",required=True);a=p.parse_args()
@@ -17,7 +17,7 @@ def main():
     model=AutoModelForCausalLM.from_pretrained(a.base,dtype=torch.bfloat16,local_files_only=True)
     model=PeftModel.from_pretrained(model,a.adapter).merge_and_unload()
     model.save_pretrained(out,safe_serialization=True)
-    copy_base_files(a.base,out)  # config/tokenizer as the vLLM env reads them: mopd.runtime.model_files
+    finalize(out,a.base)  # base config/tokenizer, tensor set checked: mopd.runtime.model_files
     adapter=Path(a.adapter)
     (out/"expert-source.json").write_text(json.dumps({"base":str(Path(a.base).resolve()),"adapter":str(adapter.resolve()),
         "adapter_sha256":hashlib.sha256((adapter/"adapter_model.safetensors").read_bytes()).hexdigest(),
