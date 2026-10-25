@@ -59,7 +59,7 @@ def table(study, reg, runs):
                 if bases[suite]:
                     rows.append({"run": "baseline", "suite": suite, "checkpoint": "-", "overall": overall(bases[suite]),
                                  "benchmarks": by_benchmark(bases[suite])})
-            for step in study.get("checkpoints") or [r["config"]["steps"]]:
+            for step in r["fields"].get("checkpoints") or study.get("checkpoints") or [r["config"]["steps"]]:
                 cs = cases(r["run_dir"] / "evaluations" / f"checkpoint-{step:04d}" / e["protocol_id"])
                 if cs is None:
                     rows.append({"run": r["name"], "suite": suite, "checkpoint": step, "overall": None})

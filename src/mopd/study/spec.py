@@ -9,6 +9,7 @@
   evals: [unified-v3, {suite: lcbdev-v3, if: "domain == 'code'"}]
   checkpoints: [64, 128, 256]
   teachers: {math: {study: full-sft-lr, run: math-lr2e-06, checkpoint: 256}}   # method: mopd
+  runs: [{name: oci, dataset: code-oci}, {name: oci-lr2e-6, dataset: code-oci, lr: 2e-6, checkpoints: [64]}]  # instead of axes
 
 `if:` conditions are expressions over the run's fields: names, constants, comparisons, `in`,
 `and` / `or` / `not` -- nothing else is evaluated.
@@ -41,14 +42,23 @@ def load(path):
     for key in ("study", "base"):
         if key not in study:
             raise ValueError(f"{path}: missing {key!r}")
-    unknown = set(study) - {"study", "description", "base", "axes", "name", "data", "evals", "checkpoints", "teachers", "baseline"}
+    unknown = set(study) - {"study", "description", "base", "axes", "name", "data", "evals", "checkpoints", "teachers", "baseline", "runs"}
     if unknown:
         raise ValueError(f"{path}: unknown keys {sorted(unknown)}")
     return study
 
 
 def expand(study):
-    """[(run name, fields)] in grid order: base overridden by each combination of the axes."""
+    """[(run name, fields)]: base overridden by each combination of the axes (grid order), or by each
+    entry of `runs:` (an explicit list: {name, ...fields}, e.g. for variants that are no grid). A
+    run's own `checkpoints` override the study's."""
+    if "runs" in study:
+        if study.get("axes"):
+            raise ValueError(f"{study['study']}: give either axes or runs")
+        names = [r["name"] for r in study["runs"]]
+        if len(set(names)) != len(names):
+            raise ValueError(f"{study['study']}: run names repeat")
+        return [(r["name"], {**study["base"], **{k: v for k, v in r.items() if k != "name"}}) for r in study["runs"]]
     axes = study.get("axes") or {}
     overlap = set(axes) & set(study["base"])
     if overlap:

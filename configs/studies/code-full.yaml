@@ -1,0 +1,23 @@
+study: code-full
+description: >-
+  全参代码 SFT（code-full-v1 迁移）：数据配方对比（OpenCodeInstruct 系列、rStar 系列，按指令数据比例），
+  以及 rstar-code-instr11 / instr12 上的 lr 扫描（docs/training/learning-rate.md 的依据）。评测 lcb-dev-v3。
+base: {method: sft, domain: code, seed: 20261022, lr: 1.0e-5, lr_reason: "code-full-v1 的起点 1e-5；lr 扫描见各运行"}
+data: {code: code-rstar-instr11}
+evals: [lcbdev-v3]
+checkpoints: [128, 256]
+runs:
+  - {name: oci, dataset: code-oci}
+  - {name: oci-final, dataset: code-oci-final}
+  - {name: oci-v2, dataset: code-oci-v2}
+  - {name: rstar-code, dataset: code-rstar-code}
+  - {name: rstar-code-instr31, dataset: code-rstar-code-instr31}
+  - {name: rstar-code-instr11, dataset: code-rstar-instr11}
+  - {name: rstar-code-instr12, dataset: code-rstar-code-instr12}
+  - {name: rstar-code-instr13, dataset: code-rstar-code-instr13}
+  - {name: rstar-code-instr11-lr5e-6, dataset: code-rstar-instr11, lr: 5.0e-6, checkpoints: [64, 128, 256]}
+  - {name: rstar-code-instr11-lr2e-6, dataset: code-rstar-instr11, lr: 2.0e-6, checkpoints: [64, 128, 256]}
+  - {name: rstar-code-instr11-lr1e-6, dataset: code-rstar-instr11, lr: 1.0e-6, checkpoints: [64, 128, 256]}
+  - {name: rstar-code-instr11-lr5e-7, dataset: code-rstar-instr11, lr: 5.0e-7, checkpoints: [64, 128, 256]}
+  - {name: rstar-code-instr12-lr5e-6, dataset: code-rstar-code-instr12, lr: 5.0e-6, checkpoints: [64, 128, 256]}
+  - {name: rstar-code-instr12-lr2e-6, dataset: code-rstar-code-instr12, lr: 2.0e-6, checkpoints: [64, 128, 256]}

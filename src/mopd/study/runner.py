@@ -104,7 +104,7 @@ def run(study_path):
             deps = [f"train:{name}"]
         for suite in r["evals"]:
             e = reg["evals"][suite]
-            for step in study.get("checkpoints") or [r["config"]["steps"]]:
+            for step in r["fields"].get("checkpoints") or study.get("checkpoints") or [r["config"]["steps"]]:
                 ck = f"checkpoint-{step:04d}"
                 for job in jobs.eval_jobs(f"eval:{name}:{suite}:{step}", out=run_dir / "evaluations" / ck / e["protocol_id"],
                                           data=resolve.abs_path(e["data"]), protocol_id=e["protocol_id"],

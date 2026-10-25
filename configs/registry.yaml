@@ -35,6 +35,55 @@ data:
       sft_max_seq_len: 10240
       micro_batch_size: 4
       micro_batch_tokens: 16384
+  code-oci:
+    train: data/recipes/oci/train.jsonl
+    holdout:
+    - data/recipes/oci/dev.jsonl
+    train_settings:
+      sft_max_seq_len: 10240
+      micro_batch_size: 4
+  code-oci-final:
+    train: data/recipes/oci-final/train.jsonl
+    holdout:
+    - data/recipes/oci-final/dev.jsonl
+    train_settings:
+      sft_max_seq_len: 10240
+      micro_batch_size: 4
+  code-oci-v2:
+    train: data/recipes/oci-v2/train.jsonl
+    holdout:
+    - data/recipes/oci-v2/dev.jsonl
+    train_settings:
+      sft_max_seq_len: 10240
+      micro_batch_size: 4
+  code-rstar-code:
+    train: data/recipes/rstar-code/train.jsonl
+    holdout:
+    - data/recipes/rstar-code/dev.jsonl
+    train_settings:
+      sft_max_seq_len: 10240
+      micro_batch_size: 4
+  code-rstar-code-instr31:
+    train: data/recipes/rstar-code-instr31/train.jsonl
+    holdout:
+    - data/recipes/rstar-code-instr31/dev.jsonl
+    train_settings:
+      sft_max_seq_len: 10240
+      micro_batch_size: 4
+  code-rstar-code-instr12:
+    train: data/recipes/rstar-code-instr12/train.jsonl
+    holdout:
+    - data/recipes/rstar-code-instr12/dev.jsonl
+    train_settings:
+      sft_max_seq_len: 10240
+      micro_batch_size: 4
+  code-rstar-code-instr13:
+    train: data/recipes/rstar-code-instr13/train.jsonl
+    holdout:
+    - data/recipes/rstar-code-instr13/dev.jsonl
+    train_settings:
+      sft_max_seq_len: 10240
+      micro_batch_size: 4
 evals:
   unified-v3:
     data: data/full_eval/unified-v3/all.jsonl
@@ -64,3 +113,17 @@ pins:
   data/recipes/rstar-code-instr11-think/dev.jsonl: 52a83e8ac5fe515b61785e97f3aad281e1ccede1b8dce235cb0dd643c2d7a727
   data/recipes/oci-think-instr11/train.jsonl: e387360df1883d3fdda82bbe077d04758bf0e416e29adf2f56ccbad6e3486788
   data/recipes/oci-think-instr11/dev.jsonl: 74104b89780c9c39bebb69cd6f10cf5776487ec0073123f434b4275eedf7e037
+  data/recipes/oci/train.jsonl: 6fb804464c8dee541a64c34b5bd1f6cdc67c2c3a1c67fb8f344e731c0b7381de
+  data/recipes/oci/dev.jsonl: 6207eca7fa0ddfd4f0fb679f8808104e71cede360473367bcfc877d0a24dc40a
+  data/recipes/oci-final/train.jsonl: 282dd2fa14f351f52d9d9439e5c57e0d5f42206fd6b18e80daced82cdee21575
+  data/recipes/oci-final/dev.jsonl: 464e536dcef7ec1d12e336155571d402431357a7ae0aba6c54bcfd5791b1e97f
+  data/recipes/oci-v2/train.jsonl: 0a835af1693834a297131c7893dd487886b626da262ba3019fbf8121ef129ac1
+  data/recipes/oci-v2/dev.jsonl: 2402ca599593bea9bf1da5cf6eda0b2db938aee569c46f9811078f7c373d5129
+  data/recipes/rstar-code/train.jsonl: 2c6fd9d4ab72e8ff5d39a1843d340c83261187f8be50a40d721f5e5f99513ea1
+  data/recipes/rstar-code/dev.jsonl: 3530c57377f9e10f0e592e4f96bcf4eb6ecf6cb3c7c8f900d667a6038d0d0981
+  data/recipes/rstar-code-instr31/train.jsonl: 1d1066dda844a21b45722d21efba2d4e4319dce32cde91a0fb556de811f28b29
+  data/recipes/rstar-code-instr31/dev.jsonl: 20394a5d4c8d0085efbda2f6302f482d374397895649a08c81d8af27e7aa50cb
+  data/recipes/rstar-code-instr12/train.jsonl: 34314cc1ee21bd68736d2c29f98998060a3f27470be10ceb003d1c2f665107e4
+  data/recipes/rstar-code-instr12/dev.jsonl: cb7eb1d26e346e8e7bbab1db768e6cc4a5f4c412012db6645e45c9aa1c557b55
+  data/recipes/rstar-code-instr13/train.jsonl: 433f4751ed55e7c99619f9285118d20d3aee91b83e024532c8831f0de6f95540
+  data/recipes/rstar-code-instr13/dev.jsonl: a67b389e442e9c4a6c3bd178d48ba02701629eb447b2fe9fe9a72d68e22b4c22
