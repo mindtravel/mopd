@@ -17,7 +17,7 @@ def stream_feed(engine, params, adapter, feed, on_finish):
     Returns counters for mopd.profiling.model.infer_utilization: engine steps, generated and
     prefilled tokens, and the attention context read while decoding (prompt p, answer g:
     p*g + g*(g+1)/2 per request). Integer additions per step: no measurable cost."""
-    keys, unfinished, closed = {}, 0, False
+    keys, unfinished, closed, added = {}, 0, False, 0
     counters = {"steps": 0, "generated": 0, "prefilled": 0, "context_tokens": 0}
     while True:
         if not closed:
@@ -25,16 +25,12 @@ def stream_feed(engine, params, adapter, feed, on_finish):
             if new is None:
                 closed = True
             elif new:
-                first = engine.request_counter.counter
-                prompts = [p for _, p in new]
-                engine._validate_and_add_requests(
-                    prompts=prompts,
-                    params=params,
-                    use_tqdm=False,
-                    lora_request=engine._get_modality_specific_lora_reqs(prompts, adapter),
-                    priority=None,
-                )
-                keys.update({str(first + i): k for i, (k, _) in enumerate(new)})
+                # LLMEngine.add_request with our own ids: the engine-level API, stable across vLLM
+                # 0.10 -> 0.30 (LLM's private _validate_and_add_requests is gone in 0.30)
+                for k, prompt in new:
+                    rid = f"s{added}"
+                    keys[engine.llm_engine.add_request(rid, prompt, params, lora_request=adapter) or rid] = k
+                    added += 1
                 unfinished += len(new)
         if unfinished == 0:
             if closed:
