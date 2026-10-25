@@ -71,12 +71,13 @@ def eval_jobs(job_id, *, out, data, protocol_id, max_new_tokens, log, deps=(), a
 
 
 def training_resources(config):
-    """GPU request and gate for a training job: a sharded (full-parameter) student needs at least
-    4 GPUs and a collective-bandwidth check first; a LoRA student runs on any GPU count."""
+    """GPU request and gate for a training job: a sharded (full-parameter) student runs on
+    paths.TRAIN_GPUS (4 GPUs, leaving the rest to evaluations) after a collective-bandwidth check;
+    a LoRA student runs on any one GPU."""
     from mopd.students.registry import is_sharded  # deferred: orchestrators should not import torch
 
     if is_sharded(config):
-        return {"gpus": {"min": 4}, "gate": "collectives"}
+        return {"gpus": list(paths.TRAIN_GPUS), "gate": "collectives"}
     return {"gpus": {"min": 1}, "gate": None}
 
 

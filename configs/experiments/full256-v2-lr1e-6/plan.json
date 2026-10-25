@@ -32,9 +32,7 @@
         0,
         1,
         2,
-        3,
-        4,
-        5
+        3
       ],
       "deps": [],
       "config": "configs/experiments/full256-v2-lr1e-6/expert-c.json"
@@ -76,9 +74,7 @@
         0,
         1,
         2,
-        3,
-        4,
-        5
+        3
       ],
       "deps": [],
       "config": "configs/experiments/full256-v2-lr1e-6/expert-m.json"
@@ -120,9 +116,7 @@
         0,
         1,
         2,
-        3,
-        4,
-        5
+        3
       ],
       "deps": [],
       "config": "configs/experiments/full256-v2-lr1e-6/expert-i.json"

@@ -113,7 +113,8 @@ def generate(spec_path):
                 {
                     "id": f"train:{name}",
                     "kind": "train_sft",
-                    "gpus": list(spec["gpus"]) if full else 1,
+                    # full-parameter training on paths.TRAIN_GPUS: the spec's other GPUs stay free for evaluations
+                    "gpus": [g for g in spec["gpus"] if g in paths.TRAIN_GPUS] if full else 1,
                     "deps": [],
                     "config": f"configs/experiments/{spec['name']}/{name}.json",
                 }

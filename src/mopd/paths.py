@@ -17,4 +17,7 @@ GPU_LEASES = Path("/dev/shm/mopd-gpu-leases")  # cross-process GPU claims (runti
 # each, every job running all its benchmarks on one engine. Training, sweeps, queues and evals never
 # get them (runtime.scheduler.usable_gpus filters them out).
 SERVICE_GPUS = (6, 7)
+# Full-parameter (sharded) training runs on exactly these; GPUs 4-5 stay free for evaluations, which
+# otherwise wait hours behind back-to-back trainings that would take every free GPU.
+TRAIN_GPUS = (0, 1, 2, 3)
 RESERVED_GPUS = frozenset(SERVICE_GPUS)
