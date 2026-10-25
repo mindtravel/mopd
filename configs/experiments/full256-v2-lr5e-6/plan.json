@@ -1,0 +1,161 @@
+{
+  "experiment": {
+    "name": "full256-v2-lr5e-6",
+    "arm": null,
+    "spec_path": "/ssd/lzx/mopd/configs/experiments/full256-v2-lr5e-6.json",
+    "spec_sha256": "472e823d9cbfda6a962257d9d016e082872de641e32fc9f67548ac0acf5e10d6"
+  },
+  "evaluation": {
+    "protocol_id": "unified-v3-plainqa-greedy8192",
+    "data": "/ssd/lzx/mopd/data/full_eval/unified-v3/all.jsonl",
+    "checkpoints": [
+      64,
+      128,
+      256
+    ],
+    "max_new_tokens": 8192
+  },
+  "gpus": [
+    0,
+    1,
+    2,
+    3,
+    4,
+    5
+  ],
+  "student": "/ssd/lzx/mopd/models/Qwen3-4B-Base",
+  "jobs": [
+    {
+      "id": "train:expert-c",
+      "kind": "train_sft",
+      "gpus": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5
+      ],
+      "deps": [],
+      "config": "configs/experiments/full256-v2-lr5e-6/expert-c.json"
+    },
+    {
+      "id": "eval:expert-c:64",
+      "kind": "eval_checkpoint",
+      "gpus": 1,
+      "deps": [
+        "train:expert-c"
+      ],
+      "model_version": "/ssd/lzx/mopd/runs/20261025-lrscan-5e-6-expert-c/model-version.json",
+      "checkpoint": "checkpoint-0064"
+    },
+    {
+      "id": "eval:expert-c:128",
+      "kind": "eval_checkpoint",
+      "gpus": 1,
+      "deps": [
+        "train:expert-c"
+      ],
+      "model_version": "/ssd/lzx/mopd/runs/20261025-lrscan-5e-6-expert-c/model-version.json",
+      "checkpoint": "checkpoint-0128"
+    },
+    {
+      "id": "eval:expert-c:256",
+      "kind": "eval_checkpoint",
+      "gpus": 1,
+      "deps": [
+        "train:expert-c"
+      ],
+      "model_version": "/ssd/lzx/mopd/runs/20261025-lrscan-5e-6-expert-c/model-version.json",
+      "checkpoint": "checkpoint-0256"
+    },
+    {
+      "id": "train:expert-m",
+      "kind": "train_sft",
+      "gpus": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5
+      ],
+      "deps": [],
+      "config": "configs/experiments/full256-v2-lr5e-6/expert-m.json"
+    },
+    {
+      "id": "eval:expert-m:64",
+      "kind": "eval_checkpoint",
+      "gpus": 1,
+      "deps": [
+        "train:expert-m"
+      ],
+      "model_version": "/ssd/lzx/mopd/runs/20261025-lrscan-5e-6-expert-m/model-version.json",
+      "checkpoint": "checkpoint-0064"
+    },
+    {
+      "id": "eval:expert-m:128",
+      "kind": "eval_checkpoint",
+      "gpus": 1,
+      "deps": [
+        "train:expert-m"
+      ],
+      "model_version": "/ssd/lzx/mopd/runs/20261025-lrscan-5e-6-expert-m/model-version.json",
+      "checkpoint": "checkpoint-0128"
+    },
+    {
+      "id": "eval:expert-m:256",
+      "kind": "eval_checkpoint",
+      "gpus": 1,
+      "deps": [
+        "train:expert-m"
+      ],
+      "model_version": "/ssd/lzx/mopd/runs/20261025-lrscan-5e-6-expert-m/model-version.json",
+      "checkpoint": "checkpoint-0256"
+    },
+    {
+      "id": "train:expert-i",
+      "kind": "train_sft",
+      "gpus": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5
+      ],
+      "deps": [],
+      "config": "configs/experiments/full256-v2-lr5e-6/expert-i.json"
+    },
+    {
+      "id": "eval:expert-i:64",
+      "kind": "eval_checkpoint",
+      "gpus": 1,
+      "deps": [
+        "train:expert-i"
+      ],
+      "model_version": "/ssd/lzx/mopd/runs/20261025-lrscan-5e-6-expert-i/model-version.json",
+      "checkpoint": "checkpoint-0064"
+    },
+    {
+      "id": "eval:expert-i:128",
+      "kind": "eval_checkpoint",
+      "gpus": 1,
+      "deps": [
+        "train:expert-i"
+      ],
+      "model_version": "/ssd/lzx/mopd/runs/20261025-lrscan-5e-6-expert-i/model-version.json",
+      "checkpoint": "checkpoint-0128"
+    },
+    {
+      "id": "eval:expert-i:256",
+      "kind": "eval_checkpoint",
+      "gpus": 1,
+      "deps": [
+        "train:expert-i"
+      ],
+      "model_version": "/ssd/lzx/mopd/runs/20261025-lrscan-5e-6-expert-i/model-version.json",
+      "checkpoint": "checkpoint-0256"
+    }
+  ]
+}

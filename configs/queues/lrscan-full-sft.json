@@ -1,0 +1,226 @@
+{
+ "name": "lrscan-full-sft",
+ "description": "全参 SFT lr 扫描（5e-7 / 1e-6 / 2e-6 / 5e-6 / 1e-5 × 数学、指令、代码专家），其余控制量与 full256-v2 相同；2e-6 = full256-v2，数学/指令 1e-5 = full256。代码专家另评 lcb-dev-v3。最后接 code-think-v1 的低 lr 变体。",
+ "steps": [
+  {
+   "id": "v2-expert-mi",
+   "kind": "experiment",
+   "deps": [],
+   "plan": "configs/experiments/full256-v2/plan.json",
+   "jobs": [
+    "train:expert-m",
+    "eval:expert-m:",
+    "train:expert-i",
+    "eval:expert-i:"
+   ]
+  },
+  {
+   "id": "lr5e-7",
+   "kind": "experiment",
+   "deps": [],
+   "plan": "configs/experiments/full256-v2-lr5e-7/plan.json",
+   "jobs": [
+    "train:",
+    "eval:"
+   ]
+  },
+  {
+   "id": "lr5e-7-c-lcbdev-64",
+   "kind": "eval",
+   "deps": [
+    "lr5e-7"
+   ],
+   "model_version": "/ssd/lzx/mopd/runs/20261025-lrscan-5e-7-expert-c/model-version.json",
+   "checkpoint": "checkpoint-0064",
+   "data": "/ssd/lzx/mopd/data/full_eval/lcb-dev-v3/lcbdev.jsonl",
+   "protocol_id": "lcbdev-v3-greedy8192",
+   "max_new_tokens": 8192,
+   "out": "/ssd/lzx/mopd/runs/20261025-lrscan-5e-7-expert-c/evaluations/checkpoint-0064/lcbdev-v3-greedy8192"
+  },
+  {
+   "id": "lr5e-7-c-lcbdev-128",
+   "kind": "eval",
+   "deps": [
+    "lr5e-7"
+   ],
+   "model_version": "/ssd/lzx/mopd/runs/20261025-lrscan-5e-7-expert-c/model-version.json",
+   "checkpoint": "checkpoint-0128",
+   "data": "/ssd/lzx/mopd/data/full_eval/lcb-dev-v3/lcbdev.jsonl",
+   "protocol_id": "lcbdev-v3-greedy8192",
+   "max_new_tokens": 8192,
+   "out": "/ssd/lzx/mopd/runs/20261025-lrscan-5e-7-expert-c/evaluations/checkpoint-0128/lcbdev-v3-greedy8192"
+  },
+  {
+   "id": "lr5e-7-c-lcbdev-256",
+   "kind": "eval",
+   "deps": [
+    "lr5e-7"
+   ],
+   "model_version": "/ssd/lzx/mopd/runs/20261025-lrscan-5e-7-expert-c/model-version.json",
+   "checkpoint": "checkpoint-0256",
+   "data": "/ssd/lzx/mopd/data/full_eval/lcb-dev-v3/lcbdev.jsonl",
+   "protocol_id": "lcbdev-v3-greedy8192",
+   "max_new_tokens": 8192,
+   "out": "/ssd/lzx/mopd/runs/20261025-lrscan-5e-7-expert-c/evaluations/checkpoint-0256/lcbdev-v3-greedy8192"
+  },
+  {
+   "id": "lr1e-6",
+   "kind": "experiment",
+   "deps": [],
+   "plan": "configs/experiments/full256-v2-lr1e-6/plan.json",
+   "jobs": [
+    "train:",
+    "eval:"
+   ]
+  },
+  {
+   "id": "lr1e-6-c-lcbdev-64",
+   "kind": "eval",
+   "deps": [
+    "lr1e-6"
+   ],
+   "model_version": "/ssd/lzx/mopd/runs/20261025-lrscan-1e-6-expert-c/model-version.json",
+   "checkpoint": "checkpoint-0064",
+   "data": "/ssd/lzx/mopd/data/full_eval/lcb-dev-v3/lcbdev.jsonl",
+   "protocol_id": "lcbdev-v3-greedy8192",
+   "max_new_tokens": 8192,
+   "out": "/ssd/lzx/mopd/runs/20261025-lrscan-1e-6-expert-c/evaluations/checkpoint-0064/lcbdev-v3-greedy8192"
+  },
+  {
+   "id": "lr1e-6-c-lcbdev-128",
+   "kind": "eval",
+   "deps": [
+    "lr1e-6"
+   ],
+   "model_version": "/ssd/lzx/mopd/runs/20261025-lrscan-1e-6-expert-c/model-version.json",
+   "checkpoint": "checkpoint-0128",
+   "data": "/ssd/lzx/mopd/data/full_eval/lcb-dev-v3/lcbdev.jsonl",
+   "protocol_id": "lcbdev-v3-greedy8192",
+   "max_new_tokens": 8192,
+   "out": "/ssd/lzx/mopd/runs/20261025-lrscan-1e-6-expert-c/evaluations/checkpoint-0128/lcbdev-v3-greedy8192"
+  },
+  {
+   "id": "lr1e-6-c-lcbdev-256",
+   "kind": "eval",
+   "deps": [
+    "lr1e-6"
+   ],
+   "model_version": "/ssd/lzx/mopd/runs/20261025-lrscan-1e-6-expert-c/model-version.json",
+   "checkpoint": "checkpoint-0256",
+   "data": "/ssd/lzx/mopd/data/full_eval/lcb-dev-v3/lcbdev.jsonl",
+   "protocol_id": "lcbdev-v3-greedy8192",
+   "max_new_tokens": 8192,
+   "out": "/ssd/lzx/mopd/runs/20261025-lrscan-1e-6-expert-c/evaluations/checkpoint-0256/lcbdev-v3-greedy8192"
+  },
+  {
+   "id": "lr5e-6",
+   "kind": "experiment",
+   "deps": [],
+   "plan": "configs/experiments/full256-v2-lr5e-6/plan.json",
+   "jobs": [
+    "train:",
+    "eval:"
+   ]
+  },
+  {
+   "id": "lr5e-6-c-lcbdev-64",
+   "kind": "eval",
+   "deps": [
+    "lr5e-6"
+   ],
+   "model_version": "/ssd/lzx/mopd/runs/20261025-lrscan-5e-6-expert-c/model-version.json",
+   "checkpoint": "checkpoint-0064",
+   "data": "/ssd/lzx/mopd/data/full_eval/lcb-dev-v3/lcbdev.jsonl",
+   "protocol_id": "lcbdev-v3-greedy8192",
+   "max_new_tokens": 8192,
+   "out": "/ssd/lzx/mopd/runs/20261025-lrscan-5e-6-expert-c/evaluations/checkpoint-0064/lcbdev-v3-greedy8192"
+  },
+  {
+   "id": "lr5e-6-c-lcbdev-128",
+   "kind": "eval",
+   "deps": [
+    "lr5e-6"
+   ],
+   "model_version": "/ssd/lzx/mopd/runs/20261025-lrscan-5e-6-expert-c/model-version.json",
+   "checkpoint": "checkpoint-0128",
+   "data": "/ssd/lzx/mopd/data/full_eval/lcb-dev-v3/lcbdev.jsonl",
+   "protocol_id": "lcbdev-v3-greedy8192",
+   "max_new_tokens": 8192,
+   "out": "/ssd/lzx/mopd/runs/20261025-lrscan-5e-6-expert-c/evaluations/checkpoint-0128/lcbdev-v3-greedy8192"
+  },
+  {
+   "id": "lr5e-6-c-lcbdev-256",
+   "kind": "eval",
+   "deps": [
+    "lr5e-6"
+   ],
+   "model_version": "/ssd/lzx/mopd/runs/20261025-lrscan-5e-6-expert-c/model-version.json",
+   "checkpoint": "checkpoint-0256",
+   "data": "/ssd/lzx/mopd/data/full_eval/lcb-dev-v3/lcbdev.jsonl",
+   "protocol_id": "lcbdev-v3-greedy8192",
+   "max_new_tokens": 8192,
+   "out": "/ssd/lzx/mopd/runs/20261025-lrscan-5e-6-expert-c/evaluations/checkpoint-0256/lcbdev-v3-greedy8192"
+  },
+  {
+   "id": "lr1e-5",
+   "kind": "experiment",
+   "deps": [],
+   "plan": "configs/experiments/full256-v2-lr1e-5/plan.json",
+   "jobs": [
+    "train:",
+    "eval:"
+   ]
+  },
+  {
+   "id": "lr1e-5-c-lcbdev-64",
+   "kind": "eval",
+   "deps": [
+    "lr1e-5"
+   ],
+   "model_version": "/ssd/lzx/mopd/runs/20261025-lrscan-1e-5-expert-c/model-version.json",
+   "checkpoint": "checkpoint-0064",
+   "data": "/ssd/lzx/mopd/data/full_eval/lcb-dev-v3/lcbdev.jsonl",
+   "protocol_id": "lcbdev-v3-greedy8192",
+   "max_new_tokens": 8192,
+   "out": "/ssd/lzx/mopd/runs/20261025-lrscan-1e-5-expert-c/evaluations/checkpoint-0064/lcbdev-v3-greedy8192"
+  },
+  {
+   "id": "lr1e-5-c-lcbdev-128",
+   "kind": "eval",
+   "deps": [
+    "lr1e-5"
+   ],
+   "model_version": "/ssd/lzx/mopd/runs/20261025-lrscan-1e-5-expert-c/model-version.json",
+   "checkpoint": "checkpoint-0128",
+   "data": "/ssd/lzx/mopd/data/full_eval/lcb-dev-v3/lcbdev.jsonl",
+   "protocol_id": "lcbdev-v3-greedy8192",
+   "max_new_tokens": 8192,
+   "out": "/ssd/lzx/mopd/runs/20261025-lrscan-1e-5-expert-c/evaluations/checkpoint-0128/lcbdev-v3-greedy8192"
+  },
+  {
+   "id": "lr1e-5-c-lcbdev-256",
+   "kind": "eval",
+   "deps": [
+    "lr1e-5"
+   ],
+   "model_version": "/ssd/lzx/mopd/runs/20261025-lrscan-1e-5-expert-c/model-version.json",
+   "checkpoint": "checkpoint-0256",
+   "data": "/ssd/lzx/mopd/data/full_eval/lcb-dev-v3/lcbdev.jsonl",
+   "protocol_id": "lcbdev-v3-greedy8192",
+   "max_new_tokens": 8192,
+   "out": "/ssd/lzx/mopd/runs/20261025-lrscan-1e-5-expert-c/evaluations/checkpoint-0256/lcbdev-v3-greedy8192"
+  },
+  {
+   "id": "code-think-lowlr",
+   "kind": "sweep",
+   "deps": [
+    "v2-expert-mi",
+    "lr5e-7",
+    "lr1e-6",
+    "lr5e-6",
+    "lr1e-5"
+   ],
+   "spec": "configs/sweeps/code-think-v1.json"
+  }
+ ]
+}

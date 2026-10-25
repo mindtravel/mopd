@@ -1,0 +1,103 @@
+{
+  "name": "full256-v2-lr1e-5",
+  "description": "full256-v2 的 lr 扫描点 lr=1e-5：除 lr 外与 full256-v2 完全相同（数据、seed、步数、每步样本、评测），只训三个领域专家，用于确认全参 SFT 默认 lr（docs/training/learning-rate.md）。",
+  "output_prefix": "/ssd/lzx/mopd/runs/20261025-lrscan-1e-5-",
+  "expert_dir_prefix": "/ssd/lzx/mopd/models/experts/lrscan-1e-5-",
+  "merge_dir_prefix": "/ssd/lzx/mopd/models/merged/lrscan-1e-5-",
+  "controls": {
+    "student": "/ssd/lzx/mopd/models/Qwen3-4B-Base",
+    "student_backend": "hf_full",
+    "student_prompt_format": "plain_qa_v1",
+    "seed": 20261014,
+    "steps": 256,
+    "samples_per_step": 32,
+    "lr_schedule": {
+      "type": "constant"
+    },
+    "micro_batch_size": 4,
+    "save_every": 64,
+    "sft_max_seq_len": 10240,
+    "fsdp": {
+      "reshard_after_forward": true
+    },
+    "lr": 1e-05,
+    "lr_reason": "lr 扫描点 1e-5（默认 2e-6 见 full256-v2）"
+  },
+  "quotas": {
+    "1": [
+      32
+    ],
+    "2": [
+      16,
+      16
+    ],
+    "3": [
+      11,
+      11,
+      10
+    ]
+  },
+  "domain_order": [
+    "math",
+    "instruction",
+    "code"
+  ],
+  "pools": {
+    "math": {
+      "train_file": "/ssd/lzx/mopd/data/sft/numina_v3/train.jsonl",
+      "holdout_files": [
+        "/ssd/lzx/mopd/data/math/eval.jsonl",
+        "/ssd/lzx/mopd/data/full_eval/unified-v3/all.jsonl"
+      ]
+    },
+    "instruction": {
+      "train_file": "/ssd/lzx/mopd/data/sft/smol_constraints/train.jsonl",
+      "holdout_files": [
+        "/ssd/lzx/mopd/data/sft/smol_constraints/dev.jsonl",
+        "/ssd/lzx/mopd/data/full_eval/unified-v3/all.jsonl"
+      ]
+    },
+    "code": {
+      "train_file": "/ssd/lzx/mopd/data/recipes/rstar-code-instr11/train.jsonl",
+      "holdout_files": [
+        "/ssd/lzx/mopd/data/recipes/rstar-code-instr11/dev.jsonl",
+        "/ssd/lzx/mopd/data/full_eval/unified-v3/all.jsonl"
+      ]
+    }
+  },
+  "data_pins": {
+    "/ssd/lzx/mopd/models/Qwen3-4B-Base/model-00001-of-00003.safetensors": "4c807e2503d68ae373d508689d00a41f4b33f33c2536da97ab81a20caddc1241",
+    "/ssd/lzx/mopd/models/Qwen3-4B-Base/model-00002-of-00003.safetensors": "f4707585548b2fc75a6b1d732e8465c62040a8699903c32850781beeb9b27826",
+    "/ssd/lzx/mopd/models/Qwen3-4B-Base/model-00003-of-00003.safetensors": "c7b1aa8fb672de2e00423c99876926022e50b18d4f0d140670788510a27f9965",
+    "/ssd/lzx/mopd/data/full_eval/unified-v3/all.jsonl": "044e964eddfb05b20962a29fc6478d62c386e6bb62658a429ea4bf3a2a54b9d8",
+    "/ssd/lzx/mopd/data/recipes/rstar-code-instr11/train.jsonl": "866792cb8eed1a80248414aa7a5c8abbe3f1e426f0a6e992b9ce4e08b91d1fe8",
+    "/ssd/lzx/mopd/data/recipes/rstar-code-instr11/dev.jsonl": "aa385d24b1fb378ef6e3b3d033f3c237b8f69c420627e0f01b0f642b4e496971"
+  },
+  "evaluation": {
+    "protocol_id": "unified-v3-plainqa-greedy8192",
+    "data": "/ssd/lzx/mopd/data/full_eval/unified-v3/all.jsonl",
+    "checkpoints": [
+      64,
+      128,
+      256
+    ],
+    "max_new_tokens": 8192
+  },
+  "gpus": [
+    0,
+    1,
+    2,
+    3,
+    4,
+    5
+  ],
+  "arms": [
+    {
+      "name": "expert-c",
+      "method": "sft",
+      "domains": [
+        "code"
+      ]
+    }
+  ]
+}

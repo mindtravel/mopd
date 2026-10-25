@@ -1,0 +1,45 @@
+{
+  "student": "/ssd/lzx/mopd/models/Qwen3-4B-Base",
+  "student_backend": "hf_full",
+  "student_prompt_format": "plain_qa_v1",
+  "seed": 20261014,
+  "steps": 256,
+  "lr": 1e-05,
+  "lr_schedule": {
+    "type": "constant"
+  },
+  "micro_batch_size": 4,
+  "save_every": 64,
+  "output": "/ssd/lzx/mopd/runs/20261025-lrscan-1e-5-expert-c",
+  "data_pins": {
+    "/ssd/lzx/mopd/models/Qwen3-4B-Base/model-00001-of-00003.safetensors": "4c807e2503d68ae373d508689d00a41f4b33f33c2536da97ab81a20caddc1241",
+    "/ssd/lzx/mopd/models/Qwen3-4B-Base/model-00002-of-00003.safetensors": "f4707585548b2fc75a6b1d732e8465c62040a8699903c32850781beeb9b27826",
+    "/ssd/lzx/mopd/models/Qwen3-4B-Base/model-00003-of-00003.safetensors": "c7b1aa8fb672de2e00423c99876926022e50b18d4f0d140670788510a27f9965",
+    "/ssd/lzx/mopd/data/full_eval/unified-v3/all.jsonl": "044e964eddfb05b20962a29fc6478d62c386e6bb62658a429ea4bf3a2a54b9d8",
+    "/ssd/lzx/mopd/data/recipes/rstar-code-instr11/train.jsonl": "866792cb8eed1a80248414aa7a5c8abbe3f1e426f0a6e992b9ce4e08b91d1fe8",
+    "/ssd/lzx/mopd/data/recipes/rstar-code-instr11/dev.jsonl": "aa385d24b1fb378ef6e3b3d033f3c237b8f69c420627e0f01b0f642b4e496971"
+  },
+  "experiment": {
+    "name": "full256-v2-lr1e-5",
+    "arm": "expert-c",
+    "spec_path": "/ssd/lzx/mopd/configs/experiments/full256-v2-lr1e-5.json",
+    "spec_sha256": "6162a62a89c1bb01d12665fe1a0816fe132da218a5fb260cfb5d5981b350deec"
+  },
+  "fsdp": {
+    "reshard_after_forward": true
+  },
+  "training_method": "sft",
+  "student_device": "cuda:0",
+  "max_seq_len": 10240,
+  "domains": {
+    "code": {
+      "train_file": "/ssd/lzx/mopd/data/recipes/rstar-code-instr11/train.jsonl",
+      "holdout_files": [
+        "/ssd/lzx/mopd/data/recipes/rstar-code-instr11/dev.jsonl",
+        "/ssd/lzx/mopd/data/full_eval/unified-v3/all.jsonl"
+      ],
+      "count": 32,
+      "weight": 1.0
+    }
+  }
+}
