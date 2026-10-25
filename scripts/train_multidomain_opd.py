@@ -35,6 +35,15 @@ def sync(c, main=True):
         torch.cuda.synchronize(device)
 
 
+def load_replay(path):
+    """{step: {row id: answer token ids}} from a run's rollouts.jsonl."""
+    out = {}
+    for line in Path(path).read_text().splitlines():
+        r = json.loads(line)
+        out.setdefault(r["step"], {})[r["id"]] = r["response_ids"]
+    return out
+
+
 def plan(c):
     return plan_domains(c)
 
@@ -130,12 +139,26 @@ def run(c, resume=None):
                 factories["vllm"] = VllmRollouts
             if backend not in factories and backend != "hf":
                 raise ValueError("Unknown rollout_backend: " + str(backend))
-            if main and backend != "hf" and c.get("rollout_devices"):
+            if main and backend != "hf" and c.get("rollout_devices") and not c.get("rollout_replay"):
                 replicas = factories[backend](c, student)
             publisher = Publisher(c, out / "vllm_runtime", stok, main) if backend == "vllm" else None
 
+            replay = load_replay(c["rollout_replay"]) if c.get("rollout_replay") else None
+
             def rollout_stream(policy, rows, step):
-                """One step's trajectories as a stream (vLLM/replica workers, or the student itself)."""
+                """One step's trajectories as a stream (vLLM/replica workers, or the student itself).
+                rollout_replay: another run's recorded answers for these rows instead (benchmarks:
+                two configurations train on identical samples, so their timings compare)."""
+                if replay is not None:
+                    from mopd.data.domains import student_prompt
+
+                    answers = replay.get(step)
+                    if answers is None or any(r["id"] not in answers for r in rows):
+                        raise ValueError(f"rollout_replay has no answers for every row of step {step}")
+                    return RolloutStream([
+                        {"index": i, "row": r, "answer": answers[r["id"]], "student_version": step - 1, "first_logprobs": None,
+                         "prefix": stok.encode(student_prompt(stok, r, c["student_prompt_format"]))}
+                        for i, r in enumerate(rows)])
                 if replicas:
                     return open_stream(replicas, policy, rows, step - 1, streaming=bool(c.get("rollout_streaming")))
                 trajectories, seconds = generate(
