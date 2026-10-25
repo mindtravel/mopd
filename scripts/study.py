@@ -48,8 +48,8 @@ def main():
         study, _, runs = runner.plan(a.study)
         print(f"study {study['study']}: {len(runs)} runs")
         for r in runs:
-            where = f"reuse {r['run_dir']}" if r["reused"] else "train"
-            print(f"  {r['name']:24s} {r['identity']}  {where:60s} evals {','.join(r['evals'])}")
+            where = f"merge of {len(r['merge'])} experts -> {r['run_dir']}" if "merge" in r else f"reuse {r['run_dir']}" if r["reused"] else "train"
+            print(f"  {r['name']:24s} {r['identity'] or '-':16s}  {where:60s} evals {','.join(r['evals'])}")
         return
     states = runner.run(a.study)
     failed = sorted(k for k, s in states.items() if s.get("state") in ("failed", "blocked"))

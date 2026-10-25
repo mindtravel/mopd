@@ -30,10 +30,15 @@ def finished_runs():
 
 
 def teacher_dirs(study, done):
-    """{domain: checkpoint directory} of a MOPD study's teachers: each names a run of another study,
-    found wherever its identity finished (so a reused older run is a valid teacher)."""
+    """{domain: checkpoint directory} of a MOPD study's teachers (resolve_refs)."""
+    return resolve_refs(study.get("teachers") or {}, done)
+
+
+def resolve_refs(refs, done):
+    """{domain: checkpoint directory} for {domain: {study, run, checkpoint}}: each names a run of a
+    study, found wherever its identity finished (so a reused older run is a valid reference)."""
     out = {}
-    for d, ref in (study.get("teachers") or {}).items():
+    for d, ref in refs.items():
         src_path = resolve.ROOT_CODE / "configs/studies" / f"{ref['study']}.yaml"
         src = spec.load(src_path)
         runs = dict(spec.expand(src))
@@ -58,6 +63,11 @@ def plan(study_path):
     runs = []
     for name, fields in spec.expand(study):
         evals = spec.evals_for(study, fields)
+        if fields.get("method") == "merge_linear":  # no training: a weighted average of finished experts
+            out = paths.ROOT / "models/merged/studies" / study["study"] / name
+            runs.append({"name": name, "fields": fields, "identity": None, "config": {"steps": None}, "evals": evals,
+                         "run_dir": out, "reused": False, "merge": resolve_refs(fields["experts"], done)})
+            continue
         cfg = resolve.run_config(study, name, fields, evals, spec_path, spec_sha, reg, teachers)
         ident = resolve.identity(cfg)
         reused = done.get(ident)
@@ -75,6 +85,16 @@ def run(study_path):
         name, run_dir = r["name"], r["run_dir"]
         log = out / "logs" / f"{name}.log"
         deps = []
+        if "merge" in r:
+            deps = [_merge_job(sched, out, study, name, r["merge"], run_dir, log)]
+            for suite in r["evals"]:
+                e = reg["evals"][suite]
+                for job in jobs.eval_jobs(f"eval:{name}:{suite}", out=run_dir / "evaluations" / e["protocol_id"],
+                                          data=resolve.abs_path(e["data"]), protocol_id=e["protocol_id"],
+                                          max_new_tokens=e["max_new_tokens"], log=log, deps=deps, model=str(run_dir),
+                                          model_version_id=f"merge:{study['study']}/{name}"):
+                    sched.add(job)
+            continue
         if not r["reused"]:
             cfg_path = out / "configs" / f"{name}.json"
             cfg_path.write_text(json.dumps(r["config"], indent=2, ensure_ascii=False) + "\n")
@@ -112,6 +132,27 @@ def run(study_path):
                                           model_version=str(run_dir / "model-version.json"), checkpoint=ck):
                     sched.add(job)
     return sched.run()  # final state by job id
+
+
+def _merge_job(sched, out, study, name, experts, merged, log):
+    """mergekit linear merge (normalized equal weights, bf16) of the experts into `merged`, finalized
+    against the base model; merge-source.json records the yaml and the expert directories."""
+    yaml_path = out / "configs" / f"{name}.yaml"
+    lines = [f"# study {study['study']} / {name}", "merge_method: linear", "models:"]
+    for d in sorted(experts):
+        lines += [f"  - model: {experts[d]}", "    parameters:", "      weight: 1.0"]
+    yaml_path.write_text("\n".join(lines + ["parameters:", "  normalize: true", "dtype: bfloat16"]) + "\n")
+    base = resolve.abs_path(resolve.registry()["models"][study["base"].get("student", "qwen3-4b-base")]["path"])
+
+    def run(gpus):
+        jobs.shell([([str(paths.MERGEKIT), str(yaml_path), str(merged), "--cuda", "--lazy-unpickle"],
+                     {"CUDA_VISIBLE_DEVICES": str(gpus[0])}),
+                    ([str(paths.TRAIN_PY), "scripts/finalize_merged_model.py", "--base", base, str(merged)], {})], log)
+        (merged / "merge-source.json").write_text(json.dumps({"yaml": yaml_path.read_text(), "experts": {d: str(p) for d, p in experts.items()}}, indent=2))
+        (merged / ".finalized").write_text("ok")
+
+    sched.add({"id": f"merge:{name}", "gpus": {"min": 1, "max": 1}, "done": lambda: (merged / ".finalized").exists(), "run": run})
+    return f"merge:{name}"
 
 
 def _complete(run_dir):

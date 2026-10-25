@@ -59,8 +59,10 @@ def table(study, reg, runs):
                 if bases[suite]:
                     rows.append({"run": "baseline", "suite": suite, "checkpoint": "-", "overall": overall(bases[suite]),
                                  "benchmarks": by_benchmark(bases[suite]), "source": str(d.relative_to(paths.ROOT))})
-            for step in r["fields"].get("checkpoints") or study.get("checkpoints") or [r["config"]["steps"]]:
-                cs = cases(r["run_dir"] / "evaluations" / f"checkpoint-{step:04d}" / e["protocol_id"])
+            steps = ["-"] if "merge" in r else r["fields"].get("checkpoints") or study.get("checkpoints") or [r["config"]["steps"]]
+            for step in steps:
+                ev_dir = r["run_dir"] / "evaluations" / (e["protocol_id"] if step == "-" else f"checkpoint-{step:04d}/{e['protocol_id']}")
+                cs = cases(ev_dir)
                 if cs is None:
                     rows.append({"run": r["name"], "suite": suite, "checkpoint": step, "overall": None})
                     continue

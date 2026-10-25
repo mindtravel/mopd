@@ -1,0 +1,16 @@
+study: merge-v2
+description: >-
+  线性合并（等权，normalize）的 full-sft-lr 专家，对照 MOPD 和混合 SFT：数学+指令、数学+指令+代码，
+  都取 lr 2e-6（默认 lr）的第 256 步。
+base: {method: merge_linear}
+evals: [unified-v3]
+runs:
+  - name: merge-mi
+    experts:
+      math: {study: full-sft-lr, run: math-lr2e-06, checkpoint: 256}
+      instruction: {study: full-sft-lr, run: instruction-lr2e-06, checkpoint: 256}
+  - name: merge-mic
+    experts:
+      math: {study: full-sft-lr, run: math-lr2e-06, checkpoint: 256}
+      instruction: {study: full-sft-lr, run: instruction-lr2e-06, checkpoint: 256}
+      code: {study: full-sft-lr, run: code-lr2e-06, checkpoint: 256}
