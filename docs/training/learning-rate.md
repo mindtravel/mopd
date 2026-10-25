@@ -46,7 +46,7 @@
 
 ```bash
 cd /ssd/lzx/mopd && source scripts/env.sh
-mopd_train/bin/python scripts/report.py sweep configs/sweeps/code-full-v1.json --protocol lcbdev-v3-greedy8192
+mopd_train/bin/python scripts/study.py report configs/studies/code-full.yaml   # 同一版数据的运行；旧数据运行已归档
 ```
 
 ## 尚未覆盖的情况
