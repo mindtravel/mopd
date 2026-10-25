@@ -187,7 +187,7 @@ class Scheduler:
         job.setdefault("done", lambda: False)
         job.setdefault("gate", None)
         if isinstance(job["gpus"], list) and set(job["gpus"]) & paths.RESERVED_GPUS:
-            raise ValueError(f"{job['id']}: GPUs {sorted(set(job['gpus']) & paths.RESERVED_GPUS)} belong to the bench service")
+            raise ValueError(f"{job['id']}: GPUs {sorted(set(job['gpus']) & paths.RESERVED_GPUS)} are not ours to schedule (paths.GPU_ROLES)")
         self.jobs[job["id"]] = job
 
     # ------------------------------------------------------------ bookkeeping

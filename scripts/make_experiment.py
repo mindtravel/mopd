@@ -136,9 +136,12 @@ def generate(spec_path):
             doms = ordered(spec, arm["teachers"])
             # default layout from the GPU roles: student on the training GPUs, every teacher on the
             # first eval GPU, rollout engines on the other eval GPUs
-            ev_gpus = list(paths.EVAL_GPUS)
+            ev_gpus = [g for g in paths.EVAL_GPUS if g not in paths.TRAIN_GPUS]
+            if not arm.get("devices") and len(ev_gpus) < 2:
+                raise ValueError(f"{name}: MOPD needs teacher and rollout GPUs beside the training GPUs; "
+                                 f"paths.GPU_ROLES has {ev_gpus} -- give the arm explicit devices")
             dev = arm.get("devices") or {"student": list(paths.TRAIN_GPUS) if full else paths.TRAIN_GPUS[0],
-                                         "teachers": [ev_gpus[0]] * len(arm["teachers"]), "rollout": ev_gpus[1:] or ev_gpus}
+                                         "teachers": [ev_gpus[0]] * len(arm["teachers"]), "rollout": ev_gpus[1:]}
             # full: the student is one torchrun rank per GPU, devices["student"] = [0..n-1]
             students = dev["student"] if full else [dev["student"]]
             if full and students != list(range(len(students))):

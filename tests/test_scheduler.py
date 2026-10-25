@@ -130,7 +130,7 @@ class RoleTest(unittest.TestCase):
         from mopd.runtime.scheduler import GPUPool
 
         pool = GPUPool([0, 1, 2, 3, 4, 5])
-        self.assertEqual(pool.want("e", 1, None, within=(4, 5)), [4, 5])  # all idle GPUs, but only its role's
+        self.assertEqual(pool.want("e", 1, None, within=(4, 5)), [4, 5])  # all idle GPUs, but only the role's
         self.assertEqual(pool.want_exactly("t", [0, 1, 2, 3]), [0, 1, 2, 3])  # training still gets its four
 
 
