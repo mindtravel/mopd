@@ -58,7 +58,7 @@ def table(study, reg, runs):
                 bases[suite] = cases(d) if d else None
                 if bases[suite]:
                     rows.append({"run": "baseline", "suite": suite, "checkpoint": "-", "overall": overall(bases[suite]),
-                                 "benchmarks": by_benchmark(bases[suite])})
+                                 "benchmarks": by_benchmark(bases[suite]), "source": str(d.relative_to(paths.ROOT))})
             for step in r["fields"].get("checkpoints") or study.get("checkpoints") or [r["config"]["steps"]]:
                 cs = cases(r["run_dir"] / "evaluations" / f"checkpoint-{step:04d}" / e["protocol_id"])
                 if cs is None:
@@ -81,8 +81,9 @@ def markdown(rows):
     out = []
     for suite in dict.fromkeys(r["suite"] for r in rows):
         rs = [r for r in rows if r["suite"] == suite]
+        src = next((r["source"] for r in rs if r["run"] == "baseline"), None)
         benches = sorted({b for r in rs for b in r.get("benchmarks", {})})
-        out += [f"### {suite}", "", "| run | ckpt | all | Δbase | +/− vs base (p) | " + " | ".join(benches) + " |",
+        out += [f"### {suite}", "", *([f"baseline: `{src}` (one evaluation; serving is not bit-reproducible, so another run of the base differs slightly)", ""] if src else []), "| run | ckpt | all | Δbase | +/− vs base (p) | " + " | ".join(benches) + " |",
                 "|---|---|---|---|---|" + "---|" * len(benches)]
         for r in rs:
             if r["overall"] is None:
