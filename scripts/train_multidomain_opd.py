@@ -145,22 +145,24 @@ def run(c, resume=None):
 
             replay = load_replay(c["rollout_replay"]) if c.get("rollout_replay") else None
 
-            def rollout_stream(policy, rows, step):
-                """One step's trajectories as a stream (vLLM/replica workers, or the student itself).
+            def rollout_stream(policy, rows, step, version=None):
+                """Step `step`'s trajectories as a stream (vLLM/replica workers, or the student itself),
+                sampled by policy `version` (step - 1 when synchronous; older under rollout_async).
                 rollout_replay: another run's recorded answers for these rows instead (benchmarks:
                 two configurations train on identical samples, so their timings compare)."""
                 if replay is not None:
                     from mopd.data.domains import student_prompt
 
-                    answers = replay.get(step)
+                    answers = replay.get(step)  # by the step the rows belong to, not the policy version
                     if answers is None or any(r["id"] not in answers for r in rows):
                         raise ValueError(f"rollout_replay has no answers for every row of step {step}")
                     return RolloutStream([
-                        {"index": i, "row": r, "answer": answers[r["id"]], "student_version": step - 1, "first_logprobs": None,
+                        {"index": i, "row": r, "answer": answers[r["id"]], "student_version": step - 1 if version is None else version, "first_logprobs": None,
                          "prefix": stok.encode(student_prompt(stok, r, c["student_prompt_format"]))}
                         for i, r in enumerate(rows)])
                 if replicas:
-                    return open_stream(replicas, policy, rows, step - 1, streaming=bool(c.get("rollout_streaming")))
+                    return open_stream(replicas, policy, rows, step - 1 if version is None else version,
+                                       streaming=bool(c.get("rollout_streaming")))
                 trajectories, seconds = generate(
                     student,
                     stok,
@@ -253,7 +255,7 @@ def run(c, resume=None):
                     if version != pending[1]:
                         policy = publisher.publish(student, version)
                     publish_seconds = time.perf_counter() - mark
-                    pending = (Prefetched(rollout_stream(policy, batches[step], version + 1)) if main else None, version)
+                    pending = (Prefetched(rollout_stream(policy, batches[step], step + 1, version)) if main else None, version)
                 # profile_step: torch.profiler kernel breakdown (comm / matmul / attention / idle) of that
                 # step's student phase on rank 0 (profiling.training.torch_profile)
                 with torch_profile(main and c.get("profile_step") == step, out, step) as trace:
