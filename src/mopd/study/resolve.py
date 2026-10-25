@@ -73,7 +73,7 @@ def layout(n_domains, offload):
     """MOPD devices from the training GPUs (paths.GPU_ROLES): with offload the student takes two, the
     teachers share the student GPUs (their memory is free once the student state is in host
     memory), and every other training GPU runs a rollout engine."""
-    gpus = list(paths.TRAIN_GPUS)
+    gpus = list(range(len(paths.TRAIN_GPUS)))  # logical: the pool launches a job on CUDA_VISIBLE_DEVICES = its GPUs
     if not offload or len(gpus) < 3:
         raise ValueError("MOPD on the training GPUs needs fsdp.offload (student on 2 GPUs) and a third GPU for rollouts")
     student = gpus[:2]

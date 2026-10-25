@@ -1,7 +1,8 @@
 """Studies (mopd.study): show the runs a study expands to, run it, or pin registry files.
 
   python scripts/study.py show configs/studies/full-sft-lr.yaml   # runs, identities, reused runs (on the server)
-  python scripts/study.py run  configs/studies/full-sft-lr.yaml   # train what is missing, evaluate everything
+  python scripts/study.py submit configs/studies/full-sft-lr.yaml  # hand every job to the GPU pool (scripts/pool.py)
+  python scripts/study.py run  configs/studies/full-sft-lr.yaml   # legacy: an in-process scheduler
   python scripts/study.py report configs/studies/full-sft-lr.yaml  # scores per run/suite/checkpoint vs baseline
   python scripts/study.py pin                                     # fill missing registry pins (sha256 over ssh)
 """
@@ -16,7 +17,8 @@ from mopd.study import resolve, runner
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("cmd", choices=["show", "run", "report", "pin"])
+    ap.add_argument("cmd", choices=["show", "run", "submit", "report", "pin"])
+    ap.add_argument("--priority", type=int, default=0, help="submit: added to every job's priority")
     ap.add_argument("study", nargs="?")
     ap.add_argument("--host", default="para5090")
     a = ap.parse_args()
@@ -37,6 +39,13 @@ def main():
             head = text[: text.index("models:")]
             resolve.REGISTRY.write_text(head + yaml.safe_dump(reg, sort_keys=False, width=200))
         print(json.dumps({"pinned": len(missing)}))
+        return
+    if a.cmd == "submit":
+        from mopd.pool import store
+
+        specs = runner.pool_jobs(a.study, a.priority)
+        store.submit(specs)
+        print(json.dumps({"submitted": len(specs), "to": str(store.INBOX)}))
         return
     if a.cmd == "report":
         from mopd.study import report

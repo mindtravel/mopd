@@ -24,9 +24,17 @@ from mopd.training.distributed import engine_env
 from mopd.rollout.engine_worker import TAG
 
 
+def physical_gpu(d):
+    """The physical id of this process's GPU d: an engine subprocess must name the real GPU, since
+    CUDA_VISIBLE_DEVICES in its environment is read against all of the machine's GPUs."""
+    visible = os.environ.get("CUDA_VISIBLE_DEVICES")
+    return visible.split(",")[d] if visible else str(d)
+
+
 class EnginePool:
     def __init__(self, devices, engine, log_dir, cache_dir, python=None):
-        """devices: physical GPU ids; engine: engine_worker config (model, max_model_len, max_seqs,
+        """devices: GPU ids as this process sees them (logical under CUDA_VISIBLE_DEVICES, as the pool
+        launches every job); engine: engine_worker config (model, max_model_len, max_seqs,
         max_num_batched_tokens, memory, prefix_caching, max_lora_rank, seed)."""
         self.devices = [int(str(d).split(":")[-1]) for d in devices]
         log_dir, cache_dir = Path(log_dir), Path(cache_dir)
@@ -36,7 +44,7 @@ class EnginePool:
             for d in self.devices:
                 env = engine_env(
                     **compile_cache.isolated(cache_dir / f"gpu{d}"),
-                    CUDA_VISIBLE_DEVICES=str(d),
+                    CUDA_VISIBLE_DEVICES=physical_gpu(d),
                     PYTHONPATH=str(paths.ROOT / "src")
                     + (":" + os.environ["PYTHONPATH"] if os.environ.get("PYTHONPATH") else ""),
                 )

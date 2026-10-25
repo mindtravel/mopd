@@ -60,11 +60,13 @@ def main():
     ids = lambda ds: {int(str(d).split(":")[-1]) for d in ds}
     gpus = sorted(set(range(n)) | ids(c.get("rollout_devices", [])) | ids(d["device"] for d in c["domains"].values()))
     lease = GpuLease()
-    while not lease.try_take(gpus):
+    pooled = bool(os.environ.get("MOPD_POOL_JOB"))  # launched by the pool: it holds the leases, GPUs are 0..n-1
+    while not pooled and not lease.try_take(gpus):
         print(f"waiting for GPU leases {gpus}", flush=True)
         time.sleep(30)
     rc = subprocess.run(cmd, cwd=ROOT, env=os.environ).returncode
-    lease.release(gpus)
+    if not pooled:
+        lease.release(gpus)
     if (out / "metrics.jsonl").exists():
         print(json.dumps({"bench": a.name, **opd_step_summary(out / "metrics.jsonl")}))
     sys.exit(rc)

@@ -160,3 +160,86 @@ def _complete(run_dir):
         return json.loads((Path(run_dir) / "status.json").read_text()).get("state") == "complete"
     except (OSError, ValueError):
         return False
+
+
+# ---------------------------------------------------------------- the pool (mopd.pool): submit, don't run
+PRIORITY = {"train": 50, "merge": 30, "eval": 20, "grade": 0}
+
+
+def _fresh_guard(run_dir):
+    """A command refusing to retrain into an incomplete run directory (it would mix two runs)."""
+    code = ("import json,sys,pathlib;d=pathlib.Path(sys.argv[1]);s=d/'status.json';"
+            "sys.exit(0 if not d.exists() or (s.exists() and json.loads(s.read_text()).get('state')=='complete') "
+            "else 'incomplete run directory '+str(d)+': inspect or move aside before retraining')")
+    return [[str(paths.TRAIN_PY), "-c", code, str(run_dir)], {}]
+
+
+def pool_jobs(study_path, priority_offset=0):
+    """Every job of the study as pool job specs (mopd.pool.store): ids "<study>/<job>", GPU shapes
+    instead of ids, declarative done checks -- the daemon decides where and when."""
+    from mopd.evaluation.eval_commands import eval_commands, grade_command
+
+    study, reg, runs = plan(study_path)
+    name = study["study"]
+    out = paths.ROOT / "results/studies" / name
+    (out / "configs").mkdir(parents=True, exist_ok=True)
+    log = lambda run: str(out / "logs" / f"{run}.log")
+    pr = lambda kind: PRIORITY[kind] + priority_offset
+    specs = []
+
+    def evals(r, model, deps, steps):
+        for suite in r["evals"]:
+            e = reg["evals"][suite]
+            for step in steps:
+                ck = None if step is None else f"checkpoint-{step:04d}"
+                ev_out = r["run_dir"] / "evaluations" / (e["protocol_id"] if ck is None else f"{ck}/{e['protocol_id']}")
+                jid = f"{name}/eval:{r['name']}:{suite}" + (f":{step}" if ck else "")
+                cmds = eval_commands(data=resolve.abs_path(e["data"]), out=ev_out, protocol_id=e["protocol_id"],
+                                     max_new_tokens=e["max_new_tokens"], device=["{gpus}"], grade=False,
+                                     **model, **({"checkpoint": ck} if ck else {}))
+                specs.append({"id": jid, "commands": [list(c) for c in cmds], "log": log(r["name"]),
+                              "gpus": {"min": 1, "max": len(paths.TRAIN_GPUS)}, "priority": pr("eval"), "preemptible": True,
+                              "deps": deps, "done": {"kind": "generated", "path": str(ev_out)}})
+                specs.append({"id": f"{name}/grade|{jid.split('/', 1)[1]}", "commands": [list(grade_command(resolve.abs_path(e["data"]), ev_out))],
+                              "log": log(r["name"]), "gpus": 0, "priority": pr("grade"), "deps": [jid],
+                              "done": {"kind": "file", "path": str(ev_out / "summary.json")}})
+
+    for r in runs:
+        if "merge" in r:
+            yaml_path = out / "configs" / f"{r['name']}.yaml"
+            lines = [f"# study {name} / {r['name']}", "merge_method: linear", "models:"]
+            for d in sorted(r["merge"]):
+                lines += [f"  - model: {r['merge'][d]}", "    parameters:", "      weight: 1.0"]
+            yaml_path.write_text("\n".join(lines + ["parameters:", "  normalize: true", "dtype: bfloat16"]) + "\n")
+            base = resolve.abs_path(reg["models"][study["base"].get("student", "qwen3-4b-base")]["path"])
+            merged = r["run_dir"]
+            record = ("import json,sys,pathlib;m=pathlib.Path(sys.argv[1]);"
+                      "(m/'merge-source.json').write_text(json.dumps({'yaml':pathlib.Path(sys.argv[2]).read_text(),'experts':json.loads(sys.argv[3])},indent=2));"
+                      "(m/'.finalized').write_text('ok')")
+            specs.append({"id": f"{name}/merge:{r['name']}", "log": log(r["name"]), "gpus": {"count": 1}, "priority": pr("merge"),
+                          "done": {"kind": "file", "path": str(merged / ".finalized")},
+                          "commands": [[[str(paths.MERGEKIT), str(yaml_path), str(merged), "--cuda", "--lazy-unpickle"], {}],
+                                       [[str(paths.TRAIN_PY), "scripts/finalize_merged_model.py", "--base", base, str(merged)], {}],
+                                       [[str(paths.TRAIN_PY), "-c", record, str(merged), str(yaml_path),
+                                         json.dumps({d: str(p) for d, p in r["merge"].items()})], {}]]})
+            evals(r, {"model": str(merged), "model_version_id": f"merge:{name}/{r['name']}"}, [f"{name}/merge:{r['name']}"], [None])
+            continue
+        deps = []
+        cfg = r["config"]
+        if not r["reused"]:
+            cfg_path = out / "configs" / f"{r['name']}.json"
+            cfg_path.write_text(json.dumps(cfg, indent=2, ensure_ascii=False) + "\n")
+            mopd = cfg["training_method"] == "mopd"
+            full = cfg["student_backend"] == "hf_full"
+            n = len(paths.TRAIN_GPUS) if (full or mopd) else 1
+            nproc = cfg["student_gpus"] if mopd else n
+            script = "scripts/train_multidomain_opd.py" if mopd else "scripts/train_sft.py"
+            specs.append({"id": f"{name}/train:{r['name']}", "log": log(r["name"]), "gpus": {"count": n}, "priority": pr("train"),
+                          "done": {"kind": "status_complete", "path": str(r["run_dir"])},
+                          "commands": [_fresh_guard(r["run_dir"]),
+                                       [[str(paths.TRAIN_PY), "-m", "torch.distributed.run", "--standalone",
+                                         f"--nproc_per_node={nproc}", script, "--config", str(cfg_path)], {}]]})
+            deps = [f"{name}/train:{r['name']}"]
+        steps = r["fields"].get("checkpoints") or study.get("checkpoints") or [cfg["steps"]]
+        evals(r, {"model_version": str(r["run_dir"] / "model-version.json")}, deps, steps)
+    return specs
