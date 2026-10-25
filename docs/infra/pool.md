@@ -51,8 +51,29 @@ mopd_train/bin/python scripts/pool.py submit jobs.json                          
   - 同一秒内的多次提交都能收到。
 - 2026-10-25 上线：线程数基准、merge-v2 和 mix-v2 都交给资源池调度。
 
+## 评测服务的卡（6–7）出借
+
+- 评测服务的某个 worker 空闲超过 10 分钟，就停掉引擎、释放租约，并写出借标记 `results/pool/lend/gpu<N>`。
+- 资源池把出借的卡算进空闲卡，但只分给可抢占的任务（`allocate.decide(lent=...)`）。
+- 评测服务来了任务，就删掉出借标记、写召回标记 `results/pool/recall/gpu<N>`。资源池立刻抢占那张卡上的任务（评测之后会续跑）。评测服务等租约和显存都空出来，再拿回这张卡。
+
+## 训练的抢占和续训（全参 SFT）
+
+- **协作式停止**：资源池给每个任务传一个停止文件路径 `$MOPD_POOL_STOP`。要抢占可协作停止的任务时，就创建这个文件。
+- **训练这边**：`train_sft` 每一步结束后，各个 rank 一起确认要不要停（`TrainRun.stop_requested`，所有 rank 结论一致）。要停的话：
+  - 保存完整训练状态到运行目录下的 `resume/`，用 `TrainRun.save_resume`；
+  - 模型和优化器通过 `torch.distributed.checkpoint` 按分片保存，另外存 lr 调度器、随机数状态和步数；
+  - 然后以退出码 75 退出，资源池把它放回队列。
+- **续训**：再次启动时，`TrainRun.start` 看到 `resume/` 就从保存的那一步接着训，日志截断到那一步。分片在加载时会按新的卡数重新切分，所以可以换卡数续训，比如从 4 卡换成 2 卡 + offload。
+- **超时兜底**：如果超过 `stop_grace`（训练是 900 s）还没退出，资源池才发 SIGTERM。
+- study 提交的 SFT 训练都标记为可抢占（`preemptible`、`graceful`）。MOPD 训练还不支持续训，所以不可抢占。
+- GPU 上的验证脚本是 `tests/gpu/test_sft_resume.py`：
+  - 不间断跑 6 步作为对照；
+  - 另跑一次，第 3 步后要求停止，再换成 2 卡 + offload 续训；
+  - 比较续训后各步的 loss。
+
 ## 还没做
 
-- 评测服务的 GPU 6–7 在空闲时出借给资源池。
-- MOPD 的 rollout 引擎按瓶颈动态增减。
-- 全参训练支持断点续训。做到之后，训练也能被抢占，也能换形状（比如 4 卡和 2 卡 + offload 之间切换）。
+- MOPD 训练的续训（异步 rollout 的状态、发布出去的权重、教师），做完之后 MOPD 也能被抢占。
+- 按瓶颈动态增减 MOPD 的 rollout 引擎。
+- 训练按可用卡数选择形状，比如卡紧张时自动用 2 卡 + offload。现在续训已经支持换卡数，只差选择策略。
