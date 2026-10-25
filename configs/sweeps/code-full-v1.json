@@ -14,7 +14,8 @@
   "student_backend": "hf_full",
   "fsdp": {
    "reshard_after_forward": true
-  }
+  },
+  "lr_reason": "lr 扫描本身：1e-5 是起点，变体覆盖 5e-6 / 2e-6 / 1e-6 / 5e-7。"
  },
  "eval": {
   "protocol_id": "lcbdev-v3-greedy8192",

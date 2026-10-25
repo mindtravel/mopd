@@ -27,7 +27,7 @@
     "name": "full256",
     "arm": "mix-mic",
     "spec_path": "/ssd/lzx/mopd/configs/experiments/full256.json",
-    "spec_sha256": "6810b753f93f8d994b89e4deb49130ca762628a4d95394516933af66085d1698"
+    "spec_sha256": "cae9f68c9f898e5d7bc9cf83f631e32287ef7bf2de7283831118091b31fdd57b"
   },
   "fsdp": {
     "reshard_after_forward": true

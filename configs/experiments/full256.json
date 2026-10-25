@@ -20,7 +20,8 @@
     "sft_max_seq_len": 10240,
     "fsdp": {
       "reshard_after_forward": true
-    }
+    },
+    "lr_reason": "1e-5 先于 lr 默认表（2026-10-25）；expert-m / expert-i 已按此训练，本实验保持原样作历史对照，低 lr 版本见 full256-v2。"
   },
   "quotas": {
     "1": [

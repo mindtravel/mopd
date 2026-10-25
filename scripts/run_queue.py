@@ -6,7 +6,7 @@ instead of hand-written shell loops on the server.
      {"id": "...", "kind": "wait", "match": "run_sweep.py configs/sweeps/x.json"},  # an already-running process
      {"id": "...", "kind": "sweep", "spec": "configs/sweeps/x.json", "only": [...], "final": [...]},
      {"id": "...", "kind": "experiment", "plan": "configs/experiments/x/plan.json", "jobs": ["eval:expert-m:"]},
-     {"id": "...", "kind": "eval", "model": "...", "adapter": null, "data": "...", "out": "...",
+     {"id": "...", "kind": "eval", "model": "..." | "model_version": ".../model-version.json" + "checkpoint", "data": "...", "out": "...",
       "protocol_id": "...", "max_new_tokens": 8192, "student_prompt_format": "plain_qa_v1"},
      {"id": "...", "kind": "command", "argv": [..., "{gpus}", ...], "gpus": [0, 1, 2, 3, 4, 5, 6, 7] | 2 | 0}
    ]}
@@ -115,7 +115,7 @@ def main():
 
             sched.add({"id": sid, "deps": deps, "after": after, "gpus": 0, "run": wait})
         elif step["kind"] == "eval":
-            model = {k: step[k] for k in ("model", "adapter", "model_version_id", "student_prompt_format") if k in step}
+            model = {k: step[k] for k in ("model", "adapter", "model_version_id", "student_prompt_format", "model_version", "checkpoint") if k in step}
             for job in jobs.eval_jobs(
                 sid,
                 out=step["out"],

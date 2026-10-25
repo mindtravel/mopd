@@ -1,0 +1,45 @@
+{
+ "name": "full256v2-code",
+ "description": "新代码专家：full256-v2 expert-c（rstar-code-instr11，lr 2e-6 = LR_DEFAULTS[hf_full, sft]），unified-v3 评测加 lcb-dev-v3（与 code-full-v1 同协议，可直接对比）",
+ "steps": [
+  {
+   "id": "expert-c",
+   "kind": "experiment",
+   "plan": "configs/experiments/full256-v2/plan.json",
+   "jobs": [
+    "train:expert-c",
+    "eval:expert-c:"
+   ]
+  },
+  {
+   "id": "expert-c-lcbdev-64",
+   "kind": "eval",
+   "model_version": "/ssd/lzx/mopd/runs/20261025-full256v2-expert-c/model-version.json",
+   "checkpoint": "checkpoint-0064",
+   "data": "/ssd/lzx/mopd/data/full_eval/lcb-dev-v3/lcbdev.jsonl",
+   "protocol_id": "lcbdev-v3-greedy8192",
+   "max_new_tokens": 8192,
+   "out": "/ssd/lzx/mopd/runs/20261025-full256v2-expert-c/evaluations/checkpoint-0064/lcbdev-v3-greedy8192"
+  },
+  {
+   "id": "expert-c-lcbdev-128",
+   "kind": "eval",
+   "model_version": "/ssd/lzx/mopd/runs/20261025-full256v2-expert-c/model-version.json",
+   "checkpoint": "checkpoint-0128",
+   "data": "/ssd/lzx/mopd/data/full_eval/lcb-dev-v3/lcbdev.jsonl",
+   "protocol_id": "lcbdev-v3-greedy8192",
+   "max_new_tokens": 8192,
+   "out": "/ssd/lzx/mopd/runs/20261025-full256v2-expert-c/evaluations/checkpoint-0128/lcbdev-v3-greedy8192"
+  },
+  {
+   "id": "expert-c-lcbdev-256",
+   "kind": "eval",
+   "model_version": "/ssd/lzx/mopd/runs/20261025-full256v2-expert-c/model-version.json",
+   "checkpoint": "checkpoint-0256",
+   "data": "/ssd/lzx/mopd/data/full_eval/lcb-dev-v3/lcbdev.jsonl",
+   "protocol_id": "lcbdev-v3-greedy8192",
+   "max_new_tokens": 8192,
+   "out": "/ssd/lzx/mopd/runs/20261025-full256v2-expert-c/evaluations/checkpoint-0256/lcbdev-v3-greedy8192"
+  }
+ ]
+}

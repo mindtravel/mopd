@@ -15,7 +15,8 @@
   "fsdp": {
    "reshard_after_forward": true
   },
-  "student_prompt_format": "plain_qa_think_v1"
+  "student_prompt_format": "plain_qa_think_v1",
+  "lr_reason": "1e-5 先于 lr 默认表；低 lr 变体 *-lr2e-6 / *-lr5e-7 补在后面。"
  },
  "eval": {
   "protocol_id": "lcbdev-v3-think-greedy8192",

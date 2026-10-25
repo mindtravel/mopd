@@ -25,7 +25,8 @@
     "mopd_generation_batch_size": 8,
     "mopd_vllm_memory_utilization": 0.8,
     "teacher_prompt_format": "student_prefix_v1",
-    "micro_batch_tokens": 16384
+    "micro_batch_tokens": 16384,
+    "lr_reason": "全参 MOPD 尚无默认 lr（未扫）；1e-5 沿用 full256 专家的设置，正式训练前需要单独扫 lr。"
   },
   "quotas": {
     "1": [

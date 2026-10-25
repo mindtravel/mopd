@@ -73,7 +73,7 @@ class Sweep:
         # assigned GPU(s) to start at index 0. Under torchrun with world_size > 1, train_sft.py derives
         # the real per-rank device from LOCAL_RANK instead and ignores this field.
         return {
-            **training_controls.training_fields(c, micro_batch_size=micro),
+            **training_controls.training_fields(c, micro_batch_size=micro, where=f"{self.spec['name']}: variant {v['name']}"),
             **({"micro_batch_tokens": budget} if budget else {}),
             **training_controls.system_fields(c),
             **({"lora": v["lora"]} if "lora" in v else {}),  # e.g. {"rank": 64, "alpha": 128, "targets": [...]}

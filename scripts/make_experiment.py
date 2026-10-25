@@ -89,7 +89,12 @@ def generate(spec_path):
 
     for name, arm in arms.items():
         common = {
-            **training_controls.training_fields(c, micro_batch_size=c["micro_batch_size"]),
+            **training_controls.training_fields(
+                c,
+                micro_batch_size=c["micro_batch_size"],
+                method=arm["method"] if arm["method"] in ("sft", "mopd") else None,
+                where=f"{spec_path}: arm {name}",
+            ),
             "output": run_dir(name),
             "data_pins": spec["data_pins"],
             "experiment": experiment(name),
@@ -204,7 +209,7 @@ def generate(spec_path):
         else:
             raise ValueError(f"{name}: unknown method {arm['method']!r}")
     controls = {
-        k: c[k]
+        k: (training_controls.lr_for(c, "sft", spec_path) if k == "lr" else c[k])
         for k in (
             "student",
             "seed",
@@ -245,9 +250,14 @@ CONTROLLED = (
 def check_controls(spec, files):
     configs = {n: json.loads(t) for n, t in files.items() if n.endswith(".json") and n != "plan.json"}
     reference = next(iter(configs.values()))
+    # lr is controlled within a training method (SFT vs MOPD have their own defaults: LR_DEFAULTS)
+    lr_by_method = {}
     for name, cfg in configs.items():
         for key in CONTROLLED:
-            if cfg[key] != reference[key]:
+            if key == "lr":
+                if lr_by_method.setdefault(cfg.get("training_method"), cfg["lr"]) != cfg["lr"]:
+                    raise ValueError(f"{name}: lr differs from the other {cfg.get('training_method')} arms")
+            elif cfg[key] != reference[key]:
                 raise ValueError(f"{name}: controlled field {key!r} differs")
         if sum(d["count"] for d in cfg["domains"].values()) != spec["controls"]["samples_per_step"]:
             raise ValueError(f"{name}: samples per step != {spec['controls']['samples_per_step']}")
