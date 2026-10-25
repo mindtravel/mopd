@@ -117,19 +117,18 @@ class TrainRun:
             grad = grad.full_tensor() if hasattr(grad, "full_tensor") else grad
         if not torch.isfinite(grad) or grad <= 0:
             raise ValueError("Invalid student gradient")
-        if self.c.get("fsdp", {}).get("offload"):
-            # the offloaded AdamW steps on the CPU: give it threads for that step only (trainers keep
-            # torch at 2 threads, torchrun sets OMP_NUM_THREADS=1); elementwise ops, same numbers
-            threads = torch.get_num_threads()
-            torch.set_num_threads(self.c["fsdp"].get("optimizer_threads", 24))
-            try:
-                self.opt.step()
-            finally:
-                torch.set_num_threads(threads)
-        else:
-            self.opt.step()
+        mark = time.perf_counter()
+        self.opt.step()  # on the CPU under fsdp.offload (threads: cpu_threads)
+        self.optimizer_seconds = time.perf_counter() - mark
         self.sched.step()
         return float(grad)
+
+    def cpu_threads(self):
+        """torch threads for this rank: under fsdp.offload the AdamW step and the gradient
+        accumulation run on the CPU, so 24 (fsdp.optimizer_threads); otherwise 2, the trainers' long-
+        standing setting (torchrun sets OMP_NUM_THREADS=1). Elementwise ops: the same numbers."""
+        fs = self.c.get("fsdp", {})
+        return fs.get("optimizer_threads", 24) if fs.get("offload") else 2
 
     def _clip_offloaded(self, max_norm, eps=1e-6):
         """clip_grad_norm_ for gradients sharded in host memory (fsdp.offload): NCCL reduces only

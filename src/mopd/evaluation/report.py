@@ -38,7 +38,7 @@ def opd_step_summary(metrics_path):
     m = [json.loads(l) for l in Path(metrics_path).read_text().splitlines() if l.strip()]
     med = lambda f: round(statistics.median(f(x) for x in m), 3)
     out = {"steps": len(m), "seconds": med(lambda x: x["seconds"])}
-    for k in ("publish_seconds", "generation_seconds", "teacher_seconds", "student_seconds"):
+    for k in ("publish_seconds", "generation_seconds", "teacher_seconds", "student_seconds", "optimizer_seconds"):
         if k in m[0]:
             out[k] = med(lambda x, k=k: x[k])
     if "utilization" in m[0]:

@@ -117,7 +117,7 @@ def run(c, resume=None):
     replicas = publisher = None  # the finally block below closes whichever exists
     with run:
         run.start(batch_plan=batches, resuming=bool(resume))
-        torch.set_num_threads(2)
+        torch.set_num_threads(run.cpu_threads())
         stok, student = run.build_student()  # what logps() runs and the optimizer updates
         try:
             teachers = load_teachers(c, stok) if main else {}
@@ -273,6 +273,7 @@ def run(c, resume=None):
                         "generation_seconds": gen_seconds,
                         "teacher_seconds": scorer.teacher_seconds,
                         "student_seconds": scorer.student_seconds,
+                        "optimizer_seconds": run.optimizer_seconds,
                         "seconds": seconds,
                         "generated_tokens_per_second": sum(s["tokens"] for s in stats.values()) / gen_seconds,
                         "student_peak_gib": torch.cuda.max_memory_allocated(c["student_device"]) / 2**30,

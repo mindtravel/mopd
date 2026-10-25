@@ -62,6 +62,7 @@ def opd(a):
         "generation_seconds",
         "teacher_seconds",
         "student_seconds",
+        "optimizer_seconds",
         "rollout_busy_fraction",
         "rollout_generated_tok_s",
         "rollout_tokens_per_step",
