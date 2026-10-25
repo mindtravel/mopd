@@ -13,11 +13,12 @@ BASE_MODEL = ROOT / "models/Qwen3-4B-Base"
 PROFILE_CACHE = ROOT / "cache/profile"
 SHM = Path("/dev/shm/mopd")  # per-run shared buffers (published student weights)
 GPU_LEASES = Path("/dev/shm/mopd-gpu-leases")  # cross-process GPU claims (runtime.scheduler)
-# GPUs reserved for the benchmark service (scripts/bench_service.py): equal workers, one resident vLLM
-# each, every job running all its benchmarks on one engine. Training, sweeps, queues and evals never
-# get them (runtime.scheduler.usable_gpus filters them out).
-SERVICE_GPUS = (6, 7)
-# Full-parameter (sharded) training runs on exactly these; GPUs 4-5 stay free for evaluations, which
-# otherwise wait hours behind back-to-back trainings that would take every free GPU.
-TRAIN_GPUS = (0, 1, 2, 3)
+# What each GPU is for -- the only place GPU ids are written. Jobs ask for a role, not ids
+# (runtime.scheduler: "train" = exactly the training GPUs, "eval" = a fair share of the eval GPUs).
+#   train    full-parameter / sharded training (4 GPUs), the MOPD student
+#   eval     benchmark generation next to back-to-back trainings; MOPD teachers and rollout engines
+#   service  the checkpoint benchmark service (scripts/bench_service.py); never scheduled
+GPU_ROLES = {"train": (0, 1, 2, 3), "eval": (4, 5), "service": (6, 7)}
+TRAIN_GPUS, EVAL_GPUS, SERVICE_GPUS = GPU_ROLES["train"], GPU_ROLES["eval"], GPU_ROLES["service"]
+SCHEDULED_GPUS = TRAIN_GPUS + EVAL_GPUS  # what sweeps, experiments, queues and eval suites schedule
 RESERVED_GPUS = frozenset(SERVICE_GPUS)

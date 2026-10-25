@@ -80,7 +80,7 @@ def generate(spec_path):
                 {
                     "id": f"eval:{name}:{step}",
                     "kind": "eval_checkpoint",
-                    "gpus": 1,
+                    "gpus": "eval",  # role (paths.GPU_ROLES)
                     "deps": deps,
                     "model_version": f"{run_dir(name)}/model-version.json",
                     "checkpoint": f"checkpoint-{step:04d}",
@@ -113,8 +113,7 @@ def generate(spec_path):
                 {
                     "id": f"train:{name}",
                     "kind": "train_sft",
-                    # full-parameter training on paths.TRAIN_GPUS: the spec's other GPUs stay free for evaluations
-                    "gpus": [g for g in spec["gpus"] if g in paths.TRAIN_GPUS] if full else 1,
+                    "gpus": "train" if full else 1,  # role: the training GPUs (paths.GPU_ROLES)
                     "deps": [],
                     "config": f"configs/experiments/{spec['name']}/{name}.json",
                 }
@@ -135,7 +134,11 @@ def generate(spec_path):
                 )
         elif arm["method"] == "mopd":
             doms = ordered(spec, arm["teachers"])
-            dev = arm["devices"]
+            # default layout from the GPU roles: student on the training GPUs, every teacher on the
+            # first eval GPU, rollout engines on the other eval GPUs
+            ev_gpus = list(paths.EVAL_GPUS)
+            dev = arm.get("devices") or {"student": list(paths.TRAIN_GPUS) if full else paths.TRAIN_GPUS[0],
+                                         "teachers": [ev_gpus[0]] * len(arm["teachers"]), "rollout": ev_gpus[1:] or ev_gpus}
             # full: the student is one torchrun rank per GPU, devices["student"] = [0..n-1]
             students = dev["student"] if full else [dev["student"]]
             if full and students != list(range(len(students))):
@@ -225,7 +228,7 @@ def generate(spec_path):
     plan = {
         "experiment": experiment(None),
         "evaluation": ev,
-        "gpus": spec["gpus"],
+        **({"gpus": spec["gpus"]} if "gpus" in spec else {}),  # default: paths.SCHEDULED_GPUS
         "student": c["student"],
         **({"reuse_experts": reuse, "controls": controls} if reuse else {}),
         "jobs": jobs,

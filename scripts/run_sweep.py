@@ -29,6 +29,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
+from mopd import paths
 from mopd.data import recipes
 from mopd.runtime.provenance import sha256
 from mopd.runtime.scheduler import Scheduler, usable_gpus
@@ -198,9 +199,9 @@ class Sweep:
                 )
         # Live check, not a fixed allow-list: the server is shared and another team's job can occupy
         # any GPU. Only GPUs idle right at launch go in the pool.
-        idle = usable_gpus(self.spec["gpus"])  # not another team's; ours under a lease are waited for
+        idle = usable_gpus(self.spec.get("gpus", list(paths.SCHEDULED_GPUS)))  # not another team's; ours under a lease are waited for
         scheduler = Scheduler(idle, self.results, name="sweep")
-        busy = [g for g in self.spec["gpus"] if g not in idle]
+        busy = [g for g in self.spec.get("gpus", list(paths.SCHEDULED_GPUS)) if g not in idle]
         if busy:
             scheduler.log("gpus_excluded", busy=busy, reason="in use by another process")
         self.add_jobs(scheduler, todo, final)

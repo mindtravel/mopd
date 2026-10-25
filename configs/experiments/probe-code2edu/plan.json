@@ -35,7 +35,7 @@
     {
       "id": "eval:expert-c:32",
       "kind": "eval_checkpoint",
-      "gpus": 1,
+      "gpus": "eval",
       "deps": [
         "train:expert-c"
       ],
@@ -45,7 +45,7 @@
     {
       "id": "eval:expert-c:64",
       "kind": "eval_checkpoint",
-      "gpus": 1,
+      "gpus": "eval",
       "deps": [
         "train:expert-c"
       ],

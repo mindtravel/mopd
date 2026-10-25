@@ -18,6 +18,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
+from mopd import paths
 from mopd.runtime.provenance import _source, _data, sha256
 from mopd.evaluation.eval_commands import PY
 from mopd.runtime.scheduler import Scheduler, usable_gpus
@@ -126,7 +127,7 @@ class Runner:
                 raise SystemExit(f"reused expert {name} is not finished")
         # Busy GPUs are not a reason to refuse: jobs wait for theirs under the machine-wide GPU leases
         # (runtime.scheduler), so an experiment can share the machine with other queues.
-        taken = [g for g in self.plan["gpus"] if busy.get(g, 0) > 1000]
+        taken = [g for g in self.plan.get("gpus", list(paths.SCHEDULED_GPUS)) if busy.get(g, 0) > 1000]
         self.log("preflight_ok", source=source["source_version"], pins=len(spec["data_pins"]), gpus_busy_now=taken)
 
     def done(self, j):
@@ -216,7 +217,7 @@ class Runner:
     def gpu_spec(self, j):
         """Fixed sets (MOPD layouts, sharded SFT) as given; single-GPU jobs become a fair share of the
         idle GPUs (evaluation hands rows to every GPU it gets); merges stay on one GPU."""
-        if isinstance(j["gpus"], list):
+        if isinstance(j["gpus"], (list, str)):  # fixed set, or a role ("train" / "eval": paths.GPU_ROLES)
             return j["gpus"]
         if j["gpus"] == 0:
             return 0
@@ -240,9 +241,9 @@ class Runner:
 
     def loop(self):
         order = {"train_mopd": 0, "train_sft": 1, "merge": 2, "export_expert": 3, "eval_model": 4, "eval_checkpoint": 5}
-        gpus = usable_gpus(self.plan["gpus"])  # GPUs another team is using are left out
-        if set(gpus) != set(self.plan["gpus"]):
-            self.log("gpus_excluded", foreign=sorted(set(self.plan["gpus"]) - set(gpus)))
+        gpus = usable_gpus(self.plan.get("gpus", list(paths.SCHEDULED_GPUS)))  # GPUs another team is using are left out
+        if set(gpus) != set(self.plan.get("gpus", list(paths.SCHEDULED_GPUS))):
+            self.log("gpus_excluded", foreign=sorted(set(self.plan.get("gpus", list(paths.SCHEDULED_GPUS))) - set(gpus)))
         sched = Scheduler(gpus, self.logdir, min_free_gib=self.min_free, name="experiment")
         ev = self.plan["evaluation"]
         for j in self.jobs.values():

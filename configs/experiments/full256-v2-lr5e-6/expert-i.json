@@ -27,7 +27,7 @@
     "name": "full256-v2-lr5e-6",
     "arm": "expert-i",
     "spec_path": "/ssd/lzx/mopd/configs/experiments/full256-v2-lr5e-6.json",
-    "spec_sha256": "472e823d9cbfda6a962257d9d016e082872de641e32fc9f67548ac0acf5e10d6"
+    "spec_sha256": "97776ceff25f89bd07fbecd05c393d7ca2c5d0e03a6269d542100bc6cb44a024"
   },
   "fsdp": {
     "reshard_after_forward": true

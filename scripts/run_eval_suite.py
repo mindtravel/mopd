@@ -20,6 +20,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
+from mopd import paths
 from mopd.evaluation import jobs
 from mopd.runtime.scheduler import usable_gpus
 from mopd.runtime.provenance import sha256
@@ -31,7 +32,7 @@ def main():
     if sha256(suite["data"]) != suite["data_sha256"]:
         raise SystemExit("benchmark file digest differs from the suite pin")
     root = ROOT / "results/eval-suites" / suite["name"]
-    sched = Scheduler(usable_gpus(suite["gpus"]), root, name="eval_suite")
+    sched = Scheduler(usable_gpus(suite.get("gpus", list(paths.SCHEDULED_GPUS))), root, name="eval_suite")
     for m in suite["models"]:
         for k in range(1, suite.get("repeats", {}).get(m["name"], 1) + 1):
             link = root / m["name"] / f"rep{k}"

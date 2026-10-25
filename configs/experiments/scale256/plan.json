@@ -37,7 +37,7 @@
     {
       "id": "eval:expert-m:64",
       "kind": "eval_checkpoint",
-      "gpus": 1,
+      "gpus": "eval",
       "deps": [
         "train:expert-m"
       ],
@@ -47,7 +47,7 @@
     {
       "id": "eval:expert-m:128",
       "kind": "eval_checkpoint",
-      "gpus": 1,
+      "gpus": "eval",
       "deps": [
         "train:expert-m"
       ],
@@ -57,7 +57,7 @@
     {
       "id": "eval:expert-m:192",
       "kind": "eval_checkpoint",
-      "gpus": 1,
+      "gpus": "eval",
       "deps": [
         "train:expert-m"
       ],
@@ -67,7 +67,7 @@
     {
       "id": "eval:expert-m:256",
       "kind": "eval_checkpoint",
-      "gpus": 1,
+      "gpus": "eval",
       "deps": [
         "train:expert-m"
       ],
@@ -94,7 +94,7 @@
     {
       "id": "eval:expert-i:64",
       "kind": "eval_checkpoint",
-      "gpus": 1,
+      "gpus": "eval",
       "deps": [
         "train:expert-i"
       ],
@@ -104,7 +104,7 @@
     {
       "id": "eval:expert-i:128",
       "kind": "eval_checkpoint",
-      "gpus": 1,
+      "gpus": "eval",
       "deps": [
         "train:expert-i"
       ],
@@ -114,7 +114,7 @@
     {
       "id": "eval:expert-i:192",
       "kind": "eval_checkpoint",
-      "gpus": 1,
+      "gpus": "eval",
       "deps": [
         "train:expert-i"
       ],
@@ -124,7 +124,7 @@
     {
       "id": "eval:expert-i:256",
       "kind": "eval_checkpoint",
-      "gpus": 1,
+      "gpus": "eval",
       "deps": [
         "train:expert-i"
       ],
@@ -151,7 +151,7 @@
     {
       "id": "eval:expert-c:64",
       "kind": "eval_checkpoint",
-      "gpus": 1,
+      "gpus": "eval",
       "deps": [
         "train:expert-c"
       ],
@@ -161,7 +161,7 @@
     {
       "id": "eval:expert-c:128",
       "kind": "eval_checkpoint",
-      "gpus": 1,
+      "gpus": "eval",
       "deps": [
         "train:expert-c"
       ],
@@ -171,7 +171,7 @@
     {
       "id": "eval:expert-c:192",
       "kind": "eval_checkpoint",
-      "gpus": 1,
+      "gpus": "eval",
       "deps": [
         "train:expert-c"
       ],
@@ -181,7 +181,7 @@
     {
       "id": "eval:expert-c:256",
       "kind": "eval_checkpoint",
-      "gpus": 1,
+      "gpus": "eval",
       "deps": [
         "train:expert-c"
       ],
@@ -208,7 +208,7 @@
     {
       "id": "eval:mix-mi:64",
       "kind": "eval_checkpoint",
-      "gpus": 1,
+      "gpus": "eval",
       "deps": [
         "train:mix-mi"
       ],
@@ -218,7 +218,7 @@
     {
       "id": "eval:mix-mi:128",
       "kind": "eval_checkpoint",
-      "gpus": 1,
+      "gpus": "eval",
       "deps": [
         "train:mix-mi"
       ],
@@ -228,7 +228,7 @@
     {
       "id": "eval:mix-mi:192",
       "kind": "eval_checkpoint",
-      "gpus": 1,
+      "gpus": "eval",
       "deps": [
         "train:mix-mi"
       ],
@@ -238,7 +238,7 @@
     {
       "id": "eval:mix-mi:256",
       "kind": "eval_checkpoint",
-      "gpus": 1,
+      "gpus": "eval",
       "deps": [
         "train:mix-mi"
       ],
@@ -255,7 +255,7 @@
     {
       "id": "eval:mix-mic:64",
       "kind": "eval_checkpoint",
-      "gpus": 1,
+      "gpus": "eval",
       "deps": [
         "train:mix-mic"
       ],
@@ -265,7 +265,7 @@
     {
       "id": "eval:mix-mic:128",
       "kind": "eval_checkpoint",
-      "gpus": 1,
+      "gpus": "eval",
       "deps": [
         "train:mix-mic"
       ],
@@ -275,7 +275,7 @@
     {
       "id": "eval:mix-mic:192",
       "kind": "eval_checkpoint",
-      "gpus": 1,
+      "gpus": "eval",
       "deps": [
         "train:mix-mic"
       ],
@@ -285,7 +285,7 @@
     {
       "id": "eval:mix-mic:256",
       "kind": "eval_checkpoint",
-      "gpus": 1,
+      "gpus": "eval",
       "deps": [
         "train:mix-mic"
       ],
@@ -354,7 +354,7 @@
     {
       "id": "eval:mopd-mi:64",
       "kind": "eval_checkpoint",
-      "gpus": 1,
+      "gpus": "eval",
       "deps": [
         "train:mopd-mi"
       ],
@@ -364,7 +364,7 @@
     {
       "id": "eval:mopd-mi:128",
       "kind": "eval_checkpoint",
-      "gpus": 1,
+      "gpus": "eval",
       "deps": [
         "train:mopd-mi"
       ],
@@ -374,7 +374,7 @@
     {
       "id": "eval:mopd-mi:192",
       "kind": "eval_checkpoint",
-      "gpus": 1,
+      "gpus": "eval",
       "deps": [
         "train:mopd-mi"
       ],
@@ -384,7 +384,7 @@
     {
       "id": "eval:mopd-mi:256",
       "kind": "eval_checkpoint",
-      "gpus": 1,
+      "gpus": "eval",
       "deps": [
         "train:mopd-mi"
       ],
@@ -412,7 +412,7 @@
     {
       "id": "eval:mopd-mic:64",
       "kind": "eval_checkpoint",
-      "gpus": 1,
+      "gpus": "eval",
       "deps": [
         "train:mopd-mic"
       ],
@@ -422,7 +422,7 @@
     {
       "id": "eval:mopd-mic:128",
       "kind": "eval_checkpoint",
-      "gpus": 1,
+      "gpus": "eval",
       "deps": [
         "train:mopd-mic"
       ],
@@ -432,7 +432,7 @@
     {
       "id": "eval:mopd-mic:192",
       "kind": "eval_checkpoint",
-      "gpus": 1,
+      "gpus": "eval",
       "deps": [
         "train:mopd-mic"
       ],
@@ -442,7 +442,7 @@
     {
       "id": "eval:mopd-mic:256",
       "kind": "eval_checkpoint",
-      "gpus": 1,
+      "gpus": "eval",
       "deps": [
         "train:mopd-mic"
       ],

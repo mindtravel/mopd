@@ -91,14 +91,6 @@
     ],
     "max_new_tokens": 8192
   },
-  "gpus": [
-    0,
-    1,
-    2,
-    3,
-    4,
-    5
-  ],
   "reuse_experts": {
     "expert-m": {
       "dir": "/ssd/lzx/mopd/runs/20261024-full256-expert-m/checkpoint-0256",
@@ -121,22 +113,6 @@
         "math": "expert-m",
         "instruction": "expert-i",
         "code": "expert-c"
-      },
-      "devices": {
-        "student": [
-          0,
-          1,
-          2,
-          3
-        ],
-        "teachers": [
-          4,
-          4,
-          4
-        ],
-        "rollout": [
-          5
-        ]
       }
     },
     {
@@ -145,21 +121,6 @@
       "teachers": {
         "math": "expert-m",
         "instruction": "expert-i"
-      },
-      "devices": {
-        "student": [
-          0,
-          1,
-          2,
-          3
-        ],
-        "teachers": [
-          4,
-          4
-        ],
-        "rollout": [
-          5
-        ]
       }
     }
   ]

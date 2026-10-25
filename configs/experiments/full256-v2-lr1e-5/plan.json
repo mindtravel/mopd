@@ -3,7 +3,7 @@
     "name": "full256-v2-lr1e-5",
     "arm": null,
     "spec_path": "/ssd/lzx/mopd/configs/experiments/full256-v2-lr1e-5.json",
-    "spec_sha256": "6162a62a89c1bb01d12665fe1a0816fe132da218a5fb260cfb5d5981b350deec"
+    "spec_sha256": "06710f44e603ad614adca86fe7297b651c87d3212380d084243df8fd549d8571"
   },
   "evaluation": {
     "protocol_id": "unified-v3-plainqa-greedy8192",
@@ -15,32 +15,19 @@
     ],
     "max_new_tokens": 8192
   },
-  "gpus": [
-    0,
-    1,
-    2,
-    3,
-    4,
-    5
-  ],
   "student": "/ssd/lzx/mopd/models/Qwen3-4B-Base",
   "jobs": [
     {
       "id": "train:expert-c",
       "kind": "train_sft",
-      "gpus": [
-        0,
-        1,
-        2,
-        3
-      ],
+      "gpus": "train",
       "deps": [],
       "config": "configs/experiments/full256-v2-lr1e-5/expert-c.json"
     },
     {
       "id": "eval:expert-c:64",
       "kind": "eval_checkpoint",
-      "gpus": 1,
+      "gpus": "eval",
       "deps": [
         "train:expert-c"
       ],
@@ -50,7 +37,7 @@
     {
       "id": "eval:expert-c:128",
       "kind": "eval_checkpoint",
-      "gpus": 1,
+      "gpus": "eval",
       "deps": [
         "train:expert-c"
       ],
@@ -60,7 +47,7 @@
     {
       "id": "eval:expert-c:256",
       "kind": "eval_checkpoint",
-      "gpus": 1,
+      "gpus": "eval",
       "deps": [
         "train:expert-c"
       ],

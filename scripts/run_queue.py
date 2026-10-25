@@ -98,7 +98,7 @@ def main():
     logdir = paths.ROOT / "logs/queues" / q["name"]
     state_dir.mkdir(parents=True, exist_ok=True)
     logdir.mkdir(parents=True, exist_ok=True)
-    sched = Scheduler(usable_gpus(list(range(8))), state_dir, name=f"queue {q['name']}")
+    sched = Scheduler(usable_gpus(list(paths.SCHEDULED_GPUS)), state_dir, name=f"queue {q['name']}")
     prev = None
     for step in q["steps"]:
         sid = step["id"]

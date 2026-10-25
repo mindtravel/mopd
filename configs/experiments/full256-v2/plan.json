@@ -3,7 +3,7 @@
     "name": "full256-v2",
     "arm": null,
     "spec_path": "/ssd/lzx/mopd/configs/experiments/full256-v2.json",
-    "spec_sha256": "d573a7471182a0f44aec29e9e5321c73e51b02a923da964c469dd8ec242ee65b"
+    "spec_sha256": "953f40142d18e279965aa7e6f69fd656eccccc40d67268317d659059fcb5dc83"
   },
   "evaluation": {
     "protocol_id": "unified-v3-plainqa-greedy8192",
@@ -15,32 +15,19 @@
     ],
     "max_new_tokens": 8192
   },
-  "gpus": [
-    0,
-    1,
-    2,
-    3,
-    4,
-    5
-  ],
   "student": "/ssd/lzx/mopd/models/Qwen3-4B-Base",
   "jobs": [
     {
       "id": "train:expert-c",
       "kind": "train_sft",
-      "gpus": [
-        0,
-        1,
-        2,
-        3
-      ],
+      "gpus": "train",
       "deps": [],
       "config": "configs/experiments/full256-v2/expert-c.json"
     },
     {
       "id": "eval:expert-c:64",
       "kind": "eval_checkpoint",
-      "gpus": 1,
+      "gpus": "eval",
       "deps": [
         "train:expert-c"
       ],
@@ -50,7 +37,7 @@
     {
       "id": "eval:expert-c:128",
       "kind": "eval_checkpoint",
-      "gpus": 1,
+      "gpus": "eval",
       "deps": [
         "train:expert-c"
       ],
@@ -60,7 +47,7 @@
     {
       "id": "eval:expert-c:256",
       "kind": "eval_checkpoint",
-      "gpus": 1,
+      "gpus": "eval",
       "deps": [
         "train:expert-c"
       ],
@@ -70,19 +57,14 @@
     {
       "id": "train:expert-m",
       "kind": "train_sft",
-      "gpus": [
-        0,
-        1,
-        2,
-        3
-      ],
+      "gpus": "train",
       "deps": [],
       "config": "configs/experiments/full256-v2/expert-m.json"
     },
     {
       "id": "eval:expert-m:64",
       "kind": "eval_checkpoint",
-      "gpus": 1,
+      "gpus": "eval",
       "deps": [
         "train:expert-m"
       ],
@@ -92,7 +74,7 @@
     {
       "id": "eval:expert-m:128",
       "kind": "eval_checkpoint",
-      "gpus": 1,
+      "gpus": "eval",
       "deps": [
         "train:expert-m"
       ],
@@ -102,7 +84,7 @@
     {
       "id": "eval:expert-m:256",
       "kind": "eval_checkpoint",
-      "gpus": 1,
+      "gpus": "eval",
       "deps": [
         "train:expert-m"
       ],
@@ -112,19 +94,14 @@
     {
       "id": "train:expert-i",
       "kind": "train_sft",
-      "gpus": [
-        0,
-        1,
-        2,
-        3
-      ],
+      "gpus": "train",
       "deps": [],
       "config": "configs/experiments/full256-v2/expert-i.json"
     },
     {
       "id": "eval:expert-i:64",
       "kind": "eval_checkpoint",
-      "gpus": 1,
+      "gpus": "eval",
       "deps": [
         "train:expert-i"
       ],
@@ -134,7 +111,7 @@
     {
       "id": "eval:expert-i:128",
       "kind": "eval_checkpoint",
-      "gpus": 1,
+      "gpus": "eval",
       "deps": [
         "train:expert-i"
       ],
@@ -144,7 +121,7 @@
     {
       "id": "eval:expert-i:256",
       "kind": "eval_checkpoint",
-      "gpus": 1,
+      "gpus": "eval",
       "deps": [
         "train:expert-i"
       ],
@@ -154,19 +131,14 @@
     {
       "id": "train:mix-mic",
       "kind": "train_sft",
-      "gpus": [
-        0,
-        1,
-        2,
-        3
-      ],
+      "gpus": "train",
       "deps": [],
       "config": "configs/experiments/full256-v2/mix-mic.json"
     },
     {
       "id": "eval:mix-mic:64",
       "kind": "eval_checkpoint",
-      "gpus": 1,
+      "gpus": "eval",
       "deps": [
         "train:mix-mic"
       ],
@@ -176,7 +148,7 @@
     {
       "id": "eval:mix-mic:128",
       "kind": "eval_checkpoint",
-      "gpus": 1,
+      "gpus": "eval",
       "deps": [
         "train:mix-mic"
       ],
@@ -186,7 +158,7 @@
     {
       "id": "eval:mix-mic:256",
       "kind": "eval_checkpoint",
-      "gpus": 1,
+      "gpus": "eval",
       "deps": [
         "train:mix-mic"
       ],
@@ -196,19 +168,14 @@
     {
       "id": "train:mix-mi",
       "kind": "train_sft",
-      "gpus": [
-        0,
-        1,
-        2,
-        3
-      ],
+      "gpus": "train",
       "deps": [],
       "config": "configs/experiments/full256-v2/mix-mi.json"
     },
     {
       "id": "eval:mix-mi:64",
       "kind": "eval_checkpoint",
-      "gpus": 1,
+      "gpus": "eval",
       "deps": [
         "train:mix-mi"
       ],
@@ -218,7 +185,7 @@
     {
       "id": "eval:mix-mi:128",
       "kind": "eval_checkpoint",
-      "gpus": 1,
+      "gpus": "eval",
       "deps": [
         "train:mix-mi"
       ],
@@ -228,7 +195,7 @@
     {
       "id": "eval:mix-mi:256",
       "kind": "eval_checkpoint",
-      "gpus": 1,
+      "gpus": "eval",
       "deps": [
         "train:mix-mi"
       ],

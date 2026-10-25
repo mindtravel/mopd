@@ -3,7 +3,7 @@
     "name": "full256-mopd",
     "arm": null,
     "spec_path": "/ssd/lzx/mopd/configs/experiments/full256-mopd.json",
-    "spec_sha256": "96e1bc288a39a12a5adece66271aef99127fc1bb51f04c911235bd44656396b4"
+    "spec_sha256": "5662e6211e0a2d0b40587e0d494b299560ba75e108e3a79d9f82d8e6040ffa56"
   },
   "evaluation": {
     "protocol_id": "unified-v3-plainqa-greedy8192",
@@ -14,14 +14,6 @@
     ],
     "max_new_tokens": 8192
   },
-  "gpus": [
-    0,
-    1,
-    2,
-    3,
-    4,
-    5
-  ],
   "student": "/ssd/lzx/mopd/models/Qwen3-4B-Base",
   "reuse_experts": {
     "expert-m": {
@@ -68,7 +60,7 @@
     {
       "id": "eval:mopd-mic:128",
       "kind": "eval_checkpoint",
-      "gpus": 1,
+      "gpus": "eval",
       "deps": [
         "train:mopd-mic"
       ],
@@ -78,7 +70,7 @@
     {
       "id": "eval:mopd-mic:256",
       "kind": "eval_checkpoint",
-      "gpus": 1,
+      "gpus": "eval",
       "deps": [
         "train:mopd-mic"
       ],
@@ -103,7 +95,7 @@
     {
       "id": "eval:mopd-mi:128",
       "kind": "eval_checkpoint",
-      "gpus": 1,
+      "gpus": "eval",
       "deps": [
         "train:mopd-mi"
       ],
@@ -113,7 +105,7 @@
     {
       "id": "eval:mopd-mi:256",
       "kind": "eval_checkpoint",
-      "gpus": 1,
+      "gpus": "eval",
       "deps": [
         "train:mopd-mi"
       ],

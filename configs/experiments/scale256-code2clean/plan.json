@@ -59,7 +59,7 @@
     {
       "id": "eval:expert-c:64",
       "kind": "eval_checkpoint",
-      "gpus": 1,
+      "gpus": "eval",
       "deps": [
         "train:expert-c"
       ],
@@ -69,7 +69,7 @@
     {
       "id": "eval:expert-c:128",
       "kind": "eval_checkpoint",
-      "gpus": 1,
+      "gpus": "eval",
       "deps": [
         "train:expert-c"
       ],
@@ -79,7 +79,7 @@
     {
       "id": "eval:expert-c:192",
       "kind": "eval_checkpoint",
-      "gpus": 1,
+      "gpus": "eval",
       "deps": [
         "train:expert-c"
       ],
@@ -89,7 +89,7 @@
     {
       "id": "eval:expert-c:256",
       "kind": "eval_checkpoint",
-      "gpus": 1,
+      "gpus": "eval",
       "deps": [
         "train:expert-c"
       ],
@@ -116,7 +116,7 @@
     {
       "id": "eval:mix-mic:64",
       "kind": "eval_checkpoint",
-      "gpus": 1,
+      "gpus": "eval",
       "deps": [
         "train:mix-mic"
       ],
@@ -126,7 +126,7 @@
     {
       "id": "eval:mix-mic:128",
       "kind": "eval_checkpoint",
-      "gpus": 1,
+      "gpus": "eval",
       "deps": [
         "train:mix-mic"
       ],
@@ -136,7 +136,7 @@
     {
       "id": "eval:mix-mic:192",
       "kind": "eval_checkpoint",
-      "gpus": 1,
+      "gpus": "eval",
       "deps": [
         "train:mix-mic"
       ],
@@ -146,7 +146,7 @@
     {
       "id": "eval:mix-mic:256",
       "kind": "eval_checkpoint",
-      "gpus": 1,
+      "gpus": "eval",
       "deps": [
         "train:mix-mic"
       ],
@@ -192,7 +192,7 @@
     {
       "id": "eval:mopd-mic:64",
       "kind": "eval_checkpoint",
-      "gpus": 1,
+      "gpus": "eval",
       "deps": [
         "train:mopd-mic"
       ],
@@ -202,7 +202,7 @@
     {
       "id": "eval:mopd-mic:128",
       "kind": "eval_checkpoint",
-      "gpus": 1,
+      "gpus": "eval",
       "deps": [
         "train:mopd-mic"
       ],
@@ -212,7 +212,7 @@
     {
       "id": "eval:mopd-mic:192",
       "kind": "eval_checkpoint",
-      "gpus": 1,
+      "gpus": "eval",
       "deps": [
         "train:mopd-mic"
       ],
@@ -222,7 +222,7 @@
     {
       "id": "eval:mopd-mic:256",
       "kind": "eval_checkpoint",
-      "gpus": 1,
+      "gpus": "eval",
       "deps": [
         "train:mopd-mic"
       ],

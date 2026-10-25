@@ -109,15 +109,19 @@ class GPUPool:
         with self._cv:
             self._waiting.add(job_id)
 
-    def want(self, job_id, min_gpus=1, max_gpus=None):
+    def want(self, job_id, min_gpus=1, max_gpus=None, within=None):
+        """within: only these GPUs (a role, paths.GPU_ROLES) are eligible."""
         with self._cv:
             self._waiting.add(job_id)
-            while len(self._free) < min_gpus:
+            eligible = lambda: [g for g in self._free if within is None or g in within]
+            while len(eligible()) < min_gpus:
                 self._cv.wait()
-            share = min(max(min_gpus, len(self._free) // max(1, len(self._waiting))), len(self._free))
+            free = eligible()
+            share = min(max(min_gpus, len(free) // max(1, len(self._waiting))), len(free))
             if max_gpus is not None:
                 share = min(share, max_gpus)
-            taken, self._free = self._free[:share], self._free[share:]
+            taken = free[:share]
+            self._free = [g for g in self._free if g not in taken]
             self._waiting.discard(job_id)
             return taken
 
@@ -211,6 +215,10 @@ class Scheduler:
         spec = job["gpus"]
         if spec == 0:
             return []
+        if spec == "train":  # role: exactly the training GPUs this scheduler manages
+            return self.pool.want_exactly(job["id"], [g for g in paths.TRAIN_GPUS if g in self.gpus])
+        if spec == "eval":  # role: a fair share of the eval GPUs
+            return self.pool.want(job["id"], 1, None, within=paths.EVAL_GPUS)
         if isinstance(spec, list):
             return self.pool.want_exactly(job["id"], spec)
         return self.pool.want(job["id"], spec.get("min", 1), spec.get("max"))
