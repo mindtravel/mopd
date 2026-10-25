@@ -11,8 +11,8 @@
 | sweep code-think-v1 | `code-think.yaml` | 补上了低 lr 变体 |
 | sweep code-data-v1（LoRA） | `code-data.yaml` | 11 个运行全部复用 |
 | full256-mopd | `mopd-mic.yaml` | 教师引用 full-sft-lr 的专家 |
-
-还没迁移的：full256 / scale256 里的混合 SFT 和线性合并（study 暂不支持 merge）。
+| full256-v2 的 mix-mi / mix-mic | `mix-v2.yaml` | 混合 SFT：`domains: [...]`，每步按领域均分样本 |
+| full256-v2 的 merge-mi / merge-mic | `merge-v2.yaml` | `method: merge_linear`，专家按引用写法指定 |
 
 ## 为什么改
 
@@ -50,6 +50,7 @@ checkpoints: [64, 128, 256]
 - **MOPD**：
   - `base` 里写 `method: mopd`，`teachers` 按名字引用别的 study 里的某个运行和 checkpoint（见 `configs/studies/mopd-mic.yaml`）。
   - 设备布局由 `GPU_ROLES` 推导：学生用前两张训练卡（开 offload），教师轮流放在学生卡上，其余训练卡跑 rollout。
+- **线性合并**：`method: merge_linear`，`experts` 和 MOPD 的教师写法一样。合并在一张卡上做，输出到 `models/merged/studies/<study>/<run>/`，评测直接用合并后的模型目录。
 
 ## 复用
 

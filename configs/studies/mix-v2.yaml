@@ -1,0 +1,10 @@
+study: mix-v2
+description: >-
+  混合 SFT（每步按领域均分 32 条样本），对照同 lr 的专家、线性合并和 MOPD：数学+指令、数学+指令+代码。
+base: {method: sft}
+data: {math: math-numina-v3, instruction: instruction-smol, code: code-rstar-instr11}
+evals: [unified-v3]
+checkpoints: [128, 256]
+runs:
+  - {name: mix-mi, domains: [math, instruction]}
+  - {name: mix-mic, domains: [math, instruction, code]}
