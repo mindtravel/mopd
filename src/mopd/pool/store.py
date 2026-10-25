@@ -7,6 +7,8 @@ A job:
    "log": "/abs/path.log",
    "gpus": 0 | {"count": 4} | {"min": 1, "max": 4},
    "priority": 50, "preemptible": false,
+   "graceful": false, "stop_grace": 60,             graceful: preempted by creating $MOPD_POOL_STOP (the job
+                                                    saves its state and exits 75), SIGTERM only after stop_grace
    "deps": [job ids that must be done first],
    "done": {"kind": ..., "path": ...} | null}       finished already? (then never run); see is_done
 States: queued -> running -> done | failed; a preempted job goes back to queued; a job whose

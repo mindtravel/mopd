@@ -78,6 +78,22 @@ class DaemonTest(unittest.TestCase):
         self.run_until(d, lambda: d.jobs["s/eval"]["state"] == "queued")  # preempted, waits for a GPU
         self.assertTrue(d.lease.try_take([7]))  # the service can take it back
 
+    def test_graceful_job_stops_on_request_and_resumes(self):
+        root = self.tmp.name
+        code = (f"import os,time,pathlib\nopen('{root}/train-runs','a').write('r')\n"
+                "stop=pathlib.Path(os.environ['MOPD_POOL_STOP'])\n"
+                f"for _ in range(400):\n    time.sleep(0.05)\n    if stop.exists(): raise SystemExit(75)\n"
+                f"open('{root}/train-done','w')")
+        self.store.submit([self.job("s/train", code, gpus={"count": 2}, priority=50, preemptible=True, graceful=True,
+                                    stop_grace=30, done={"kind": "file", "path": f"{root}/train-done"})])
+        d = self.dm.Daemon(gpus=[0, 1])
+        self.run_until(d, lambda: d.jobs["s/train"]["state"] == "running")
+        self.store.submit([self.job("s/bench", "pass", gpus={"count": 2}, priority=70)])
+        self.run_until(d, lambda: d.jobs.get("s/bench", {}).get("state") == "done")
+        self.assertFalse(d.jobs["s/train"].get("termed"))  # it stopped on request: no SIGTERM was needed
+        self.run_until(d, lambda: d.jobs["s/train"]["state"] == "done", timeout=60)
+        self.assertEqual((d.jobs["s/train"]["attempts"], Path(root, "train-runs").read_text()), (2, "rr"))
+
     def test_gang_preempts_backfill_which_then_finishes(self):
         root = self.tmp.name
         long_eval = f"import time,os\nopen('{root}/eval-runs','a').write('r')\nfor _ in range(600): time.sleep(0.05)"

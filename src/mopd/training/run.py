@@ -20,6 +20,7 @@ scripts/train_multidomain_opd.py): everything around the training signal.
 """
 
 import json
+import os
 import time
 import traceback
 from contextlib import ExitStack
@@ -56,7 +57,13 @@ class TrainRun:
     # ------------------------------------------------------------ lifecycle
     def start(self, batch_plan=None, resuming=False):
         """Create the run directory with config.json, status.json (and batch_plan.json), record
-        provenance; a resume keeps the existing directory and records its own provenance file."""
+        provenance; a resume keeps the existing directory and records its own provenance file.
+        A run directory holding saved training state (resume/, save_resume) continues from it:
+        self.start_step is that step (0 for a fresh run); restore() loads it after build_student."""
+        self.start_step = self.resume_meta().get("step", 0)
+        if self.start_step:
+            resuming = True
+            self.on_main(lambda: record_provenance(self.c, self.out, filename=f"provenance-resume-{self.start_step:04d}.json"))
         def setup():
             self.out.mkdir(parents=True, exist_ok=False)
             dump(self.out / "config.json", self.c)
@@ -99,6 +106,75 @@ class TrainRun:
         self.opt = torch.optim.AdamW(self.params, lr=self.c["lr"])
         self.sched = build_scheduler(self.opt, self.c)
         return tok, self.scorer
+
+    # ------------------------------------------------------------ resume (preemption)
+    def resume_meta(self):
+        f = self.out / "resume" / "meta.json"
+        return json.loads(f.read_text()) if f.exists() else {}
+
+    def stop_requested(self):
+        """The GPU pool asks a preemptible training to stop (mopd.pool: it creates $MOPD_POOL_STOP).
+        Collective: every rank must call; all agree, so they stop after the same step."""
+        flag = torch.tensor(float(self.main and bool(os.environ.get("MOPD_POOL_STOP")) and Path(os.environ["MOPD_POOL_STOP"]).exists()),
+                            device=self.device)
+        if self.world_size > 1:
+            dist.all_reduce(flag, op=dist.ReduceOp.MAX)
+        return bool(flag.item())
+
+    def save_resume(self, step):
+        """Collective. The whole training state after `step` under resume/ (the previous one replaced
+        only once this one is complete): model and optimizer through torch.distributed.checkpoint --
+        sharded, and re-sharded on load, so a resumed run may use another GPU count -- plus scheduler,
+        RNG and step in meta.json."""
+        import shutil
+        import torch.distributed.checkpoint as dcp
+        from torch.distributed.checkpoint.state_dict import get_state_dict
+
+        tmp, final = self.out / "resume.tmp", self.out / "resume"
+        if self.main:
+            shutil.rmtree(tmp, ignore_errors=True)
+        self.barrier()
+        model, optim = get_state_dict(self.scorer if self.sharded else self.model, self.opt)
+        dcp.save({"model": model, "optim": optim}, checkpoint_id=str(tmp / "state"))
+        self.barrier()
+        if self.main:
+            torch.save({"scheduler": self.sched.state_dict(), "rng": torch.get_rng_state(),
+                        "cuda_rng": torch.cuda.get_rng_state_all()}, tmp / "host.pt")
+            dump(tmp / "meta.json", {"step": step, "world_size": self.world_size, "time": time.strftime("%Y-%m-%dT%H:%M:%S")})
+            old = self.out / "resume.old"
+            if final.exists():
+                final.rename(old)
+            tmp.rename(final)
+            shutil.rmtree(old, ignore_errors=True)
+        self.barrier()
+
+    def restore(self):
+        """Load resume/ into the model, optimizer, scheduler and RNG (no-op for a fresh run)."""
+        if not self.start_step:
+            return 0
+        import torch.distributed.checkpoint as dcp
+        from torch.distributed.checkpoint.state_dict import get_state_dict, set_state_dict
+
+        module = self.scorer if self.sharded else self.model
+        model, optim = get_state_dict(module, self.opt)
+        state = {"model": model, "optim": optim}
+        dcp.load(state, checkpoint_id=str(self.out / "resume" / "state"))
+        set_state_dict(module, self.opt, model_state_dict=state["model"], optim_state_dict=state["optim"])
+        host = torch.load(self.out / "resume" / "host.pt", weights_only=False)
+        self.sched.load_state_dict(host["scheduler"])
+        torch.set_rng_state(host["rng"])
+        torch.cuda.set_rng_state_all(host["cuda_rng"])
+        return self.start_step
+
+    def truncate_logs(self, *names):
+        """Drop log lines past the resumed step (they belong to the interrupted attempt)."""
+        if not self.main or not self.start_step:
+            return
+        for name in names:
+            f = self.out / name
+            if f.exists():
+                keep = [l for l in f.read_text().splitlines() if l.strip() and json.loads(l).get("step", 0) <= self.start_step]
+                f.write_text("".join(l + "\n" for l in keep))
 
     def log_file(self, name, mode="w"):
         """A line-buffered file under the run directory on rank 0 (None elsewhere), closed at exit."""

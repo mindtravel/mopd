@@ -29,7 +29,7 @@ Multi-GPU: `torchrun --standalone --nproc_per_node=N scripts/train_sft.py --conf
 Reported per-step metrics are summed across ranks so they describe the whole step.
 """
 
-import argparse, json, time
+import argparse, sys, json, time
 from pathlib import Path
 import torch
 import torch.distributed as dist
@@ -75,6 +75,9 @@ def sync_stats(stats, device):
     }
 
 
+PREEMPTED = 75  # exit code the pool reads as "stopped on request; requeue" (mopd.pool.daemon)
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--config", required=True)
@@ -102,13 +105,19 @@ def main():
             raise ValueError(
                 f"samples_per_step is smaller than world_size={run.world_size}: some ranks would get no rows"
             )
-        if run.main:
+        if run.main and not run.start_step:
             dump(run.out / "batch_plan.json", plan)
+        # resumed (the pool preempted this run, mopd.pool): weights, optimizer, scheduler and RNG from
+        # resume/, the same deterministic plan, logs cut back to the saved step
+        start = run.restore()
+        run.truncate_logs("metrics.jsonl")
         weights = {d: s["weight"] for d, s in c["domains"].items()}
-        run.metrics = run.log_file("metrics.jsonl")
+        run.metrics = run.log_file("metrics.jsonl", "a" if start else "w")
         shape = ModelShape.of(scorer)
         recompute = c.get("gradient_checkpointing", True)
         for step, rows in enumerate(plan, 1):
+            if step <= start:
+                continue
             # profile_step: dump a torch.profiler kernel breakdown (comm / matmul / attention / idle) of
             # that one step on rank 0 -- the per-step StepProfile cannot see inside FSDP's hooks.
             with torch_profile(run.main and c.get("profile_step") == step, run.out, step) as trace:
@@ -209,6 +218,9 @@ def main():
                     }
                     run.log(step, report)
             run.checkpoint(step)
+            if step < len(plan) and run.stop_requested():  # preempted: save everything, exit as "preempted"
+                run.save_resume(step)
+                sys.exit(PREEMPTED)
         run.complete()
 
 

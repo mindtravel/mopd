@@ -169,8 +169,8 @@ PRIORITY = {"train": 50, "merge": 30, "eval": 20, "grade": 0}
 def _fresh_guard(run_dir):
     """A command refusing to retrain into an incomplete run directory (it would mix two runs)."""
     code = ("import json,sys,pathlib;d=pathlib.Path(sys.argv[1]);s=d/'status.json';"
-            "sys.exit(0 if not d.exists() or (s.exists() and json.loads(s.read_text()).get('state')=='complete') "
-            "else 'incomplete run directory '+str(d)+': inspect or move aside before retraining')")
+            "sys.exit(0 if not d.exists() or (d/'resume'/'meta.json').exists() or (s.exists() and json.loads(s.read_text()).get('state')=='complete') "
+            "else 'incomplete run directory '+str(d)+' without saved state: inspect or move aside before retraining')")
     return [[str(paths.TRAIN_PY), "-c", code, str(run_dir)], {}]
 
 
@@ -234,7 +234,10 @@ def pool_jobs(study_path, priority_offset=0):
             n = len(paths.TRAIN_GPUS) if (full or mopd) else 1
             nproc = cfg["student_gpus"] if mopd else n
             script = "scripts/train_multidomain_opd.py" if mopd else "scripts/train_sft.py"
+            # SFT saves its full state and exits when the pool asks (TrainRun.save_resume), so the pool may
+            # preempt it and resume it later, on another GPU count if need be; MOPD cannot resume yet
             specs.append({"id": f"{name}/train:{r['name']}", "log": log(r["name"]), "gpus": {"count": n}, "priority": pr("train"),
+                          **({} if mopd else {"preemptible": True, "graceful": True, "stop_grace": 900}),
                           "done": {"kind": "status_complete", "path": str(r["run_dir"])},
                           "commands": [_fresh_guard(r["run_dir"]),
                                        [[str(paths.TRAIN_PY), "-m", "torch.distributed.run", "--standalone",

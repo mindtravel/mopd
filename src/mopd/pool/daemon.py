@@ -23,6 +23,8 @@ from mopd.runtime.scheduler import GpuLease
 TICK = 5
 LEND, RECALL = store.ROOT / "lend", store.ROOT / "recall"  # gpu<N> markers written by the bench service
 STOP_GRACE = 60  # seconds between SIGTERM and SIGKILL when preempting
+PREEMPTED = 75  # exit code of a job that stopped on request after saving its state (scripts/train_sft.py)
+STOPS = store.ROOT / "stop"  # $MOPD_POOL_STOP files: a graceful job saves its state and exits when its file appears
 
 
 def alive(pid):
@@ -81,7 +83,8 @@ class Daemon:
 
     def finish(self, job, rc):
         held = job.get("assigned") or []  # before the record forgets them
-        if job.get("stopping") and not job.get("cancelled"):
+        (STOPS / store.fname(job["id"])).unlink(missing_ok=True)
+        if (job.get("stopping") or rc == PREEMPTED) and not job.get("cancelled"):
             self.set(job, state="queued", pid=None, assigned=[], stopping=False)  # preempted: runs again later
             self.log("preempted", job=job["id"])
         elif job.get("cancelled"):
@@ -102,8 +105,14 @@ class Daemon:
             p = self.procs.get(j["id"])
             rc = p.poll() if p else (None if alive(j["pid"]) else "gone")
             if rc is None:
-                if j.get("stopping") and time.time() - j["stopping"] > STOP_GRACE:
-                    self.signal(j, signal.SIGKILL)
+                if j.get("stopping"):
+                    waited = time.time() - j["stopping"]
+                    grace = j.get("stop_grace", STOP_GRACE)
+                    if j.get("graceful") and waited > grace and not j.get("termed"):
+                        self.set(j, termed=True)
+                        self.signal(j, signal.SIGTERM)  # did not stop on request in time
+                    elif waited > grace + (STOP_GRACE if j.get("graceful") else 0):
+                        self.signal(j, signal.SIGKILL)
                 continue
             self.procs.pop(j["id"], None)
             self.finish(j, None if rc == "gone" else rc)
@@ -176,7 +185,10 @@ class Daemon:
         spec.write_text(json.dumps(job))
         src = str(Path(__file__).resolve().parents[2])  # the code this daemon runs, for mopd.pool.run
         env = {**os.environ, "PYTHONPATH": src, "CUDA_VISIBLE_DEVICES": ",".join(map(str, gpus)),
-               "MOPD_POOL_JOB": job["id"]}  # tools that lease GPUs themselves (bench_mopd) skip it: the pool holds them
+               "MOPD_POOL_JOB": job["id"],  # tools that lease GPUs themselves (bench_mopd) skip it: the pool holds them
+               "MOPD_POOL_STOP": str(STOPS / store.fname(job["id"]))}  # graceful jobs watch for this file
+        STOPS.mkdir(parents=True, exist_ok=True)
+        (STOPS / store.fname(job["id"])).unlink(missing_ok=True)
         if not gpus:
             env["CUDA_VISIBLE_DEVICES"] = ""
         p = subprocess.Popen([str(paths.TRAIN_PY), "-m", "mopd.pool.run", str(spec)], cwd=paths.ROOT, env=env,
@@ -194,8 +206,12 @@ class Daemon:
     def stop(self, job):
         """Preempt (or cancel): SIGTERM the job's process group, SIGKILL after STOP_GRACE."""
         if job["state"] == "running" and not job.get("stopping"):
-            self.set(job, stopping=time.time())
-            self.signal(job, signal.SIGTERM)
+            self.set(job, stopping=time.time(), termed=False)
+            if job.get("graceful") and not job.get("cancelled"):
+                STOPS.mkdir(parents=True, exist_ok=True)
+                (STOPS / store.fname(job["id"])).write_text("stop")  # it saves its state and exits PREEMPTED
+            else:
+                self.signal(job, signal.SIGTERM)
             self.log("stop", job=job["id"], cancelled=bool(job.get("cancelled")))
 
     def snapshot(self):
