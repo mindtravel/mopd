@@ -1,6 +1,6 @@
 """Short full-parameter MOPD runs for infrastructure benchmarks (not experiments).
 
-Takes an experiment arm's config, swaps in trained teachers, drops the experiment link (a benchmark
+Takes an experiment arm's config, swaps in the MOPD study's teachers (configs/studies/mopd-mic.yaml), drops the experiment link (a benchmark
 is not an arm, so provenance does not tie it to the spec), applies overrides, runs N steps through
 torchrun, and prints the run's step summary (mopd.evaluation.report.opd_step_summary).
 
@@ -17,11 +17,14 @@ from mopd import paths
 from mopd.evaluation.report import opd_step_summary
 from mopd.runtime.scheduler import GpuLease
 
-TEACHERS = {
-    "math": "runs/20261024-full256-expert-m/checkpoint-0256",
-    "instruction": "runs/20261024-full256-expert-i/checkpoint-0256",
-    "code": "runs/sweeps/code-full-v1/rstar-code-instr11/checkpoint-0128",
-}
+TEACHER_STUDY = ROOT / "configs/studies/mopd-mic.yaml"  # teachers by reference (mopd.study), never by path
+
+
+def teachers():
+    """{domain: checkpoint directory} of the MOPD study's teachers, wherever those runs finished."""
+    from mopd.study import runner, spec
+
+    return runner.teacher_dirs(spec.load(TEACHER_STUDY), runner.finished_runs())
 
 
 def main():
@@ -32,9 +35,9 @@ def main():
     ap.add_argument("--set", action="append", default=[], help="KEY=JSON config override")
     a = ap.parse_args()
     c = json.loads((ROOT / a.arm).read_text())
-    for d, path in TEACHERS.items():
+    for d, path in teachers().items():
         if d in c["domains"]:
-            c["domains"][d]["teacher"] = str(paths.ROOT / path)
+            c["domains"][d]["teacher"] = str(path)
     c.pop("experiment", None)
     out = paths.ROOT / "runs/scratch" / f"mopd-bench-{a.name}"
     c.update(steps=a.steps, save_every=10**6, output=str(out))

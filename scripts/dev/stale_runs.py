@@ -39,12 +39,26 @@ def stale_runs():
                 break
 
 
+def referenced(run):
+    """Code or configs naming this run's path (a hard-coded teacher broke the 2026-10-25 benchmark
+    when its run was archived): archive only what nothing points at."""
+    import subprocess
+
+    rel = os.path.relpath(run, ROOT)
+    out = subprocess.run(["grep", "-rlF", rel, f"{ROOT}/scripts", f"{ROOT}/src", f"{ROOT}/configs"], capture_output=True, text=True).stdout
+    return [l for l in out.splitlines() if "/experiments/" not in l]  # generated historical configs may name it
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--archive", action="store_true")
     a = ap.parse_args()
     for run, f in stale_runs():
-        print(run, f)
+        refs = referenced(run)
+        print(run, f, f"REFERENCED BY {refs}" if refs else "")
+        if a.archive and refs:
+            print(f"  not archived: still referenced")
+            continue
         if a.archive:
             rel = os.path.relpath(run, f"{ROOT}/runs")
             dest = f"{ROOT}/runs/archive/{rel}"
