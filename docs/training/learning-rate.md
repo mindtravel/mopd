@@ -28,17 +28,17 @@
 
 ## 依据：code-full-v1（全参 SFT，rstar-code-instr11）
 
-评测集 lcb-dev-v3，713 题，greedy，输出上限 8192；base 为 28.1（functional 42.9 / stdin 16.0）。
+评测集 lcb-dev-v3，713 题，所有行用同一版训练数据，greedy，输出上限 8192；base 为 28.1（functional 42.9 / stdin 16.0）。
 
 | lr | ck64 | ck128 | ck256 |
 |---|---|---|---|
-| 1e-5 | – | 25.8 | 25.9 |
 | 5e-6 | – | 29.2 | – |
 | 2e-6 | 29.5 | 30.3（functional 39.2 / stdin 23.1） | 29.0 |
 | 1e-6 | 29.0 | 30.3 | 29.9 |
 | 5e-7 | 30.6（functional 41.4 / stdin 21.8） | 29.9 | 29.6 |
 
-- lr 1e-5 比 base 低 2.2 分，2e-6 以下都比 base 高。
+- 表里没有 1e-5：code-full-v1 当时 1e-5 的两个运行用的是旧版本的训练数据，已归档（`runs/archive/index.jsonl`），不参与比较。1e-5 在同一版数据上的对照见 full-sft-lr（结论待定）。
+- 2e-6 及以下都比 base 高。
 - 和 base 逐题配对比较（McNemar）：只有 lr 5e-7 ck64（p=0.036）和 WiSE-FT a0.5（p=0.012）显著好于 base。2e-6 ck128 的 p=0.099，不显著。
 - 默认值选 2e-6 而不是 5e-7：两者分数接近，2e-6 在 128–256 步之间更稳；5e-7 在第 64 步之后就开始下降。
 
