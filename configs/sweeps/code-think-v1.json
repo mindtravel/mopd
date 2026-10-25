@@ -33,9 +33,7 @@
   2,
   3,
   4,
-  5,
-  6,
-  7
+  5
  ],
  "variants": [
   {
@@ -49,6 +47,54 @@
   {
    "name": "oci-think-instr11",
    "recipe": "configs/recipes/code/oci-think-instr11.json"
+  },
+  {
+   "name": "rstar-code-instr11-think-lr2e-6",
+   "recipe": "configs/recipes/code/rstar-code-instr11-think.json",
+   "controls": {
+    "lr": 2e-06
+   },
+   "checkpoints": [
+    64,
+    128,
+    256
+   ]
+  },
+  {
+   "name": "rstar-code-instr11-think-lr5e-7",
+   "recipe": "configs/recipes/code/rstar-code-instr11-think.json",
+   "controls": {
+    "lr": 5e-07
+   },
+   "checkpoints": [
+    64,
+    128,
+    256
+   ]
+  },
+  {
+   "name": "oci-think-instr11-lr2e-6",
+   "recipe": "configs/recipes/code/oci-think-instr11.json",
+   "controls": {
+    "lr": 2e-06
+   },
+   "checkpoints": [
+    64,
+    128,
+    256
+   ]
+  },
+  {
+   "name": "oci-think-instr11-lr5e-7",
+   "recipe": "configs/recipes/code/oci-think-instr11.json",
+   "controls": {
+    "lr": 5e-07
+   },
+   "checkpoints": [
+    64,
+    128,
+    256
+   ]
   }
  ],
  "test": {
