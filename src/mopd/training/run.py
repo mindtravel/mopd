@@ -92,7 +92,8 @@ class TrainRun:
         torch.manual_seed(self.c["seed"])  # identical on every rank: same adapter init
         tok, self.model = build_student(self.c)
         self.model.train()
-        self.scorer = fsdp.shard(self.model, **self.c.get("fsdp", {})) if self.sharded else self.model
+        shard_args = {k: v for k, v in self.c.get("fsdp", {}).items() if k != "optimizer_threads"}  # optimize() reads it
+        self.scorer = fsdp.shard(self.model, **shard_args) if self.sharded else self.model
         self.params = [p for p in self.scorer.parameters() if p.requires_grad]
         self.initial = [local(p).detach().cpu().clone() for p in self.params] if (self.main or self.sharded) else None
         self.opt = torch.optim.AdamW(self.params, lr=self.c["lr"])
@@ -116,7 +117,17 @@ class TrainRun:
             grad = grad.full_tensor() if hasattr(grad, "full_tensor") else grad
         if not torch.isfinite(grad) or grad <= 0:
             raise ValueError("Invalid student gradient")
-        self.opt.step()
+        if self.c.get("fsdp", {}).get("offload"):
+            # the offloaded AdamW steps on the CPU: give it threads for that step only (trainers keep
+            # torch at 2 threads, torchrun sets OMP_NUM_THREADS=1); elementwise ops, same numbers
+            threads = torch.get_num_threads()
+            torch.set_num_threads(self.c["fsdp"].get("optimizer_threads", 24))
+            try:
+                self.opt.step()
+            finally:
+                torch.set_num_threads(threads)
+        else:
+            self.opt.step()
         self.sched.step()
         return float(grad)
 
