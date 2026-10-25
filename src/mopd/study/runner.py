@@ -16,7 +16,8 @@ from mopd.study import resolve, spec
 def finished_runs():
     """identity -> run directory, for every completed SFT run under runs/ (any study or experiment)."""
     out = {}
-    for cfg_path in list(paths.ROOT.glob("runs/*/config.json")) + list(paths.ROOT.glob("runs/studies/*/*/config.json")):
+    for cfg_path in [*paths.ROOT.glob("runs/*/config.json"), *paths.ROOT.glob("runs/studies/*/*/config.json"),
+                     *paths.ROOT.glob("runs/sweeps/*/*/config.json")]:
         run = cfg_path.parent
         try:
             cfg = json.loads(cfg_path.read_text())

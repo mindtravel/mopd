@@ -84,22 +84,26 @@ def run_config(study, name, fields, evals, spec_path, spec_sha, reg, teachers=No
     """The training config of one run (same fields as scripts/make_experiment.py writes).
     teachers: {domain: checkpoint directory} for method mopd (resolved by the runner)."""
     method = {**DEFAULTS, **fields}["method"]
-    f = {**DEFAULTS, **(MOPD_DEFAULTS if method == "mopd" else {}), **fields}
+    domains = fields.get("domains") or [fields["domain"]]
+    # `dataset` (an axis over datasets of one domain) overrides the study's data map
+    datasets = {d: fields.get("dataset") if len(domains) == 1 and fields.get("dataset") else study["data"][d] for d in domains}
+    own = reg["data"][datasets[domains[0]]].get("train_settings", {}) if len(domains) == 1 else {}
+    f = {**DEFAULTS, **(MOPD_DEFAULTS if method == "mopd" else {}), **own, **fields}
     if f["method"] not in ("sft", "mopd"):
         raise NotImplementedError(f"{name}: method {f['method']!r}")
-    domains = f.get("domains") or [f["domain"]]
     n = f["samples_per_step"]
     counts = [n // len(domains) + (i < n % len(domains)) for i in range(len(domains))]
     eval_data = [reg["evals"][e]["data"] for e in evals]
     used, dspec = [], {}
     for d, count in zip(domains, counts):
-        ds = reg["data"][study["data"][d]]
+        ds = reg["data"][datasets[d]]
         holdout = list(dict.fromkeys(ds.get("holdout", []) + eval_data))
         used += [ds["train"], *holdout]
         dspec[d] = {"train_file": abs_path(ds["train"]), "holdout_files": [abs_path(h) for h in holdout],
                     "count": count, "weight": 1 / len(domains)}
     model_rel = reg["models"][f["student"]]["path"]
     ctl = {"student": abs_path(model_rel), **{k: f[k] for k in f if k in controls.CONTROL_KEYS and k != "student"}}
+    # a dataset's micro_batch_tokens is a training-system setting like the others in SYSTEM_KEYS
     if "lr" in (study.get("axes") or {}):
         ctl["lr_reason"] = f"lr axis of study {study['study']}"
     cfg = {

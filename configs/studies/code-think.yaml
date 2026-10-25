@@ -1,0 +1,12 @@
+study: code-think
+description: >-
+  先想后写协议（plain_qa_think_v1，评测 lcbdev-v3-think）下的全参代码 SFT：rstar 与 oci 两份 think 数据 × lr。
+  1e-5 是 code-think-v1 原来的设置（已训，复用）；2e-6 / 5e-7 是全参 SFT 降 lr 的对照（docs/training/learning-rate.md）。
+base: {method: sft, domain: code, seed: 20261022, student_prompt_format: plain_qa_think_v1}
+axes:
+  dataset: [code-rstar-instr11-think, code-oci-think-instr11]
+  lr: [1.0e-5, 2.0e-6, 5.0e-7]
+name: "{dataset}-lr{lr:g}"
+data: {code: code-rstar-instr11-think}
+evals: [lcbdev-v3-think]
+checkpoints: [64, 128, 256]

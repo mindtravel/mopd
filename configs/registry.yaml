@@ -1,7 +1,8 @@
 # Everything a study refers to by name: models, training data, evaluation suites, and the sha256
 # of every file (checked again at run time by mopd.runtime.provenance). Paths are relative to
 # paths.ROOT. Add a dataset here once; studies only name it. `python scripts/study.py pin` fills
-# missing pins from the server.
+# missing pins from the server. A dataset's train_settings (a built recipe's own sequence cap and
+# micro-batching) apply to runs that train on it alone, unless the study sets them.
 models:
   qwen3-4b-base:
     path: models/Qwen3-4B-Base
@@ -18,6 +19,22 @@ data:
     train: data/recipes/rstar-code-instr11/train.jsonl
     holdout:
     - data/recipes/rstar-code-instr11/dev.jsonl
+  code-rstar-instr11-think:
+    train: data/recipes/rstar-code-instr11-think/train.jsonl
+    holdout:
+    - data/recipes/rstar-code-instr11-think/dev.jsonl
+    train_settings:
+      sft_max_seq_len: 10240
+      micro_batch_size: 4
+      micro_batch_tokens: 16384
+  code-oci-think-instr11:
+    train: data/recipes/oci-think-instr11/train.jsonl
+    holdout:
+    - data/recipes/oci-think-instr11/dev.jsonl
+    train_settings:
+      sft_max_seq_len: 10240
+      micro_batch_size: 4
+      micro_batch_tokens: 16384
 evals:
   unified-v3:
     data: data/full_eval/unified-v3/all.jsonl
@@ -26,6 +43,10 @@ evals:
   lcbdev-v3:
     data: data/full_eval/lcb-dev-v3/lcbdev.jsonl
     protocol_id: lcbdev-v3-greedy8192
+    max_new_tokens: 8192
+  lcbdev-v3-think:
+    data: data/full_eval/lcb-dev-v3/lcbdev.jsonl
+    protocol_id: lcbdev-v3-think-greedy8192
     max_new_tokens: 8192
 pins:
   data/full_eval/unified-v3/all.jsonl: 044e964eddfb05b20962a29fc6478d62c386e6bb62658a429ea4bf3a2a54b9d8
@@ -39,3 +60,7 @@ pins:
   models/Qwen3-4B-Base/model-00002-of-00003.safetensors: f4707585548b2fc75a6b1d732e8465c62040a8699903c32850781beeb9b27826
   models/Qwen3-4B-Base/model-00003-of-00003.safetensors: c7b1aa8fb672de2e00423c99876926022e50b18d4f0d140670788510a27f9965
   data/full_eval/lcb-dev-v3/lcbdev.jsonl: f959510548b6559c8e46abae71ed7250cea7ca2ffbac230e42bd458f6ced47df
+  data/recipes/rstar-code-instr11-think/train.jsonl: 1331009a5709cc964ec6a3d98aa2f981eaeb3b5501d61d5f8ddcae1775942cfe
+  data/recipes/rstar-code-instr11-think/dev.jsonl: 52a83e8ac5fe515b61785e97f3aad281e1ccede1b8dce235cb0dd643c2d7a727
+  data/recipes/oci-think-instr11/train.jsonl: e387360df1883d3fdda82bbe077d04758bf0e416e29adf2f56ccbad6e3486788
+  data/recipes/oci-think-instr11/dev.jsonl: 74104b89780c9c39bebb69cd6f10cf5776487ec0073123f434b4275eedf7e037
