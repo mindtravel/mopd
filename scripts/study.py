@@ -2,6 +2,7 @@
 
   python scripts/study.py show configs/studies/full-sft-lr.yaml   # runs, identities, reused runs (on the server)
   python scripts/study.py run  configs/studies/full-sft-lr.yaml   # train what is missing, evaluate everything
+  python scripts/study.py report configs/studies/full-sft-lr.yaml  # scores per run/suite/checkpoint vs baseline
   python scripts/study.py pin                                     # fill missing registry pins (sha256 over ssh)
 """
 
@@ -15,7 +16,7 @@ from mopd.study import resolve, runner
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("cmd", choices=["show", "run", "pin"])
+    ap.add_argument("cmd", choices=["show", "run", "report", "pin"])
     ap.add_argument("study", nargs="?")
     ap.add_argument("--host", default="para5090")
     a = ap.parse_args()
@@ -36,6 +37,12 @@ def main():
             head = text[: text.index("models:")]
             resolve.REGISTRY.write_text(head + yaml.safe_dump(reg, sort_keys=False, width=200))
         print(json.dumps({"pinned": len(missing)}))
+        return
+    if a.cmd == "report":
+        from mopd.study import report
+
+        study, reg, runs = runner.plan(a.study)
+        print(f"## {study['study']}\n\n" + report.markdown(report.table(study, reg, runs)))
         return
     if a.cmd == "show":
         study, _, runs = runner.plan(a.study)

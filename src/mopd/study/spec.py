@@ -41,7 +41,7 @@ def load(path):
     for key in ("study", "base"):
         if key not in study:
             raise ValueError(f"{path}: missing {key!r}")
-    unknown = set(study) - {"study", "description", "base", "axes", "name", "data", "evals", "checkpoints", "teachers"}
+    unknown = set(study) - {"study", "description", "base", "axes", "name", "data", "evals", "checkpoints", "teachers", "baseline"}
     if unknown:
         raise ValueError(f"{path}: unknown keys {sorted(unknown)}")
     return study
