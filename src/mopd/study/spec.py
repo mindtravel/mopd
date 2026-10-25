@@ -8,6 +8,7 @@
   data: {math: math-numina-v3, code: code-rstar-instr11}   # domain -> registry dataset
   evals: [unified-v3, {suite: lcbdev-v3, if: "domain == 'code'"}]
   checkpoints: [64, 128, 256]
+  teachers: {math: {study: full-sft-lr, run: math-lr2e-06, checkpoint: 256}}   # method: mopd
 
 `if:` conditions are expressions over the run's fields: names, constants, comparisons, `in`,
 `and` / `or` / `not` -- nothing else is evaluated.
@@ -40,7 +41,7 @@ def load(path):
     for key in ("study", "base"):
         if key not in study:
             raise ValueError(f"{path}: missing {key!r}")
-    unknown = set(study) - {"study", "description", "base", "axes", "name", "data", "evals", "checkpoints"}
+    unknown = set(study) - {"study", "description", "base", "axes", "name", "data", "evals", "checkpoints", "teachers"}
     if unknown:
         raise ValueError(f"{path}: unknown keys {sorted(unknown)}")
     return study

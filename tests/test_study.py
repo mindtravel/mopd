@@ -49,5 +49,21 @@ class StudyTest(unittest.TestCase):
         self.assertNotEqual(resolve.identity(a), resolve.identity(c))
 
 
+    def test_mopd_layout_and_identity(self):
+        st = spec.load(ROOT / "configs/studies/mopd-mic.yaml")
+        reg = resolve.registry()
+        (name, fields), = spec.expand(st)
+        teachers = {d: f"/runs/{d}/checkpoint-0256" for d in ("math", "instruction", "code")}
+        cfg = resolve.run_config(st, name, fields, ["unified-v3"], "s", "h", reg, teachers)
+        self.assertEqual((cfg["student_gpus"], cfg["rollout_devices"]), (2, ["cuda:2", "cuda:3"]))
+        self.assertEqual({s["device"] for s in cfg["domains"].values()}, {"cuda:0", "cuda:1"})  # on the student GPUs
+        self.assertEqual([s["count"] for s in cfg["domains"].values()], [11, 11, 10])
+        self.assertTrue(cfg["rollout_async"] and cfg["rollout_streaming"] and cfg["fsdp"]["offload"])
+        other = resolve.run_config(st, name, fields, [], "s", "h", reg, {**teachers, "code": "/runs/other/checkpoint-0256"})
+        self.assertNotEqual(resolve.identity(cfg), resolve.identity(other))  # a different teacher is a different run
+        faster = resolve.run_config(st, name, {**fields, "micro_batch_tokens": 4096}, [], "s", "h", reg, teachers)
+        self.assertEqual(resolve.identity(cfg), resolve.identity(faster))
+
+
 if __name__ == "__main__":
     unittest.main()

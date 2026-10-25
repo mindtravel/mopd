@@ -1,0 +1,13 @@
+study: mopd-mic
+description: >-
+  三教师 MOPD（数学、指令、代码），全参学生在 2 张卡上（offload），教师在学生卡上，rollout 在其余训练卡，异步。
+  教师取 full-sft-lr 里 lr 2e-6 的专家（默认 lr；扫描结论出来后再换）。全参 MOPD 的 lr 尚无默认值，先沿用 1e-5。
+base: {method: mopd, domains: [math, instruction, code], lr: 1.0e-5, lr_reason: "全参 MOPD 尚无默认 lr（未扫）；沿用 full256-mopd"}
+name: mic
+data: {math: math-numina-v3, instruction: instruction-smol, code: code-rstar-instr11}
+teachers:
+  math: {study: full-sft-lr, run: math-lr2e-06, checkpoint: 256}
+  instruction: {study: full-sft-lr, run: instruction-lr2e-06, checkpoint: 256}
+  code: {study: full-sft-lr, run: code-lr2e-06, checkpoint: 256}
+evals: [unified-v3]
+checkpoints: [128, 256]

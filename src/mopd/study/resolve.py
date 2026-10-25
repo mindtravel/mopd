@@ -34,6 +34,19 @@ DEFAULTS = {
     "sft_max_seq_len": 10240,
     "fsdp": {"reshard_after_forward": True},
 }
+# MOPD (scripts/train_multidomain_opd.py): the settings measured to fit and run on the 0-3 layout
+# (2026-10-25 bench: student on 2 GPUs with offload, teachers on the student GPUs, rollout on the rest)
+MOPD_DEFAULTS = {
+    "micro_batch_size": 16,
+    "micro_batch_tokens": 8192,
+    "fsdp": {"reshard_after_forward": True, "offload": True},
+    "mopd_max_new_tokens": 8192,
+    "mopd_generation_batch_size": 8,
+    "mopd_vllm_memory_utilization": 0.8,
+    "teacher_prompt_format": "student_prefix_v1",
+    "mopd_rollout_async": True,
+}
+MOPD_IDENTITY_KEYS = ("max_new_tokens", "rollout_async")
 IDENTITY_KEYS = ("student_backend", "student_prompt_format", "seed", "steps", "lr", "lr_schedule",
                  "training_method", "max_seq_len")
 
@@ -56,11 +69,24 @@ def model_pins(reg, model_rel):
     return {k: v for k, v in reg["pins"].items() if k.startswith(model_rel + "/")}
 
 
-def run_config(study, name, fields, evals, spec_path, spec_sha, reg):
-    """The SFT training config of one run (same fields as scripts/make_experiment.py writes)."""
-    f = {**DEFAULTS, **fields}
-    if f["method"] != "sft":
-        raise NotImplementedError(f"{name}: method {f['method']!r} (studies start with SFT)")
+def layout(n_domains, offload):
+    """MOPD devices from the training GPUs (paths.GPU_ROLES): with offload the student takes two, the
+    teachers share the student GPUs (their memory is free once the student state is in host
+    memory), and every other training GPU runs a rollout engine."""
+    gpus = list(paths.TRAIN_GPUS)
+    if not offload or len(gpus) < 3:
+        raise ValueError("MOPD on the training GPUs needs fsdp.offload (student on 2 GPUs) and a third GPU for rollouts")
+    student = gpus[:2]
+    return {"student": student, "teachers": [student[i % 2] for i in range(n_domains)], "rollout": gpus[2:]}
+
+
+def run_config(study, name, fields, evals, spec_path, spec_sha, reg, teachers=None):
+    """The training config of one run (same fields as scripts/make_experiment.py writes).
+    teachers: {domain: checkpoint directory} for method mopd (resolved by the runner)."""
+    method = {**DEFAULTS, **fields}["method"]
+    f = {**DEFAULTS, **(MOPD_DEFAULTS if method == "mopd" else {}), **fields}
+    if f["method"] not in ("sft", "mopd"):
+        raise NotImplementedError(f"{name}: method {f['method']!r}")
     domains = f.get("domains") or [f["domain"]]
     n = f["samples_per_step"]
     counts = [n // len(domains) + (i < n % len(domains)) for i in range(len(domains))]
@@ -77,17 +103,30 @@ def run_config(study, name, fields, evals, spec_path, spec_sha, reg):
     if "lr" in (study.get("axes") or {}):
         ctl["lr_reason"] = f"lr axis of study {study['study']}"
     cfg = {
-        **controls.training_fields(ctl, micro_batch_size=f["micro_batch_size"], method="sft", where=f"{study['study']}/{name}"),
+        **controls.training_fields(ctl, micro_batch_size=f["micro_batch_size"], method=f["method"], where=f"{study['study']}/{name}"),
         "output": abs_path(f"runs/studies/{study['study']}/{name}"),
         "data_pins": {abs_path(r): pin(reg, r) for r in dict.fromkeys(used)} | {abs_path(k): v for k, v in model_pins(reg, model_rel).items()},
         "experiment": {"name": study["study"], "arm": name, "spec_path": spec_path, "spec_sha256": spec_sha},
         **controls.system_fields(ctl),
-        "training_method": "sft",
-        "student_device": "cuda:0",
-        "max_seq_len": f["sft_max_seq_len"],
-        "domains": dspec,
     }
-    return cfg
+    if f["method"] == "sft":
+        return {**cfg, "training_method": "sft", "student_device": "cuda:0", "max_seq_len": f["sft_max_seq_len"], "domains": dspec}
+    dev = layout(len(domains), f["fsdp"].get("offload"))
+    for d, gpu in zip(domains, dev["teachers"]):
+        dspec[d] = {"teacher": str(teachers[d]), "device": f"cuda:{gpu}", "teacher_prompt_format": f["teacher_prompt_format"], **dspec[d]}
+    return {
+        **cfg,
+        "training_method": "mopd",
+        "student_device": f"cuda:{dev['student'][0]}",
+        "domains": dspec,
+        "student_gpus": len(dev["student"]),
+        "max_new_tokens": f["mopd_max_new_tokens"],
+        "generation_batch_size": f["mopd_generation_batch_size"],
+        "rollout_backend": "vllm",
+        "rollout_devices": [f"cuda:{g}" for g in dev["rollout"]],
+        "vllm_memory_utilization": f["mopd_vllm_memory_utilization"],
+        **({"rollout_async": True, "rollout_streaming": True} if f.get("mopd_rollout_async") else {}),
+    }
 
 
 def identity(cfg):
@@ -97,8 +136,10 @@ def identity(cfg):
     student = sorted(v for k, v in pins.items() if k.startswith(cfg["student"] + "/") and k.endswith(".safetensors"))
     key = {
         **{k: cfg.get(k) for k in IDENTITY_KEYS},
+        **({k: cfg.get(k) for k in MOPD_IDENTITY_KEYS} if cfg.get("training_method") == "mopd" else {}),
         "student": student or cfg["student"],
-        "domains": {d: {"train": pins.get(s["train_file"], s["train_file"]), "count": s["count"], "weight": round(s["weight"], 6)}
+        "domains": {d: {"train": pins.get(s["train_file"], s["train_file"]), "count": s["count"], "weight": round(s["weight"], 6),
+                        **({k: s[k] for k in ("teacher", "teacher_prompt_format") if k in s})}
                     for d, s in sorted(cfg["domains"].items())},
     }
     return hashlib.sha256(json.dumps(key, sort_keys=True).encode()).hexdigest()[:16]
