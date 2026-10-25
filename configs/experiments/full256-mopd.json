@@ -1,6 +1,6 @@
 {
   "name": "full256-mopd",
-  "description": "full256 的 MOPD 臂：全参学生（FSDP2，4 卡），老师直接用 full256 训练好的三个全参专家，rollout 2 卡 vLLM 每步原地加载完整权重。其余控制变量与 full256 一致。 学生用 reshard_after_forward=false + micro_batch_size 16 / micro_batch_tokens 16384：基准中学生阶段 19.3→9.3 s/步（MFU 2.2%→4.8%），显存峰值 24.9 GiB。",
+  "description": "full256 的 MOPD 臂：全参学生（FSDP2，4 卡），老师直接用 full256 训练好的三个全参专家，rollout 2 卡 vLLM 每步原地加载完整权重。其余控制变量与 full256 一致。 布局（2026-10-25，GPU 4–5 让给其他用户）：学生在 0–1（FSDP2，参数/梯度/AdamW 状态 offload 到主机内存），教师分在 0–1（offload 后学生 GPU 有空余显存），rollout 在 2–3；异步 rollout（第 k 步用策略 k−2 的样本），学生、教师和 rollout 同时忙。",
   "output_prefix": "/ssd/lzx/mopd/runs/20261024-full256-",
   "expert_dir_prefix": "/ssd/lzx/mopd/models/experts/full256-",
   "merge_dir_prefix": "/ssd/lzx/mopd/models/merged/full256-",
@@ -19,14 +19,16 @@
     "save_every": 64,
     "sft_max_seq_len": 10240,
     "fsdp": {
-      "reshard_after_forward": false
+      "reshard_after_forward": false,
+      "offload": true
     },
     "mopd_max_new_tokens": 8192,
     "mopd_generation_batch_size": 8,
     "mopd_vllm_memory_utilization": 0.8,
     "teacher_prompt_format": "student_prefix_v1",
     "micro_batch_tokens": 16384,
-    "lr_reason": "全参 MOPD 尚无默认 lr（未扫）；1e-5 沿用 full256 专家的设置，正式训练前需要单独扫 lr。"
+    "lr_reason": "全参 MOPD 尚无默认 lr（未扫）；1e-5 沿用 full256 专家的设置，正式训练前需要单独扫 lr。",
+    "mopd_rollout_async": true
   },
   "quotas": {
     "1": [
@@ -113,6 +115,21 @@
         "math": "expert-m",
         "instruction": "expert-i",
         "code": "expert-c"
+      },
+      "devices": {
+        "student": [
+          0,
+          1
+        ],
+        "teachers": [
+          0,
+          1,
+          0
+        ],
+        "rollout": [
+          2,
+          3
+        ]
       }
     },
     {
@@ -121,6 +138,20 @@
       "teachers": {
         "math": "expert-m",
         "instruction": "expert-i"
+      },
+      "devices": {
+        "student": [
+          0,
+          1
+        ],
+        "teachers": [
+          0,
+          1
+        ],
+        "rollout": [
+          2,
+          3
+        ]
       }
     }
   ]

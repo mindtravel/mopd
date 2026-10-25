@@ -43,8 +43,8 @@ class TrainRun:
         self.rank, self.world_size, dist_device = dist_info()
         self.main = self.rank == 0
         self.sharded = is_sharded(config)
-        if self.sharded and self.world_size < 4:
-            raise ValueError("full fine-tuning (fp32 weights + AdamW sharded) needs >= 4 GPUs")
+        if self.sharded and self.world_size < 4 and not config.get("fsdp", {}).get("offload"):
+            raise ValueError("full fine-tuning (fp32 weights + AdamW sharded) needs >= 4 GPUs, or fsdp.offload")
         if "student_gpus" in config and self.world_size != config["student_gpus"]:
             raise ValueError(f"launch with --nproc_per_node={config['student_gpus']}")
         self.c = {**config, "student_device": dist_device} if dist_device else config
@@ -109,13 +109,32 @@ class TrainRun:
         return self.sched.get_last_lr()[0]
 
     def optimize(self):
-        grad = torch.nn.utils.clip_grad_norm_(self.params, 1.0)
-        grad = grad.full_tensor() if hasattr(grad, "full_tensor") else grad
+        if self.c.get("fsdp", {}).get("offload"):
+            grad = self._clip_offloaded(1.0)
+        else:
+            grad = torch.nn.utils.clip_grad_norm_(self.params, 1.0)
+            grad = grad.full_tensor() if hasattr(grad, "full_tensor") else grad
         if not torch.isfinite(grad) or grad <= 0:
             raise ValueError("Invalid student gradient")
         self.opt.step()
         self.sched.step()
         return float(grad)
+
+    def _clip_offloaded(self, max_norm, eps=1e-6):
+        """clip_grad_norm_ for gradients sharded in host memory (fsdp.offload): NCCL reduces only
+        device tensors, so the local squared sums go to the GPU for the all-reduce. Same norm and
+        same scaling as clip_grad_norm_."""
+        grads = [p.grad for p in self.params if p.grad is not None]
+        local = sum((g.to_local() if hasattr(g, "to_local") else g).float().pow(2).sum() for g in grads)
+        total = torch.as_tensor(local, dtype=torch.float64, device=torch.cuda.current_device())
+        if dist.is_initialized():
+            dist.all_reduce(total)
+        norm = total.sqrt()
+        coef = torch.clamp(max_norm / (norm + eps), max=1.0).item()
+        if coef < 1.0:
+            for g in grads:
+                g.mul_(coef)
+        return norm.float().cpu()
 
     def log(self, step, report, metrics=None):
         if not self.main:

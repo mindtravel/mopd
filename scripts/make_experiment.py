@@ -167,6 +167,8 @@ def generate(spec_path):
                 "rollout_backend": "vllm",
                 "rollout_devices": [f"cuda:{g}" for g in dev["rollout"]],
                 "vllm_memory_utilization": c["mopd_vllm_memory_utilization"],
+                # async: step k trains on policy k-2's rollouts while the next step decodes (needs streaming)
+                **({"rollout_async": True, "rollout_streaming": True} if c.get("mopd_rollout_async") else {}),
             }
             files[f"{name}.json"] = dumps(cfg)
             gpus = sorted({*students, *dev["teachers"], *dev["rollout"]})

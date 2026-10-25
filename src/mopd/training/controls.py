@@ -12,7 +12,7 @@ CONTROL_KEYS = {
     "fsdp", "gradient_checkpointing", "lora", "micro_batch_tokens",
     # experiment specs
     "micro_batch_size", "sft_max_seq_len", "mopd_max_new_tokens", "mopd_generation_batch_size",
-    "mopd_vllm_memory_utilization", "teacher_prompt_format",
+    "mopd_vllm_memory_utilization", "teacher_prompt_format", "mopd_rollout_async",
 }
 SYSTEM_KEYS = ("fsdp", "gradient_checkpointing", "lora", "micro_batch_tokens")
 

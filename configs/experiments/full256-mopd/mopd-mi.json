@@ -27,10 +27,11 @@
     "name": "full256-mopd",
     "arm": "mopd-mi",
     "spec_path": "/ssd/lzx/mopd/configs/experiments/full256-mopd.json",
-    "spec_sha256": "5662e6211e0a2d0b40587e0d494b299560ba75e108e3a79d9f82d8e6040ffa56"
+    "spec_sha256": "76adf2e0abbf756470d6bbb1c9818bd315e25f649d6e9c20d675adef6d955560"
   },
   "fsdp": {
-    "reshard_after_forward": false
+    "reshard_after_forward": false,
+    "offload": true
   },
   "micro_batch_tokens": 16384,
   "training_method": "mopd",
@@ -38,7 +39,7 @@
   "domains": {
     "math": {
       "teacher": "/ssd/lzx/mopd/runs/20261024-full256-expert-m/checkpoint-0256",
-      "device": "cuda:4",
+      "device": "cuda:0",
       "teacher_prompt_format": "student_prefix_v1",
       "train_file": "/ssd/lzx/mopd/data/sft/numina_v3/train.jsonl",
       "holdout_files": [
@@ -50,7 +51,7 @@
     },
     "instruction": {
       "teacher": "/ssd/lzx/mopd/runs/20261024-full256-expert-i/checkpoint-0256",
-      "device": "cuda:4",
+      "device": "cuda:1",
       "teacher_prompt_format": "student_prefix_v1",
       "train_file": "/ssd/lzx/mopd/data/sft/smol_constraints/train.jsonl",
       "holdout_files": [
@@ -61,12 +62,15 @@
       "weight": 0.5
     }
   },
-  "student_gpus": 4,
+  "student_gpus": 2,
   "max_new_tokens": 8192,
   "generation_batch_size": 8,
   "rollout_backend": "vllm",
   "rollout_devices": [
-    "cuda:5"
+    "cuda:2",
+    "cuda:3"
   ],
-  "vllm_memory_utilization": 0.8
+  "vllm_memory_utilization": 0.8,
+  "rollout_async": true,
+  "rollout_streaming": true
 }

@@ -3,7 +3,7 @@
     "name": "full256-mopd",
     "arm": null,
     "spec_path": "/ssd/lzx/mopd/configs/experiments/full256-mopd.json",
-    "spec_sha256": "5662e6211e0a2d0b40587e0d494b299560ba75e108e3a79d9f82d8e6040ffa56"
+    "spec_sha256": "76adf2e0abbf756470d6bbb1c9818bd315e25f649d6e9c20d675adef6d955560"
   },
   "evaluation": {
     "protocol_id": "unified-v3-plainqa-greedy8192",
@@ -49,13 +49,11 @@
         0,
         1,
         2,
-        3,
-        4,
-        5
+        3
       ],
       "deps": [],
       "config": "configs/experiments/full256-mopd/mopd-mic.json",
-      "nproc": 4
+      "nproc": 2
     },
     {
       "id": "eval:mopd-mic:128",
@@ -84,13 +82,11 @@
         0,
         1,
         2,
-        3,
-        4,
-        5
+        3
       ],
       "deps": [],
       "config": "configs/experiments/full256-mopd/mopd-mi.json",
-      "nproc": 4
+      "nproc": 2
     },
     {
       "id": "eval:mopd-mi:128",

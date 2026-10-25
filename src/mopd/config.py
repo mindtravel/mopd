@@ -35,8 +35,10 @@ def _student_devices(config):
     """A sharded (hf_full) student runs one torchrun rank per GPU on cuda:0..student_gpus-1."""
     if config["student_backend"] == "hf_full":
         n = _require(config, "student_gpus", int)
-        if n < 4:
-            raise ConfigError("hf_full needs student_gpus >= 4 (fp32 weights + AdamW sharded)")
+        # fp32 weights + grads + AdamW = 16 bytes/parameter: ~64 GB for 4B, too much for fewer than 4
+        # 32 GB GPUs unless it lives in host memory (fsdp.offload)
+        if n < 4 and not config.get("fsdp", {}).get("offload"):
+            raise ConfigError("hf_full needs student_gpus >= 4, or fsdp.offload (optimizer state in host memory)")
         return {f"cuda:{i}" for i in range(n)}
     return {config["student_device"]}
 
@@ -50,8 +52,9 @@ def _check_devices(config):
     if rollout & taken:
         raise ConfigError(f"rollout devices {sorted(rollout & taken)} also hold the student or a teacher")
     teachers_on_student = _student_devices(config) & {spec["device"] for spec in config["domains"].values()}
-    if config["student_backend"] == "hf_full" and teachers_on_student:
-        raise ConfigError(f"teachers {sorted(teachers_on_student)} share a GPU with a student shard")
+    # with fsdp.offload the student's state lives in host memory, leaving room for teachers on its GPUs
+    if config["student_backend"] == "hf_full" and teachers_on_student and not config.get("fsdp", {}).get("offload"):
+        raise ConfigError(f"teachers {sorted(teachers_on_student)} share a GPU with a student shard (needs fsdp.offload)")
 
 
 def _check_prompt_protocol(config, adapter_config):

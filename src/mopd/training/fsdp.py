@@ -21,23 +21,31 @@ from mopd.runtime.model_files import finalize
 from mopd.training.batching import TokenLogProbs
 
 
-def shard(model, reshard_after_forward=True, gather_once_per_step=False):
+def shard(model, reshard_after_forward=True, gather_once_per_step=False, offload=False):
     """Wrap a causal LM (fp32 parameters on this rank's GPU) for sharded training; returns the
     TokenLogProbs root to train and score with.
     reshard_after_forward=False keeps each layer's gathered bf16 weights from its forward to its
     backward (ZeRO-2-like): one all-gather fewer per micro-batch, +8 GB resident.
     gather_once_per_step additionally keeps them across the step's micro-batches (see step_boundary):
     one all-gather per step however many micro-batches, gradients still reduce-scattered in fp32
-    after every micro-batch, so the summed gradient is unchanged. Implies reshard_after_forward=False."""
+    after every micro-batch, so the summed gradient is unchanged. Implies reshard_after_forward=False.
+    offload: sharded fp32 parameters, gradients and AdamW state live in pinned host memory and the
+    optimizer steps on the CPU (FSDP2 CPUOffloadPolicy): the same numbers, slower steps, for a student
+    on fewer than 4 GPUs (16 bytes/parameter would not fit) -- and room for teachers on its GPUs."""
     # reduce in fp32: bf16 cannot be used with the SUM divide factor below (NCCL PreMulSum supports
     # only half/float/double -- measured 2026-10-24)
     policy = MixedPrecisionPolicy(param_dtype=torch.bfloat16, reduce_dtype=torch.float32)
     scorer = TokenLogProbs(model)
+    extra = {}
+    if offload:
+        from torch.distributed.fsdp import CPUOffloadPolicy
+
+        extra["offload_policy"] = CPUOffloadPolicy(pin_memory=True)
     units = [
-        fully_shard(layer, mp_policy=policy, reshard_after_forward=reshard_after_forward and not gather_once_per_step)
+        fully_shard(layer, mp_policy=policy, reshard_after_forward=reshard_after_forward and not gather_once_per_step, **extra)
         for layer in scorer.base.model.layers
     ]
-    units.append(fully_shard(scorer, mp_policy=policy))
+    units.append(fully_shard(scorer, mp_policy=policy, **extra))
     for unit in units:
         unit.set_reduce_scatter_divide_factor(1.0)
     scorer.gather_once_per_step = gather_once_per_step
@@ -57,6 +65,16 @@ def local(tensor):
     return tensor.to_local() if hasattr(tensor, "to_local") else tensor
 
 
+def full_bf16(p):
+    """One parameter's full bf16 tensor on this GPU (collective for a sharded one). With fsdp.offload
+    the shard lives in host memory: moved to the GPU first, since NCCL gathers only device tensors."""
+    t = p.detach()
+    if t.device.type == "cpu":
+        t = t.to(torch.cuda.current_device(), non_blocking=True)
+    t = t.to(torch.bfloat16)
+    return t.full_tensor() if hasattr(t, "full_tensor") else t
+
+
 def gather(scorer, main_rank):
     """Collective: every rank must call. The whole model's weights as bf16 CPU tensors under HF
     names on rank 0 (None elsewhere). One parameter at a time, cast to bf16 on the GPU *before* the
@@ -65,8 +83,7 @@ def gather(scorer, main_rank):
     (the 0.8 GB embedding at most) on any GPU. A tied lm_head is the embedding and appears once."""
     state = {}
     for name, p in scorer.named_parameters():
-        full = p.detach().to(torch.bfloat16)
-        full = full.full_tensor() if hasattr(full, "full_tensor") else full
+        full = full_bf16(p)
         if main_rank:
             state[name.removeprefix("base.")] = full.cpu()
         del full
@@ -116,8 +133,7 @@ class SharedWeights:
     def write(self, scorer):
         """Collective: every rank must call. Rank 0's buffer holds the current weights on return."""
         for (name, p), item in zip(scorer.named_parameters(), self.layout):
-            full = p.detach().to(torch.bfloat16)
-            full = full.full_tensor() if hasattr(full, "full_tensor") else full
+            full = full_bf16(p)
             if self.main:
                 self.buffer[item["offset"] : item["offset"] + item["numel"]].view(item["shape"]).copy_(
                     full, non_blocking=True
