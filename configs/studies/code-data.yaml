@@ -1,0 +1,22 @@
+study: code-data
+description: >-
+  LoRA 代码 SFT 的数据配方对比（code-data-v1 迁移）：OpenCoder、KodCode、OpenCodeReasoning、rStar 系列，
+  默认 LoRA（r16，q/k/v/o）和一个 r64 全投影的对照。评测 lcb-dev-v3。
+base: {method: sft, domain: code, seed: 20261022, student_backend: hf_lora}
+data: {code: code-opencoder-clean}
+evals: [lcbdev-v3]
+checkpoints: [128, 256]
+runs:
+  - {name: opencoder-clean, dataset: code-opencoder-clean}
+  - {name: kc-all, dataset: code-kc-all}
+  - {name: kc-contest, dataset: code-kc-contest}
+  - {name: kc-contest-code, dataset: code-kc-contest-code}
+  - {name: kc-contest-plain, dataset: code-kc-contest-plain}
+  - {name: ocr-code, dataset: code-ocr-code}
+  - {name: ocr-trace, dataset: code-ocr-trace}
+  - {name: mix-kc-ocr, dataset: code-mix-kc-ocr}
+  - {name: rstar-seed, dataset: code-rstar-seed}
+  - {name: rstar-seed-concise, dataset: code-rstar-seed-concise}
+  - name: rstar-seed-concise-r64
+    dataset: code-rstar-seed-concise
+    lora: {rank: 64, alpha: 128, targets: [q_proj, k_proj, v_proj, o_proj, gate_proj, up_proj, down_proj]}

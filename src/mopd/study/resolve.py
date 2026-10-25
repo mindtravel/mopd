@@ -103,6 +103,8 @@ def run_config(study, name, fields, evals, spec_path, spec_sha, reg, teachers=No
                     "count": count, "weight": 1 / len(domains)}
     model_rel = reg["models"][f["student"]]["path"]
     ctl = {"student": abs_path(model_rel), **{k: f[k] for k in f if k in controls.CONTROL_KEYS and k != "student"}}
+    if ctl.get("student_backend") != "hf_full":
+        ctl.pop("fsdp", None)  # a LoRA student trains on one GPU, unsharded
     # a dataset's micro_batch_tokens is a training-system setting like the others in SYSTEM_KEYS
     if "lr" in (study.get("axes") or {}):
         ctl["lr_reason"] = f"lr axis of study {study['study']}"
@@ -141,6 +143,7 @@ def identity(cfg):
     key = {
         **{k: cfg.get(k) for k in IDENTITY_KEYS},
         **({k: cfg.get(k) for k in MOPD_IDENTITY_KEYS} if cfg.get("training_method") == "mopd" else {}),
+        **({"lora": cfg["lora"]} if cfg.get("lora") else {}),  # rank / targets change what is trained
         "student": student or cfg["student"],
         "domains": {d: {"train": pins.get(s["train_file"], s["train_file"]), "count": s["count"], "weight": round(s["weight"], 6),
                         **({k: s[k] for k in ("teacher", "teacher_prompt_format") if k in s})}

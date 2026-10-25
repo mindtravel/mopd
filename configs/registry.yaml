@@ -84,6 +84,76 @@ data:
     train_settings:
       sft_max_seq_len: 10240
       micro_batch_size: 4
+  code-opencoder-clean:
+    train: data/recipes/opencoder-clean/train.jsonl
+    holdout:
+    - data/recipes/opencoder-clean/dev.jsonl
+    train_settings:
+      sft_max_seq_len: 20480
+      micro_batch_size: 2
+  code-kc-all:
+    train: data/recipes/kc-all/train.jsonl
+    holdout:
+    - data/recipes/kc-all/dev.jsonl
+    train_settings:
+      sft_max_seq_len: 20480
+      micro_batch_size: 2
+  code-kc-contest:
+    train: data/recipes/kc-contest/train.jsonl
+    holdout:
+    - data/recipes/kc-contest/dev.jsonl
+    train_settings:
+      sft_max_seq_len: 20480
+      micro_batch_size: 2
+  code-kc-contest-code:
+    train: data/recipes/kc-contest-code/train.jsonl
+    holdout:
+    - data/recipes/kc-contest-code/dev.jsonl
+    train_settings:
+      sft_max_seq_len: 20480
+      micro_batch_size: 2
+  code-kc-contest-plain:
+    train: data/recipes/kc-contest-plain/train.jsonl
+    holdout:
+    - data/recipes/kc-contest-plain/dev.jsonl
+    train_settings:
+      sft_max_seq_len: 20480
+      micro_batch_size: 2
+  code-ocr-code:
+    train: data/recipes/ocr-code/train.jsonl
+    holdout:
+    - data/recipes/ocr-code/dev.jsonl
+    train_settings:
+      sft_max_seq_len: 20480
+      micro_batch_size: 2
+  code-ocr-trace:
+    train: data/recipes/ocr-trace/train.jsonl
+    holdout:
+    - data/recipes/ocr-trace/dev.jsonl
+    train_settings:
+      sft_max_seq_len: 20480
+      micro_batch_size: 1
+  code-mix-kc-ocr:
+    train: data/recipes/mix-kc-ocr/train.jsonl
+    holdout:
+    - data/recipes/mix-kc-ocr/dev.jsonl
+    train_settings:
+      sft_max_seq_len: 20480
+      micro_batch_size: 2
+  code-rstar-seed:
+    train: data/recipes/rstar-seed/train.jsonl
+    holdout:
+    - data/recipes/rstar-seed/dev.jsonl
+    train_settings:
+      sft_max_seq_len: 20480
+      micro_batch_size: 1
+  code-rstar-seed-concise:
+    train: data/recipes/rstar-seed-concise/train.jsonl
+    holdout:
+    - data/recipes/rstar-seed-concise/dev.jsonl
+    train_settings:
+      sft_max_seq_len: 20480
+      micro_batch_size: 1
 evals:
   unified-v3:
     data: data/full_eval/unified-v3/all.jsonl
@@ -127,3 +197,23 @@ pins:
   data/recipes/rstar-code-instr12/dev.jsonl: cb7eb1d26e346e8e7bbab1db768e6cc4a5f4c412012db6645e45c9aa1c557b55
   data/recipes/rstar-code-instr13/train.jsonl: 433f4751ed55e7c99619f9285118d20d3aee91b83e024532c8831f0de6f95540
   data/recipes/rstar-code-instr13/dev.jsonl: a67b389e442e9c4a6c3bd178d48ba02701629eb447b2fe9fe9a72d68e22b4c22
+  data/recipes/opencoder-clean/train.jsonl: 88855390d3a0e1272184b8417d2cb0e91e1638ef8ddabd2ee2d2d0f6741b2170
+  data/recipes/opencoder-clean/dev.jsonl: fdd7daaa7ca56823bb34b01b4f8c528f878ade2087b07c6d2f50e92aefb2cf17
+  data/recipes/kc-all/train.jsonl: 6e21d43f655ab1b73f30946ea3b5aa7ec13f19a64bf42acff40319da66e23bfa
+  data/recipes/kc-all/dev.jsonl: caf29bafe7a2682614a319d8b9b4f71884a578a8bbed0751a20ef585019791df
+  data/recipes/kc-contest/train.jsonl: b744ad388079f1443ff5af26e6bf7d9672a4014a09b67ad364d6a89dc4e90d52
+  data/recipes/kc-contest/dev.jsonl: debb2d0f5bd5d17c9bcc1ed19b0eb40f4bfc9e552f6d6debdf83add20b8dac42
+  data/recipes/kc-contest-code/train.jsonl: a6493e59b41520ea9ef103787f6cdcec4bd95d0721056096c09d80e9b674bdfc
+  data/recipes/kc-contest-code/dev.jsonl: 34c0d58de38e269e48465cc59268a61b7c3f94d5e3b6004331a6a4c4d6752eef
+  data/recipes/kc-contest-plain/train.jsonl: 4fbeb8404f48adf81fae50c0766b729677ee44e244e27c23d57478dc8203a9fd
+  data/recipes/kc-contest-plain/dev.jsonl: 78f619b32802100f08c9ef54850f8983093350e86e7267776bf45b6834baace1
+  data/recipes/ocr-code/train.jsonl: 08dd0db7a1085f22b04b08b716265b4edf1231a58f24fda6a1b052dcb357695b
+  data/recipes/ocr-code/dev.jsonl: eed2ad1af9d92bf95e75992cffaa5888ea74384bc05769b88f9caf1787a38334
+  data/recipes/ocr-trace/train.jsonl: dff354887d7b5649cff827f95bf3aa3baf9eff99d066e62a536c2f19664a1114
+  data/recipes/ocr-trace/dev.jsonl: b519a3f291a158fc4b49aba2dd555190d57caee8ff7e1ed566c3e0c62a195d81
+  data/recipes/mix-kc-ocr/train.jsonl: f0e845db7e23596bcfad1cd19779b90f0454cb8bc8665cd76f773936ff405874
+  data/recipes/mix-kc-ocr/dev.jsonl: 96bf0a8f569726263e702856ed32c320969c4634d2b091d86c351aac1f748878
+  data/recipes/rstar-seed/train.jsonl: b6b4619391cb365c5eb1e2a0a6d4f698f8bc966882791405ae51678ca1329dd9
+  data/recipes/rstar-seed/dev.jsonl: 0b7e8e8efd3e96fb782df2fafda5be2cfd7eb7bbd6eb37ea002f533f451208d1
+  data/recipes/rstar-seed-concise/train.jsonl: e9e22b859ae863629d112eef2242081604862d1f269d59e3a7d089c2351aac34
+  data/recipes/rstar-seed-concise/dev.jsonl: 44a3597789b1b779d35ce81b379729c6330f16a68a0dd3753e00c517d2f83e7d
