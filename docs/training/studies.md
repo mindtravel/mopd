@@ -68,7 +68,8 @@ checkpoints: [64, 128, 256]
 ```bash
 cd /ssd/lzx/mopd && source scripts/env.sh
 mopd_train/bin/python scripts/study.py show configs/studies/full-sft-lr.yaml   # 每个运行：身份、复用还是训练、评测
-setsid nohup mopd_train/bin/python scripts/study.py run configs/studies/full-sft-lr.yaml >> logs/study-full-sft-lr.log 2>&1 &
+mopd_train/bin/python scripts/study.py submit configs/studies/full-sft-lr.yaml  # 交给 GPU 资源池（docs/infra/pool.md）
+mopd_train/bin/python scripts/study.py report configs/studies/full-sft-lr.yaml  # 每个运行、评测和 checkpoint 的分数，与 base 对比
 python scripts/study.py pin                                                    # 本地：给注册表里缺 sha 的文件补 pin
 ```
 
