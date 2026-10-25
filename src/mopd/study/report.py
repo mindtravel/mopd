@@ -34,7 +34,7 @@ def mcnemar(base, model):
     b = sum(model[i]["correct"] and not base[i]["correct"] for i in ids)
     c = sum(base[i]["correct"] and not model[i]["correct"] for i in ids)
     p = math.erfc(abs(b - c) / math.sqrt(2 * (b + c))) if b + c else 1.0
-    return b, c, round(p, 4)
+    return b, c, p if p < 1e-4 else round(p, 4)
 
 
 def baseline_dir(model_rel, protocol_id):
@@ -89,7 +89,7 @@ def markdown(rows):
                 out.append(f"| {r['run']} | {r['checkpoint']} | pending | | | " + " | ".join("" for _ in benches) + " |")
                 continue
             m = r.get("mcnemar")
-            sig = f"+{m[0]} −{m[1]} ({m[2]})" if m else ""
+            sig = f"+{m[0]} −{m[1]} ({'<1e-4' if m[2] < 1e-4 else m[2]})" if m else ""
             delta = f"{r['delta']:+.1f}" if "delta" in r else ""
             out.append(f"| {r['run']} | {r['checkpoint']} | {r['overall']} | {delta} | {sig} | "
                        + " | ".join(str(r["benchmarks"].get(b, "")) for b in benches) + " |")
