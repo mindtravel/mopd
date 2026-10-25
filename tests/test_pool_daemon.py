@@ -63,6 +63,21 @@ class DaemonTest(unittest.TestCase):
         d.ingest()
         self.assertEqual(sorted(d.jobs), ["s/0", "s/1", "s/2"])
 
+    def test_lent_gpu_used_by_evals_and_recalled(self):
+        long = "import time\nfor _ in range(600): time.sleep(0.05)"
+        self.store.submit([self.job("s/eval", long, gpus={"min": 1, "max": 1}, priority=10, preemptible=True),
+                           self.job("s/merge", "pass", gpus={"count": 1}, priority=30)])
+        self.dm.paths.SERVICE_GPUS = (7,)
+        d = self.dm.Daemon(gpus=[])  # no GPU of our own: only the lent one
+        self.dm.LEND.mkdir(parents=True, exist_ok=True)
+        (self.dm.LEND / "gpu7").write_text("")
+        self.run_until(d, lambda: d.jobs["s/eval"]["state"] == "running")
+        self.assertEqual((d.jobs["s/eval"]["assigned"], d.jobs["s/merge"]["state"]), ([7], "queued"))  # merge may not use it
+        self.dm.RECALL.mkdir(parents=True, exist_ok=True)
+        (self.dm.RECALL / "gpu7").write_text("")
+        self.run_until(d, lambda: d.jobs["s/eval"]["state"] == "queued")  # preempted, waits for a GPU
+        self.assertTrue(d.lease.try_take([7]))  # the service can take it back
+
     def test_gang_preempts_backfill_which_then_finishes(self):
         root = self.tmp.name
         long_eval = f"import time,os\nopen('{root}/eval-runs','a').write('r')\nfor _ in range(600): time.sleep(0.05)"

@@ -38,5 +38,11 @@ class AllocateTest(unittest.TestCase):
         self.assertEqual(starts, {"hi": [0, 1]})
 
 
+    def test_lent_gpus_only_for_preemptible_jobs(self):
+        one = {"id": "merge", "gpus": {"count": 1}, "priority": 30}
+        starts, _ = decide([6, 7], {}, [one, EVAL(1)], lent={6, 7})
+        self.assertEqual(starts, {"eval1": [6, 7]})
+
+
 if __name__ == "__main__":
     unittest.main()

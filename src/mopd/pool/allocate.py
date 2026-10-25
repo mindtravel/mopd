@@ -8,7 +8,9 @@ Each tick, ready jobs are considered in priority order (higher first; equal prio
     would make it fit; they are stopped and requeued (they resume: evaluations continue from their
     written rows), and the job starts on a later tick;
   - once a non-preemptible job waits, lower-priority jobs may still start on the free GPUs only if
-    they are preemptible (backfill): they never delay it, since it can take their GPUs back.
+    they are preemptible (backfill): they never delay it, since it can take their GPUs back;
+  - lent GPUs (the bench service's while it is idle) go to preemptible jobs only: the service can
+    recall them at any time.
 """
 
 
@@ -22,11 +24,13 @@ def shape(job):
     return g.get("min", 1), g.get("max", 10**6)
 
 
-def decide(free, running, ready):
+def decide(free, running, ready, lent=()):
     """free: [gpu ids]; running: {job id: {"gpus": [...], "priority", "preemptible"}};
-    ready: [jobs in submission order, each {"id", "gpus", "priority", "preemptible"}].
+    ready: [jobs in submission order, each {"id", "gpus", "priority", "preemptible"}];
+    lent: free GPUs that only preemptible jobs may take.
     Returns (starts {job id: [gpus]}, preempts [job ids])."""
     free = list(free)
+    lent = set(lent)
     starts, preempts = {}, []
     blocked = False  # a non-preemptible job of higher priority is waiting
     order = sorted(ready, key=lambda j: -j.get("priority", 0))  # stable: submission order within a priority
@@ -37,8 +41,9 @@ def decide(free, running, ready):
             continue
         if blocked and not job.get("preemptible"):
             continue
-        if len(free) >= lo:
-            take = free[: min(hi, len(free))]
+        usable = free if job.get("preemptible") else [g for g in free if g not in lent]
+        if len(usable) >= lo:
+            take = usable[: min(hi, len(usable))]
             starts[job["id"]] = take
             free = [g for g in free if g not in take]
             continue
@@ -48,10 +53,10 @@ def decide(free, running, ready):
             if jid in preempts or not r.get("preemptible") or r.get("priority", 0) >= job.get("priority", 0):
                 continue
             victims.append(jid)
-            gain += len(r["gpus"])
-            if len(free) + gain >= lo:
+            gain += len([g for g in r["gpus"] if job.get("preemptible") or g not in lent])  # lent GPUs do not help it
+            if len(usable) + gain >= lo:
                 break
-        if victims and len(free) + gain >= lo:
+        if victims and len(usable) + gain >= lo:
             preempts += victims
         if not job.get("preemptible"):
             blocked = True

@@ -78,22 +78,49 @@ def execute(jobs, j, engine):
         engine.stop()  # unknown state after a failure: the next job starts clean
 
 
-def worker(jobs, gpu, lease):
-    """Hold this GPU's lease for the service's lifetime (waiting out whoever has it), then take jobs."""
+IDLE_LEND_SECONDS = 600  # an idle service GPU is lent to the GPU pool (preemptible jobs only) after this
+LEND, RECALL = paths.ROOT / "results/pool/lend", paths.ROOT / "results/pool/recall"
+
+
+def acquire(jobs, gpu, lease):
+    """Take this GPU's lease and wait until it is empty (an earlier job or a pool job let go)."""
     while not lease.try_take([gpu]):
-        jobs.waiting[gpu] = f"GPU {gpu} still leased by an earlier job"
-        time.sleep(30)
+        jobs.waiting[gpu] = f"GPU {gpu} still leased (a pool job being preempted, or an earlier job)"
+        time.sleep(5)
     while gpu_memory_used([gpu])[gpu] > 1000:
         jobs.waiting[gpu] = f"GPU {gpu} still has memory in use"
-        time.sleep(30)
+        time.sleep(5)
     jobs.waiting.pop(gpu, None)
-    engine = Engine(gpu)
+
+
+def worker(jobs, gpu, lease):
+    """Serve jobs on this GPU. Idle for IDLE_LEND_SECONDS: stop the engine, release the lease and lend
+    the GPU to the pool (mopd.pool: preemptible jobs only). A job arriving while lent recalls it: the
+    pool preempts what runs there (evaluations resume later), then the service takes it back."""
+    for d in (LEND, RECALL):
+        d.mkdir(parents=True, exist_ok=True)
+        (d / f"gpu{gpu}").unlink(missing_ok=True)
+    acquire(jobs, gpu, lease)
+    engine, idle_since, lent = Engine(gpu), time.time(), False
     while True:
         j = jobs.take()
         if j is None:
+            if not lent and time.time() - idle_since > IDLE_LEND_SECONDS:
+                engine.stop()
+                lease.release([gpu])
+                (LEND / f"gpu{gpu}").write_text(time.strftime("%Y-%m-%dT%H:%M:%S"))
+                lent = True
+                jobs.waiting[gpu] = "lent to the GPU pool while idle"
             time.sleep(5)
             continue
+        if lent:
+            (LEND / f"gpu{gpu}").unlink(missing_ok=True)
+            (RECALL / f"gpu{gpu}").write_text(j["id"])
+            acquire(jobs, gpu, lease)
+            (RECALL / f"gpu{gpu}").unlink(missing_ok=True)
+            lent = False
         execute(jobs, j, engine)
+        idle_since = time.time()
 
 
 def handler(jobs):

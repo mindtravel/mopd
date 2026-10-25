@@ -21,6 +21,7 @@ from mopd.runtime.gpus import gpu_memory_used
 from mopd.runtime.scheduler import GpuLease
 
 TICK = 5
+LEND, RECALL = store.ROOT / "lend", store.ROOT / "recall"  # gpu<N> markers written by the bench service
 STOP_GRACE = 60  # seconds between SIGTERM and SIGKILL when preempting
 
 
@@ -36,7 +37,7 @@ def alive(pid):
 
 class Daemon:
     def __init__(self, gpus=None):
-        self.gpus = list(gpus or paths.SCHEDULED_GPUS)
+        self.gpus = list(paths.SCHEDULED_GPUS if gpus is None else gpus)
         self.jobs = store.load_all()
         self.lease = GpuLease()
         self.procs = {}  # job id -> Popen (jobs launched by this daemon process)
@@ -124,11 +125,24 @@ class Daemon:
                 out.append(j)
         return out
 
+    def lent(self):
+        """Service GPUs the bench service lent us (idle) and has not recalled."""
+        return [g for g in paths.SERVICE_GPUS if (LEND / f"gpu{g}").exists() and not (RECALL / f"gpu{g}").exists()]
+
+    def recall(self):
+        """Preempt whatever runs on a GPU the service wants back."""
+        for g in paths.SERVICE_GPUS:
+            if (RECALL / f"gpu{g}").exists():
+                for j in self.jobs.values():
+                    if j["state"] == "running" and g in (j.get("assigned") or []):
+                        self.stop(j)
+
     def free_gpus(self):
-        used = gpu_memory_used(self.gpus)
+        lent = self.lent()
+        used = gpu_memory_used(self.gpus + lent)
         ours = {g for j in self.jobs.values() if j["state"] == "running" for g in j.get("assigned", [])}
         free = []
-        for g in self.gpus:
+        for g in self.gpus + lent:
             if g in ours:
                 continue
             if not self.lease.try_take([g]):  # a legacy scheduler of ours holds it
@@ -145,7 +159,8 @@ class Daemon:
         ready = self.ready()
         running = {j["id"]: {"gpus": j["assigned"], "priority": j["priority"], "preemptible": j["preemptible"]}
                    for j in self.jobs.values() if j["state"] == "running" and not j.get("stopping")}
-        starts, preempts = allocate.decide(self.free_gpus(), running, ready)
+        self.recall()
+        starts, preempts = allocate.decide(self.free_gpus(), running, ready, lent=self.lent())
         for jid in preempts:
             self.stop(self.jobs[jid])
         for jid, gpus in starts.items():
