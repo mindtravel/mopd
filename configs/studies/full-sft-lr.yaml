@@ -1,0 +1,12 @@
+study: full-sft-lr
+description: >-
+  全参 SFT 的 lr 扫描：数学、指令、代码三个领域专家 × 5 个 lr，其余用默认值（full256 的设置）。
+  用来确认全参 SFT 默认 lr（docs/training/learning-rate.md）。
+base: {method: sft}
+axes:
+  domain: [math, instruction, code]
+  lr: [5.0e-7, 1.0e-6, 2.0e-6, 5.0e-6, 1.0e-5]
+name: "{domain}-lr{lr:g}"
+data: {math: math-numina-v3, instruction: instruction-smol, code: code-rstar-instr11}
+evals: [unified-v3, {suite: lcbdev-v3, if: "domain == 'code'"}]
+checkpoints: [64, 128, 256]
