@@ -28,8 +28,9 @@ def stream_feed(engine, params, adapter, feed, on_finish):
                 # LLMEngine.add_request with our own ids: the engine-level API, stable across vLLM
                 # 0.10 -> 0.30 (LLM's private _validate_and_add_requests is gone in 0.30)
                 for k, prompt in new:
-                    rid = f"s{added}"
-                    keys[engine.llm_engine.add_request(rid, prompt, params, lora_request=adapter) or rid] = k
+                    rid = f"s{added}"  # outputs carry this id (0.30 returns an internal, suffixed one)
+                    engine.llm_engine.add_request(rid, prompt, params, lora_request=adapter)
+                    keys[rid] = k
                     added += 1
                 unfinished += len(new)
         if unfinished == 0:
