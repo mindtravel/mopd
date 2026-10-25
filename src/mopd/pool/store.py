@@ -16,6 +16,7 @@ dependency failed becomes blocked.
 import json
 import os
 import time
+import uuid
 from pathlib import Path
 
 from mopd import paths
@@ -43,7 +44,7 @@ def load_all():
 def submit(jobs):
     """Drop jobs into the inbox (the daemon ingests them on its next tick)."""
     INBOX.mkdir(parents=True, exist_ok=True)
-    stamp = time.strftime("%Y%m%d-%H%M%S")
+    stamp = f"{time.strftime('%Y%m%d-%H%M%S')}-{uuid.uuid4().hex[:8]}"  # unique: same-second submissions must not overwrite
     for i, job in enumerate(jobs):
         for key in ("id", "commands"):
             if key not in job:

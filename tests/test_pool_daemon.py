@@ -56,6 +56,13 @@ class DaemonTest(unittest.TestCase):
         self.assertEqual(st, {"s/a": "done", "s/b": "failed", "s/c": "blocked", "s/pre": "done"})
         self.assertTrue(d.lease.try_take([0, 1]))  # every lease given back when its job ended
 
+    def test_submissions_in_one_second_all_arrive(self):
+        for i in range(3):
+            self.store.submit([self.job(f"s/{i}", "pass", gpus=0)])
+        d = self.dm.Daemon(gpus=[0])
+        d.ingest()
+        self.assertEqual(sorted(d.jobs), ["s/0", "s/1", "s/2"])
+
     def test_gang_preempts_backfill_which_then_finishes(self):
         root = self.tmp.name
         long_eval = f"import time,os\nopen('{root}/eval-runs','a').write('r')\nfor _ in range(600): time.sleep(0.05)"

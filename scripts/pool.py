@@ -27,7 +27,7 @@ def main():
         store.submit(json.loads(Path(a.arg).read_text()))
     elif a.cmd == "cancel":
         store.INBOX.mkdir(parents=True, exist_ok=True)
-        (store.INBOX / f"{time.strftime('%Y%m%d-%H%M%S')}-cancel.json").write_text(json.dumps({"cancel": a.arg}))
+        (store.INBOX / f"{time.strftime('%Y%m%d-%H%M%S')}-{a.arg.replace('/', '_')}-cancel.json").write_text(json.dumps({"cancel": a.arg}))
     else:
         state = json.loads((store.ROOT / "state.json").read_text()) if (store.ROOT / "state.json").exists() else {}
         print(f"pool {state.get('time', '-')}: GPUs {state.get('gpus')}  {state.get('counts')}")
