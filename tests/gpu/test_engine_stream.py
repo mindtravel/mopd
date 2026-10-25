@@ -2,7 +2,7 @@
 incremental feed path (benchmark generation) must return every request exactly once, with the same
 greedy tokens as LLM.generate.
 
-  CUDA_VISIBLE_DEVICES=<idle gpu> VLLM_ENABLE_V1_MULTIPROCESSING=0 mopd_infer/bin/python scripts/test_engine_stream.py
+  CUDA_VISIBLE_DEVICES=<idle gpu> VLLM_ENABLE_V1_MULTIPROCESSING=0 mopd_infer/bin/python tests/gpu/test_engine_stream.py
 """
 
 import sys
@@ -23,7 +23,11 @@ params = SamplingParams(temperature=0, max_tokens=24)
 want = [list(o.outputs[0].token_ids) for o in engine.generate(prompts, params, use_tqdm=False)]
 
 got = {}
-stream_requests(engine, prompts, params, None, lambda i, o: got.__setitem__(i, list(o.outputs[0].token_ids)))
+counters = stream_requests(engine, prompts, params, None, lambda i, o: got.__setitem__(i, list(o.outputs[0].token_ids)))
+# utilization counters (mopd.profiling): every generated / prompt token counted once, steps advanced
+assert counters["generated"] == sum(len(v) for v in got.values()), counters
+assert counters["prefilled"] == sum(len(p["prompt_token_ids"]) for p in prompts), counters
+assert 0 < counters["steps"] <= counters["generated"] + len(prompts), counters
 assert sorted(got) == list(range(12)), got.keys()
 assert sum(got[i] == want[i] for i in range(12)) >= 10, "submit-all path diverges from generate()"
 
@@ -42,5 +46,7 @@ print(
     "engine_stream ok:",
     sum(got[i] == want[i] for i in range(12)),
     sum(fed[i] == want[i] for i in range(12)),
-    "of 12 identical to generate()",
+    "of 12 identical to generate();",
+    "counters",
+    counters,
 )

@@ -1,0 +1,8 @@
+{
+ "name": "engine-check",
+ "description": "MOPD rollout engine on mopd_infer's vLLM 0.30 (upgraded 2026-10-25): engine_stream paths and utilization counters, on the first free GPU",
+ "steps": [
+  {"id": "engine-stream", "kind": "command", "gpus": 1,
+   "argv": ["env", "VLLM_ENABLE_V1_MULTIPROCESSING=0", "mopd_infer/bin/python", "tests/gpu/test_engine_stream.py"]}
+ ]
+}
