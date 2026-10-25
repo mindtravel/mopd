@@ -10,3 +10,6 @@ export VLLM_CACHE_ROOT="$MOPD_ROOT/cache/vllm"
 export TMPDIR="$MOPD_ROOT/tmp"
 export PYTHONPATH="$MOPD_ROOT/src${PYTHONPATH:+:$PYTHONPATH}"
 source "$MOPD_ROOT/mopd_train/bin/activate"
+# vLLM (flashinfer) JIT-builds kernels with ninja, found on PATH; the vLLM env's tools go last so
+# python and friends still resolve to mopd_train
+export PATH="$PATH:$MOPD_ROOT/mopd_infer/bin"

@@ -3,6 +3,8 @@ scripts/train_multidomain_opd.py), all launched through torchrun for any GPU cou
 
 import os
 
+from mopd import paths
+
 import torch
 import torch.distributed as dist
 
@@ -49,4 +51,6 @@ def engine_env(**overrides):
     """Environment for a vLLM engine subprocess: no torchrun variables, and the engine core inside
     the process (VLLM_ENABLE_V1_MULTIPROCESSING=0), so killing it leaves no orphaned EngineCore."""
     env = {k: v for k, v in os.environ.items() if k not in TORCHRUN_VARS}
-    return {**env, "VLLM_ENABLE_V1_MULTIPROCESSING": "0", **overrides}
+    # vLLM (flashinfer) JIT-builds kernels with ninja from PATH: the vLLM env's tools, after the caller's
+    path = f"{env.get('PATH', '')}:{paths.INFER_PY.parent}"
+    return {**env, "PATH": path, "VLLM_ENABLE_V1_MULTIPROCESSING": "0", **overrides}
